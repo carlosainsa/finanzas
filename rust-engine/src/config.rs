@@ -4,10 +4,15 @@ use anyhow::Result;
 pub struct Config {
     pub redis_url: String,
     pub polymarket_ws_url: String,
+    pub polymarket_user_ws_url: String,
     pub polymarket_api_url: String,
     pub database_url: Option<String>,
     pub market_asset_ids: Vec<String>,
+    pub user_market_ids: Vec<String>,
     pub private_key: Option<String>,
+    pub polymarket_api_key: Option<String>,
+    pub polymarket_api_secret: Option<String>,
+    pub polymarket_api_passphrase: Option<String>,
     pub execution_mode: ExecutionMode,
     pub max_order_size: f64,
     pub min_confidence: f64,
@@ -15,6 +20,7 @@ pub struct Config {
     pub max_market_exposure: f64,
     pub max_daily_loss: f64,
     pub kill_switch: bool,
+    pub order_reconciliation_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,13 +35,19 @@ impl Config {
             redis_url: std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".into()),
             polymarket_ws_url: std::env::var("POLYMARKET_WS_URL")
                 .unwrap_or("wss://ws-subscriptions-clob.polymarket.com/ws/market".into()),
+            polymarket_user_ws_url: std::env::var("POLYMARKET_USER_WS_URL")
+                .unwrap_or("wss://ws-subscriptions-clob.polymarket.com/ws/user".into()),
             polymarket_api_url: std::env::var("POLYMARKET_API_URL")
                 .unwrap_or("https://clob.polymarket.com".into()),
             database_url: std::env::var("DATABASE_URL").ok(),
             market_asset_ids: parse_asset_ids("MARKET_ASSET_IDS"),
+            user_market_ids: parse_asset_ids("USER_MARKET_IDS"),
             private_key: std::env::var("PRIVATE_KEY")
                 .or_else(|_| std::env::var("POLYMARKET_PRIVATE_KEY"))
                 .ok(),
+            polymarket_api_key: std::env::var("POLYMARKET_API_KEY").ok(),
+            polymarket_api_secret: std::env::var("POLYMARKET_API_SECRET").ok(),
+            polymarket_api_passphrase: std::env::var("POLYMARKET_API_PASSPHRASE").ok(),
             execution_mode: ExecutionMode::from_env(),
             max_order_size: parse_env_f64("MAX_ORDER_SIZE", 10.0)?,
             min_confidence: parse_env_f64("MIN_CONFIDENCE", 0.55)?,
@@ -43,6 +55,10 @@ impl Config {
             max_market_exposure: parse_env_f64("MAX_MARKET_EXPOSURE", 100.0)?,
             max_daily_loss: parse_env_f64("MAX_DAILY_LOSS", 50.0)?,
             kill_switch: parse_env_bool("KILL_SWITCH", false),
+            order_reconciliation_timeout_ms: parse_env_u64(
+                "ORDER_RECONCILIATION_TIMEOUT_MS",
+                10_000,
+            )?,
         })
     }
 }

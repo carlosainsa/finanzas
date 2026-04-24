@@ -80,10 +80,15 @@ mod tests {
         Config {
             redis_url: "redis://localhost:6379".into(),
             polymarket_ws_url: "ws://localhost".into(),
+            polymarket_user_ws_url: "ws://localhost/user".into(),
             polymarket_api_url: "http://localhost".into(),
             database_url: None,
             market_asset_ids: vec![],
+            user_market_ids: vec![],
             private_key: None,
+            polymarket_api_key: None,
+            polymarket_api_secret: None,
+            polymarket_api_passphrase: None,
             execution_mode: ExecutionMode::DryRun,
             max_order_size: 10.0,
             min_confidence: 0.55,
@@ -91,6 +96,7 @@ mod tests {
             max_market_exposure: 100.0,
             max_daily_loss: 50.0,
             kill_switch: false,
+            order_reconciliation_timeout_ms: 10_000,
         }
     }
 

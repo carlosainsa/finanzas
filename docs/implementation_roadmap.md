@@ -15,6 +15,8 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Process `order` and `trade` events.
 - Persist lifecycle updates idempotently by `order_id`, `trade_id`, and `signal_id`.
 - Use live user events to update open orders, fills, and positions.
+- Keep `dry_run` usable without credentials by simulating the lifecycle from `DELAYED` to `UNMATCHED`.
+- Use `USER_MARKET_IDS` condition IDs for the user channel; do not reuse `MARKET_ASSET_IDS` token IDs.
 
 ## Phase 3: Operator API + CLI
 

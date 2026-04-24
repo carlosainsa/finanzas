@@ -15,7 +15,13 @@ Runtime configuration:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MARKET_ASSET_IDS` | empty | Comma-separated Polymarket CLOB token IDs to subscribe to. |
+| `USER_MARKET_IDS` | empty | Comma-separated Polymarket condition IDs for authenticated user order/trade reconciliation. Required in `live` mode. |
 | `EXECUTION_MODE` | `dry_run` | Use `live` only when order execution should be enabled. |
+| `POLYMARKET_USER_WS_URL` | `wss://ws-subscriptions-clob.polymarket.com/ws/user` | Authenticated user WebSocket endpoint for order/trade lifecycle updates. |
+| `POLYMARKET_API_KEY` | unset | Polymarket CLOB API key for the user WebSocket subscription. Required in `live` mode. |
+| `POLYMARKET_API_SECRET` | unset | Polymarket CLOB API secret for the user WebSocket subscription. Required in `live` mode. |
+| `POLYMARKET_API_PASSPHRASE` | unset | Polymarket CLOB API passphrase for the user WebSocket subscription. Required in `live` mode. |
+| `ORDER_RECONCILIATION_TIMEOUT_MS` | `10000` | Dry-run delay before a submitted order is reconciled to `UNMATCHED`. |
 | `MAX_ORDER_SIZE` | `10.0` | Rust-side hard cap per trade signal. |
 | `MIN_CONFIDENCE` | `0.55` | Rust-side minimum model confidence. |
 | `SIGNAL_MAX_AGE_MS` | `5000` | Rust-side stale signal rejection window. |
@@ -26,3 +32,5 @@ Runtime configuration:
 | `PREDICTOR_MIN_SPREAD` | `0.03` | Python strategy spread threshold. |
 | `PREDICTOR_ORDER_SIZE` | `1.0` | Python strategy target order size. |
 | `PREDICTOR_MIN_CONFIDENCE` | `0.55` | Python strategy minimum confidence. |
+
+When `DATABASE_URL` is set, `rust-engine` also stores submitted orders and reconciled trade lifecycle events in Postgres so live user WebSocket events can be correlated by `order_id` after a restart.

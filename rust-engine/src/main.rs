@@ -5,6 +5,7 @@ mod config;
 mod executor;
 mod metrics;
 mod orderbook;
+mod reconciliation;
 mod redis_client;
 mod risk;
 mod state_store;
@@ -18,9 +19,12 @@ async fn main() -> Result<()> {
     info!("Starting Rust trading engine...");
 
     let config = config::Config::from_env()?;
+    let order_tracker = reconciliation::OrderTracker::new();
+    let reconciliation_config = config.clone();
 
     let ws_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
     let exec_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
+    let reconciliation_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
     let exec_consumer = redis_client::StreamConsumer::new(
         &config.redis_url,
         "signals:stream",
@@ -35,7 +39,12 @@ async fn main() -> Result<()> {
             config.polymarket_ws_url.clone(),
             config.market_asset_ids.clone()
         ),
-        executor::run(exec_publisher, exec_consumer, config),
+        executor::run(exec_publisher, exec_consumer, config, order_tracker.clone()),
+        reconciliation::run(
+            reconciliation_publisher,
+            reconciliation_config,
+            order_tracker.clone()
+        ),
     )?;
 
     Ok(())

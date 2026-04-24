@@ -13,6 +13,7 @@ use tracing::{error, info};
 
 use crate::config::{Config, ExecutionMode};
 use crate::metrics::Metrics;
+use crate::reconciliation::OrderTracker;
 use crate::redis_client::{StreamConsumer, StreamProducer};
 use crate::risk::RiskService;
 use crate::state_store::StateStore;
@@ -39,7 +40,7 @@ pub enum Side {
 }
 
 /// Alineado con shared/schemas/execution_report.json
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ExecutionReport {
     pub signal_id: String,
     pub order_id: String,
@@ -50,7 +51,7 @@ pub struct ExecutionReport {
     pub timestamp_ms: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ExecutionStatus {
     Matched,
@@ -64,10 +65,11 @@ pub async fn run(
     mut publisher: StreamProducer,
     mut consumer: StreamConsumer,
     config: Config,
+    order_tracker: OrderTracker,
 ) -> Result<()> {
     info!("Starting order executor...");
 
-    let mut executor = OrderExecutor::new(config).await?;
+    let mut executor = OrderExecutor::new(config, order_tracker).await?;
 
     loop {
         let message = consumer.next_message().await?;
@@ -121,6 +123,7 @@ struct OrderExecutor {
     risk: RiskService,
     store: StateStore,
     metrics: Metrics,
+    order_tracker: OrderTracker,
 }
 
 struct AuthenticatedClob {
@@ -131,7 +134,7 @@ struct AuthenticatedClob {
 }
 
 impl OrderExecutor {
-    async fn new(config: Config) -> Result<Self> {
+    async fn new(config: Config, order_tracker: OrderTracker) -> Result<Self> {
         let store = StateStore::connect(config.database_url.as_deref()).await?;
         let clob = match config.execution_mode {
             ExecutionMode::DryRun => None,
@@ -158,6 +161,7 @@ impl OrderExecutor {
             risk: RiskService::new(),
             store,
             metrics: Metrics::default(),
+            order_tracker,
         })
     }
 
@@ -193,9 +197,14 @@ impl OrderExecutor {
 
         if self.config.execution_mode == ExecutionMode::DryRun {
             self.risk.record_accepted_signal(signal);
+            let order_id = format!("dry-run-{}", signal.signal_id);
+            self.order_tracker
+                .track_submitted(signal, &order_id, now_ms())
+                .await;
+            self.record_order_submission(signal, &order_id).await;
             return Ok(ExecutionReport {
                 signal_id: signal.signal_id.clone(),
-                order_id: format!("dry-run-{}", signal.signal_id),
+                order_id,
                 status: ExecutionStatus::Delayed,
                 filled_price: None,
                 filled_size: None,
@@ -234,6 +243,11 @@ impl OrderExecutor {
         } else {
             self.metrics.order_submitted();
             self.risk.record_accepted_signal(signal);
+            self.order_tracker
+                .track_submitted(signal, &response.order_id, now_ms())
+                .await;
+            self.record_order_submission(signal, &response.order_id)
+                .await;
         }
 
         Ok(ExecutionReport {
@@ -245,6 +259,17 @@ impl OrderExecutor {
             error: response.error_msg,
             timestamp_ms: now_ms(),
         })
+    }
+
+    async fn record_order_submission(&self, signal: &TradeSignal, order_id: &str) {
+        if let Err(err) = self.store.record_order_submission(signal, order_id).await {
+            error!(
+                signal_id = %signal.signal_id,
+                order_id = %order_id,
+                error = %err,
+                "Failed to persist submitted order"
+            );
+        }
     }
 }
 
