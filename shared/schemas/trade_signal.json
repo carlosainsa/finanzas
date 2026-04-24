@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "trade_signal",
+  "title": "TradeSignal",
+  "type": "object",
+  "required": ["signal_id", "market_id", "asset_id", "side", "price", "size", "confidence", "timestamp_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "signal_id":    { "type": "string", "description": "UUID v4 único por señal" },
+    "market_id":    { "type": "string", "description": "Polymarket condition ID (0x...)" },
+    "asset_id":     { "type": "string", "description": "Token ID del outcome" },
+    "side":         { "type": "string", "enum": ["BUY", "SELL"] },
+    "price":        { "type": "number", "minimum": 0, "maximum": 1, "description": "Precio límite en USDC (0-1)" },
+    "size":         { "type": "number", "minimum": 0, "description": "Cantidad en tokens" },
+    "confidence":   { "type": "number", "minimum": 0, "maximum": 1, "description": "Confianza del modelo [0,1]" },
+    "timestamp_ms": { "type": "integer", "description": "Unix epoch en milisegundos" },
+    "strategy":     { "type": "string", "description": "Nombre de la estrategia que generó la señal" }
+  }
+}

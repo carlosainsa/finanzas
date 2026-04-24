@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "orderbook",
+  "title": "OrderBook",
+  "type": "object",
+  "required": ["market_id", "asset_id", "bids", "asks", "timestamp_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "market_id": { "type": "string", "description": "Polymarket condition ID (0x...)" },
+    "asset_id":  { "type": "string", "description": "Token ID del outcome (YES/NO)" },
+    "bids": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Level" },
+      "description": "Ordenados de mayor a menor precio"
+    },
+    "asks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Level" },
+      "description": "Ordenados de menor a mayor precio"
+    },
+    "timestamp_ms": { "type": "integer", "description": "Unix epoch en milisegundos" }
+  },
+  "$defs": {
+    "Level": {
+      "type": "object",
+      "required": ["price", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "price": { "type": "number", "minimum": 0, "maximum": 1 },
+        "size":  { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}
