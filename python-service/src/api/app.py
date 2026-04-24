@@ -8,8 +8,10 @@ from src.api.operator_service import (
     cancel_all_unavailable,
     open_orders,
     positions,
+    recent_execution_reports,
     risk_summary,
     set_kill_switch,
+    strategy_metrics,
     status_summary,
     stream_summary,
     RedisLike,
@@ -99,6 +101,21 @@ async def get_positions() -> dict[str, object]:
             settings.signals_stream,
         ],
     }
+
+
+@app.get("/execution-reports")
+async def execution_reports(limit: int = 100) -> dict[str, object]:
+    redis = cast(RedisLike, await get_redis())
+    return {
+        "reports": await recent_execution_reports(redis, count=max(1, min(limit, 500))),
+        "source": settings.execution_reports_stream,
+    }
+
+
+@app.get("/strategy/metrics")
+async def get_strategy_metrics(limit: int = 500) -> dict[str, object]:
+    redis = cast(RedisLike, await get_redis())
+    return await strategy_metrics(redis, count=max(1, min(limit, 1000)))
 
 
 @app.get("/markets/discover")

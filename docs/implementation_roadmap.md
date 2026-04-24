@@ -47,6 +47,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Build a dashboard only after the Operator API is stable.
 - Show status, streams, risk, orders, positions, execution reports, and strategy metrics.
 - All dashboard actions must call the same Operator API used by the CLI.
+- Initial implementation is a TypeScript React dashboard in `frontend/` that consumes only Operator API endpoints.
 
 ## Acceptance Criteria
 

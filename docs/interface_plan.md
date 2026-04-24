@@ -16,6 +16,8 @@ Implemented in `python-service/src/api/app.py`:
 | `POST` | `/control/resume` | Implemented | Disables runtime kill switch after explicit confirmation. |
 | `GET` | `/orders/open` | Implemented | Best-effort open order view derived from recent execution reports. |
 | `GET` | `/positions` | Implemented | Best-effort positions derived from recent matched execution reports and signals. |
+| `GET` | `/execution-reports` | Implemented | Recent execution reports for dashboard/audit views. |
+| `GET` | `/strategy/metrics` | Implemented | Best-effort strategy metrics derived from recent execution reports. |
 | `GET` | `/markets/discover` | Implemented | Read-only Gamma market discovery and deterministic ranking. |
 | `POST` | `/orders/cancel-all` | Not implemented | Returns `501` until Rust has real CLOB cancel support. |
 
@@ -61,6 +63,14 @@ PYTHONPATH=python-service python -m src.cli kill-switch off --reason "resume" --
 
 ## Web Dashboard
 
-A dashboard web is intentionally deferred. It should be built only after the Operator API supports status, risk, streams, orders, positions, and controls.
+The dashboard lives in `frontend/` and consumes only the Operator API. It shows status, streams, risk limits, open orders, derived positions, execution metrics, and read-only market discovery. `cancel-all` remains unavailable until the backend implements real CLOB cancellation.
+
+Run locally:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 See [architecture_plan.md](architecture_plan.md) for system context and [implementation_roadmap.md](implementation_roadmap.md) for phase ordering.

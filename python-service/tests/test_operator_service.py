@@ -11,6 +11,7 @@ from src.api.operator_service import (
     open_orders,
     positions,
     set_kill_switch,
+    strategy_metrics,
     stream_summary,
 )
 from src.config import settings
@@ -127,6 +128,48 @@ def test_positions_derive_matched_buy_exposure() -> None:
     assert derived_positions == [
         {"market_id": "market-1", "asset_id": "asset-1", "position": 3.0}
     ]
+
+
+def test_strategy_metrics_summarize_recent_reports() -> None:
+    redis = FakeRedis()
+    asyncio.run(
+        redis.xadd(
+            settings.execution_reports_stream,
+            {
+                "payload": json.dumps(
+                    {
+                        "signal_id": "signal-1",
+                        "order_id": "order-1",
+                        "status": "MATCHED",
+                        "filled_size": 3,
+                        "timestamp_ms": 1,
+                    }
+                )
+            },
+        )
+    )
+    asyncio.run(
+        redis.xadd(
+            settings.execution_reports_stream,
+            {
+                "payload": json.dumps(
+                    {
+                        "signal_id": "signal-2",
+                        "order_id": "order-2",
+                        "status": "ERROR",
+                        "timestamp_ms": 2,
+                    }
+                )
+            },
+        )
+    )
+
+    metrics = asyncio.run(strategy_metrics(redis))
+
+    assert metrics["sample_size"] == 2
+    assert metrics["matched"] == 1
+    assert metrics["errors"] == 1
+    assert metrics["filled_size"] == 3.0
 
 
 def test_resume_requires_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:

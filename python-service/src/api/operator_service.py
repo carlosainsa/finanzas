@@ -142,6 +142,25 @@ async def positions(redis: RedisLike, count: int = 500) -> list[dict[str, object
     ]
 
 
+async def strategy_metrics(redis: RedisLike, count: int = 500) -> dict[str, object]:
+    reports = await recent_execution_reports(redis, count=count)
+    total = len(reports)
+    matched = sum(1 for report in reports if report.get("status") == "MATCHED")
+    open_count = sum(1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED"})
+    errors = sum(1 for report in reports if report.get("status") == "ERROR")
+    filled_size = sum(as_float(report.get("filled_size")) for report in reports)
+    return {
+        "sample_size": total,
+        "matched": matched,
+        "open": open_count,
+        "errors": errors,
+        "match_rate": matched / total if total else 0.0,
+        "error_rate": errors / total if total else 0.0,
+        "filled_size": filled_size,
+        "source": settings.execution_reports_stream,
+    }
+
+
 def cancel_all_unavailable() -> None:
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
