@@ -16,6 +16,7 @@ Implemented in `python-service/src/api/app.py`:
 | `POST` | `/control/resume` | Implemented | Disables runtime kill switch after explicit confirmation. |
 | `GET` | `/orders/open` | Implemented | Best-effort open order view derived from recent execution reports. |
 | `GET` | `/positions` | Implemented | Best-effort positions derived from recent matched execution reports and signals. |
+| `GET` | `/markets/discover` | Implemented | Read-only Gamma market discovery and deterministic ranking. |
 | `POST` | `/orders/cancel-all` | Not implemented | Returns `501` until Rust has real CLOB cancel support. |
 
 ## Operator API
@@ -40,6 +41,7 @@ The CLI should target operators and scripts. It should call the Operator API fir
 | `streams` | Show Redis Stream length, pending count, and dead-letter count. |
 | `orders` | List best-effort open orders from execution reports. |
 | `positions` | List best-effort positions from matched reports and signals. |
+| `discover-markets` | List ranked Gamma markets for operator review. |
 | `cancel-all` | Calls API and currently returns not implemented until Rust CLOB cancellation exists. |
 | `kill-switch on` | Enable the kill switch. |
 | `kill-switch off` | Resume trading after `--confirm`. |

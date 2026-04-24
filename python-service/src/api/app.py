@@ -15,6 +15,7 @@ from src.api.operator_service import (
     RedisLike,
 )
 from src.data.redis_client import get_redis
+from src.discovery.markets import discover_markets
 
 app = FastAPI(title="Polymarket Trading Control API")
 
@@ -97,4 +98,23 @@ async def get_positions() -> dict[str, object]:
             settings.execution_reports_stream,
             settings.signals_stream,
         ],
+    }
+
+
+@app.get("/markets/discover")
+async def markets_discover(
+    limit: int | None = None,
+    query: str | None = None,
+    min_liquidity: float | None = None,
+    min_volume: float | None = None,
+) -> dict[str, object]:
+    markets = await discover_markets(
+        limit=limit,
+        query=query,
+        min_liquidity=min_liquidity,
+        min_volume=min_volume,
+    )
+    return {
+        "markets": [market.model_dump(mode="json") for market in markets],
+        "source": settings.gamma_api_url,
     }

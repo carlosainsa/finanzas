@@ -9,6 +9,7 @@ from src.config import settings
 
 
 JsonObject = dict[str, Any]
+QueryValue = str | int | float | bool
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("orders")
     subparsers.add_parser("positions")
     subparsers.add_parser("cancel-all")
+    discover = subparsers.add_parser("discover-markets")
+    discover.add_argument("--limit", type=int)
+    discover.add_argument("--query")
+    discover.add_argument("--min-liquidity", type=float)
+    discover.add_argument("--min-volume", type=float)
 
     kill_switch = subparsers.add_parser("kill-switch")
     kill_switch.add_argument("state", choices=("on", "off"))
@@ -65,6 +71,16 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
             return request_json(client, "GET", "/positions")
         if args.command == "cancel-all":
             return request_json(client, "POST", "/orders/cancel-all")
+        if args.command == "discover-markets":
+            params = optional_params(
+                {
+                    "limit": args.limit,
+                    "query": args.query,
+                    "min_liquidity": args.min_liquidity,
+                    "min_volume": args.min_volume,
+                }
+            )
+            return request_json(client, "GET", "/markets/discover", params=params)
         if args.command == "kill-switch":
             return dispatch_kill_switch(client, args)
     raise ValueError(f"unsupported command: {args.command}")
@@ -88,8 +104,9 @@ def request_json(
     method: str,
     path: str,
     json: dict[str, object] | None = None,
+    params: dict[str, QueryValue] | None = None,
 ) -> JsonObject:
-    response = client.request(method, path, json=json)
+    response = client.request(method, path, json=json, params=params)
     if response.status_code >= 400:
         raise httpx.HTTPStatusError(
             f"{method} {path} returned {response.status_code}: {response.text}",
@@ -100,6 +117,10 @@ def request_json(
     if not isinstance(payload, dict):
         raise ValueError("operator API returned a non-object response")
     return payload
+
+
+def optional_params(params: dict[str, QueryValue | None]) -> dict[str, QueryValue]:
+    return {key: value for key, value in params.items() if value is not None}
 
 
 def print_table(value: object, indent: int = 0) -> None:

@@ -40,6 +40,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Rank candidate markets using liquidity, spread, activity, odds movement, and external evidence.
 - Use social/news/search evidence as a scoring input, never as direct trade execution authority.
 - Feed ranked markets into the predictor only after deterministic filters pass.
+- Initial implementation exposes read-only Gamma discovery via API/CLI and deterministic metadata scoring as described in [market_discovery_plan.md](market_discovery_plan.md).
 
 ## Phase 6: Optional Web Dashboard
 

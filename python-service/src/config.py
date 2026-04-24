@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379"
     polymarket_api_url: str = "https://clob.polymarket.com"
+    gamma_api_url: str = "https://gamma-api.polymarket.com"
     private_key: str | None = None
     host: str = "0.0.0.0"
     port: int = 8000
@@ -13,6 +14,9 @@ class Settings(BaseSettings):
     data_lake_root: str = "data_lake"
     data_lake_duckdb_path: str = "data_lake/research.duckdb"
     data_lake_export_count: int = 1000
+    discovery_limit: int = 50
+    discovery_min_liquidity: float = 100.0
+    discovery_min_volume: float = 100.0
     orderbook_stream: str = "orderbook:stream"
     signals_stream: str = "signals:stream"
     execution_reports_stream: str = "execution:reports:stream"

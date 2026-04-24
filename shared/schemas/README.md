@@ -33,6 +33,10 @@ Runtime configuration:
 | `PREDICTOR_MIN_SPREAD` | `0.03` | Python strategy spread threshold. |
 | `PREDICTOR_ORDER_SIZE` | `1.0` | Python strategy target order size. |
 | `PREDICTOR_MIN_CONFIDENCE` | `0.55` | Python strategy minimum confidence. |
+| `GAMMA_API_URL` | `https://gamma-api.polymarket.com` | Public Gamma API base URL for market discovery. |
+| `DISCOVERY_LIMIT` | `50` | Default number of Gamma markets to fetch for discovery. |
+| `DISCOVERY_MIN_LIQUIDITY` | `100.0` | Minimum Gamma liquidity for ranked discovery candidates. |
+| `DISCOVERY_MIN_VOLUME` | `100.0` | Minimum Gamma volume for ranked discovery candidates. |
 
 When `DATABASE_URL` is set, `rust-engine` also stores submitted orders and reconciled trade lifecycle events in Postgres so live user WebSocket events can be correlated by `order_id` after a restart.
 
@@ -55,3 +59,5 @@ Research data lake:
 | `operator_commands` | `operator:commands:stream` |
 
 See `docs/data_lake_plan.md` for the Parquet/DuckDB layout.
+
+Market discovery is read-only and advisory. It ranks Gamma markets for review, but it does not publish to `signals:stream`.
