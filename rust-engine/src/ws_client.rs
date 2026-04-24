@@ -7,7 +7,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info};
 
 use crate::orderbook::{Level, OrderBook};
-use crate::redis_client::Publisher;
+use crate::redis_client::StreamProducer;
 
 #[derive(Debug, Deserialize)]
 struct PolymarketBook {
@@ -25,7 +25,7 @@ struct PolymarketLevel {
     size: String,
 }
 
-pub async fn run(mut publisher: Publisher, url: String, asset_ids: Vec<String>) -> Result<()> {
+pub async fn run(mut publisher: StreamProducer, url: String, asset_ids: Vec<String>) -> Result<()> {
     info!("Connecting to Polymarket WebSocket: {}", url);
 
     let (ws_stream, _) = connect_async(&url).await?;
@@ -58,7 +58,7 @@ pub async fn run(mut publisher: Publisher, url: String, asset_ids: Vec<String>) 
                             continue;
                         }
                         let payload = serde_json::to_string(&orderbook)?;
-                        publisher.publish("orderbook:raw", &payload).await?;
+                        publisher.add_json("orderbook:stream", &payload).await?;
                     }
                     Ok(None) => {}
                     Err(err) => {
@@ -74,7 +74,7 @@ pub async fn run(mut publisher: Publisher, url: String, asset_ids: Vec<String>) 
     Ok(())
 }
 
-fn normalize_book_message(raw: &str) -> Result<Option<OrderBook>> {
+pub(crate) fn normalize_book_message(raw: &str) -> Result<Option<OrderBook>> {
     let value: serde_json::Value = serde_json::from_str(raw)?;
     if value.get("event_type").and_then(|event| event.as_str()) != Some("book") {
         return Ok(None);
@@ -97,6 +97,38 @@ fn normalize_book_message(raw: &str) -> Result<Option<OrderBook>> {
         asks,
         timestamp_ms: book.timestamp.parse()?,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_book_message_and_sorts_levels() {
+        let raw = r#"{
+            "event_type": "book",
+            "market": "0xabc",
+            "asset_id": "123",
+            "bids": [{"price": "0.41", "size": "2"}, {"price": "0.43", "size": "1"}],
+            "asks": [{"price": "0.50", "size": "1"}, {"price": "0.48", "size": "3"}],
+            "timestamp": "1760000000000"
+        }"#;
+
+        let book = normalize_book_message(raw).unwrap().unwrap();
+
+        assert_eq!(book.market_id, "0xabc");
+        assert_eq!(book.asset_id, "123");
+        assert_eq!(book.bids[0].price, 0.43);
+        assert_eq!(book.asks[0].price, 0.48);
+        assert_eq!(book.timestamp_ms, 1_760_000_000_000);
+    }
+
+    #[test]
+    fn ignores_non_book_message() {
+        let raw = r#"{"event_type":"price_change"}"#;
+
+        assert!(normalize_book_message(raw).unwrap().is_none());
+    }
 }
 
 fn parse_levels(levels: Vec<PolymarketLevel>) -> Result<Vec<Level>> {

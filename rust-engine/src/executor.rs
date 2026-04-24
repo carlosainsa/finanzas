@@ -12,10 +12,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::config::{Config, ExecutionMode};
-use crate::redis_client::{Publisher, Subscriber};
+use crate::metrics::Metrics;
+use crate::redis_client::{StreamConsumer, StreamProducer};
+use crate::risk::RiskService;
+use crate::state_store::StateStore;
 
 /// Alineado con shared/schemas/trade_signal.json
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TradeSignal {
     pub signal_id: String,
     pub market_id: String,
@@ -57,18 +60,34 @@ pub enum ExecutionStatus {
     Error,
 }
 
-pub async fn run(mut publisher: Publisher, subscriber: Subscriber, config: Config) -> Result<()> {
+pub async fn run(
+    mut publisher: StreamProducer,
+    mut consumer: StreamConsumer,
+    config: Config,
+) -> Result<()> {
     info!("Starting order executor...");
 
     let mut executor = OrderExecutor::new(config).await?;
-    let mut sub = subscriber.subscribe("signals:trade").await?;
 
     loop {
-        let raw = sub.next_message().await?;
-        let signal: TradeSignal = match serde_json::from_str(&raw) {
+        let message = consumer.next_message().await?;
+        let signal: TradeSignal = match serde_json::from_str(&message.payload) {
             Ok(signal) => signal,
             Err(err) => {
-                error!(error = %err, raw = %raw, "Invalid trade signal JSON");
+                error!(error = %err, raw = %message.payload, "Invalid trade signal JSON");
+                publisher
+                    .add_json(
+                        "signals:deadletter",
+                        &serde_json::json!({
+                            "stream_id": message.id,
+                            "error": err.to_string(),
+                            "payload": message.payload,
+                            "timestamp_ms": now_ms()
+                        })
+                        .to_string(),
+                    )
+                    .await?;
+                consumer.ack(&message.id).await?;
                 continue;
             }
         };
@@ -88,13 +107,20 @@ pub async fn run(mut publisher: Publisher, subscriber: Subscriber, config: Confi
 
         let report = executor.execute(signal).await;
         let payload = serde_json::to_string(&report)?;
-        publisher.publish("execution:reports", &payload).await?;
+        publisher
+            .add_json("execution:reports:stream", &payload)
+            .await?;
+        executor.store.record_execution_report(&report).await?;
+        consumer.ack(&message.id).await?;
     }
 }
 
 struct OrderExecutor {
     config: Config,
     clob: Option<AuthenticatedClob>,
+    risk: RiskService,
+    store: StateStore,
+    metrics: Metrics,
 }
 
 struct AuthenticatedClob {
@@ -106,6 +132,7 @@ struct AuthenticatedClob {
 
 impl OrderExecutor {
     async fn new(config: Config) -> Result<Self> {
+        let store = StateStore::connect(config.database_url.as_deref()).await?;
         let clob = match config.execution_mode {
             ExecutionMode::DryRun => None,
             ExecutionMode::Live => {
@@ -125,28 +152,47 @@ impl OrderExecutor {
             }
         };
 
-        Ok(Self { config, clob })
+        Ok(Self {
+            config,
+            clob,
+            risk: RiskService::new(),
+            store,
+            metrics: Metrics::default(),
+        })
     }
 
     async fn execute(&mut self, signal: TradeSignal) -> ExecutionReport {
+        self.metrics.signal_received();
+        if let Err(err) = self.store.record_signal(&signal).await {
+            error!(
+                signal_id = %signal.signal_id,
+                error = %err,
+                "Failed to persist trade signal"
+            );
+        }
+
         match self.try_execute(&signal).await {
             Ok(report) => report,
-            Err(err) => ExecutionReport {
-                signal_id: signal.signal_id,
-                order_id: String::new(),
-                status: ExecutionStatus::Error,
-                filled_price: None,
-                filled_size: None,
-                error: Some(err.to_string()),
-                timestamp_ms: now_ms(),
-            },
+            Err(err) => {
+                self.metrics.signal_rejected();
+                ExecutionReport {
+                    signal_id: signal.signal_id,
+                    order_id: String::new(),
+                    status: ExecutionStatus::Error,
+                    filled_price: None,
+                    filled_size: None,
+                    error: Some(err.to_string()),
+                    timestamp_ms: now_ms(),
+                }
+            }
         }
     }
 
     async fn try_execute(&mut self, signal: &TradeSignal) -> Result<ExecutionReport> {
-        validate_signal(signal, &self.config)?;
+        self.risk.validate(signal, &self.config)?;
 
         if self.config.execution_mode == ExecutionMode::DryRun {
+            self.risk.record_accepted_signal(signal);
             return Ok(ExecutionReport {
                 signal_id: signal.signal_id.clone(),
                 order_id: format!("dry-run-{}", signal.signal_id),
@@ -183,6 +229,12 @@ impl OrderExecutor {
             .await?;
         let signed_order = clob.client.sign(&clob.signer, order).await?;
         let response = clob.client.post_order(signed_order).await?;
+        if !response.success {
+            self.metrics.clob_error();
+        } else {
+            self.metrics.order_submitted();
+            self.risk.record_accepted_signal(signal);
+        }
 
         Ok(ExecutionReport {
             signal_id: signal.signal_id.clone(),
@@ -194,25 +246,6 @@ impl OrderExecutor {
             timestamp_ms: now_ms(),
         })
     }
-}
-
-fn validate_signal(signal: &TradeSignal, config: &Config) -> Result<()> {
-    if !(0.0..=1.0).contains(&signal.price) {
-        bail!("price must be within [0, 1]");
-    }
-    if signal.size <= 0.0 {
-        bail!("size must be positive");
-    }
-    if signal.size > config.max_order_size {
-        bail!("size exceeds MAX_ORDER_SIZE");
-    }
-    if !(0.0..=1.0).contains(&signal.confidence) {
-        bail!("confidence must be within [0, 1]");
-    }
-    if signal.confidence < config.min_confidence {
-        bail!("confidence is below MIN_CONFIDENCE");
-    }
-    Ok(())
 }
 
 fn decimal_from_f64(value: f64) -> Result<Decimal> {

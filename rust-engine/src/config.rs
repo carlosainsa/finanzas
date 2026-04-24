@@ -5,11 +5,16 @@ pub struct Config {
     pub redis_url: String,
     pub polymarket_ws_url: String,
     pub polymarket_api_url: String,
+    pub database_url: Option<String>,
     pub market_asset_ids: Vec<String>,
     pub private_key: Option<String>,
     pub execution_mode: ExecutionMode,
     pub max_order_size: f64,
     pub min_confidence: f64,
+    pub signal_max_age_ms: u64,
+    pub max_market_exposure: f64,
+    pub max_daily_loss: f64,
+    pub kill_switch: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +31,7 @@ impl Config {
                 .unwrap_or("wss://ws-subscriptions-clob.polymarket.com/ws/market".into()),
             polymarket_api_url: std::env::var("POLYMARKET_API_URL")
                 .unwrap_or("https://clob.polymarket.com".into()),
+            database_url: std::env::var("DATABASE_URL").ok(),
             market_asset_ids: parse_asset_ids("MARKET_ASSET_IDS"),
             private_key: std::env::var("PRIVATE_KEY")
                 .or_else(|_| std::env::var("POLYMARKET_PRIVATE_KEY"))
@@ -33,6 +39,10 @@ impl Config {
             execution_mode: ExecutionMode::from_env(),
             max_order_size: parse_env_f64("MAX_ORDER_SIZE", 10.0)?,
             min_confidence: parse_env_f64("MIN_CONFIDENCE", 0.55)?,
+            signal_max_age_ms: parse_env_u64("SIGNAL_MAX_AGE_MS", 5_000)?,
+            max_market_exposure: parse_env_f64("MAX_MARKET_EXPOSURE", 100.0)?,
+            max_daily_loss: parse_env_f64("MAX_DAILY_LOSS", 50.0)?,
+            kill_switch: parse_env_bool("KILL_SWITCH", false),
         })
     }
 }
@@ -64,5 +74,22 @@ fn parse_env_f64(name: &str, default: f64) -> Result<f64> {
     match std::env::var(name) {
         Ok(value) => Ok(value.parse()?),
         Err(_) => Ok(default),
+    }
+}
+
+fn parse_env_u64(name: &str, default: u64) -> Result<u64> {
+    match std::env::var(name) {
+        Ok(value) => Ok(value.parse()?),
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_env_bool(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(value) => matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => default,
     }
 }
