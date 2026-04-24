@@ -1,3 +1,5 @@
+from typing import Any, Awaitable, cast
+
 from fastapi import FastAPI
 
 from src.config import settings
@@ -9,7 +11,7 @@ app = FastAPI(title="Polymarket Trading Control API")
 @app.get("/health")
 async def health() -> dict[str, str]:
     redis = await get_redis()
-    await redis.ping()
+    await cast(Awaitable[Any], redis.ping())
     return {"status": "ok"}
 
 
