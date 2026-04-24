@@ -14,7 +14,7 @@ use tracing::{error, info};
 use crate::config::{Config, ExecutionMode};
 use crate::metrics::Metrics;
 use crate::reconciliation::OrderTracker;
-use crate::redis_client::{StreamConsumer, StreamProducer};
+use crate::redis_client::{KeyValueStore, StreamConsumer, StreamProducer};
 use crate::risk::RiskService;
 use crate::state_store::StateStore;
 
@@ -124,6 +124,7 @@ struct OrderExecutor {
     store: StateStore,
     metrics: Metrics,
     order_tracker: OrderTracker,
+    control_store: KeyValueStore,
 }
 
 struct AuthenticatedClob {
@@ -136,6 +137,7 @@ struct AuthenticatedClob {
 impl OrderExecutor {
     async fn new(config: Config, order_tracker: OrderTracker) -> Result<Self> {
         let store = StateStore::connect(config.database_url.as_deref()).await?;
+        let control_store = KeyValueStore::new(&config.redis_url).await?;
         let clob = match config.execution_mode {
             ExecutionMode::DryRun => None,
             ExecutionMode::Live => {
@@ -162,6 +164,7 @@ impl OrderExecutor {
             store,
             metrics: Metrics::default(),
             order_tracker,
+            control_store,
         })
     }
 
@@ -193,7 +196,13 @@ impl OrderExecutor {
     }
 
     async fn try_execute(&mut self, signal: &TradeSignal) -> Result<ExecutionReport> {
-        self.risk.validate(signal, &self.config)?;
+        let mut effective_config = self.config.clone();
+        effective_config.kill_switch = effective_config.kill_switch
+            || self
+                .control_store
+                .get_bool(&effective_config.operator_kill_switch_key)
+                .await?;
+        self.risk.validate(signal, &effective_config)?;
 
         if self.config.execution_mode == ExecutionMode::DryRun {
             self.risk.record_accepted_signal(signal);

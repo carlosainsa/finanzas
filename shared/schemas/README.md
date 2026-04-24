@@ -22,6 +22,7 @@ Runtime configuration:
 | `POLYMARKET_API_SECRET` | unset | Polymarket CLOB API secret for the user WebSocket subscription. Required in `live` mode. |
 | `POLYMARKET_API_PASSPHRASE` | unset | Polymarket CLOB API passphrase for the user WebSocket subscription. Required in `live` mode. |
 | `ORDER_RECONCILIATION_TIMEOUT_MS` | `10000` | Dry-run delay before a submitted order is reconciled to `UNMATCHED`. |
+| `OPERATOR_KILL_SWITCH_KEY` | `operator:kill_switch` | Redis key written by the Operator API and read by Rust before accepting each signal. |
 | `MAX_ORDER_SIZE` | `10.0` | Rust-side hard cap per trade signal. |
 | `MIN_CONFIDENCE` | `0.55` | Rust-side minimum model confidence. |
 | `SIGNAL_MAX_AGE_MS` | `5000` | Rust-side stale signal rejection window. |
@@ -34,3 +35,10 @@ Runtime configuration:
 | `PREDICTOR_MIN_CONFIDENCE` | `0.55` | Python strategy minimum confidence. |
 
 When `DATABASE_URL` is set, `rust-engine` also stores submitted orders and reconciled trade lifecycle events in Postgres so live user WebSocket events can be correlated by `order_id` after a restart.
+
+Operator runtime controls:
+
+| Key/Stream | Writer | Reader | Purpose |
+| --- | --- | --- | --- |
+| `operator:kill_switch` | Operator API / CLI | `rust-engine` executor | Runtime kill switch. Values `1`, `true`, `yes`, or `on` reject new signals. |
+| `operator:commands:stream` | Operator API / CLI | operators | Audit trail for operator control commands. |

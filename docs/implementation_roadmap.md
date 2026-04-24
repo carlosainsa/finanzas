@@ -24,6 +24,8 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Add CLI commands for `status`, `risk`, `streams`, `orders`, `cancel-all`, and `kill-switch on|off`.
 - Keep CLI output dual-mode: `table` and `json`.
 - Do not build dashboard web in this phase.
+- Runtime kill switch is backed by Redis key `operator:kill_switch` and read by Rust before each signal is accepted.
+- `cancel-all` intentionally returns `501` until Rust implements real CLOB cancellation.
 
 ## Phase 4: Research Data Lake
 

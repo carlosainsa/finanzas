@@ -9,21 +9,23 @@ Implemented in `python-service/src/api/app.py`:
 | Method | Path | Status | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | Existing | Redis-backed service health check. |
-| `GET` | `/status` | Existing | Stream lengths and predictor settings. |
-| `GET` | `/risk` | Existing | Read-only note that Rust enforces risk. |
+| `GET` | `/status` | Implemented | Service status, kill switch state, stream summaries, and predictor settings. |
+| `GET` | `/risk` | Implemented | Operator kill switch state and configured risk limits; Rust remains the enforcement point. |
+| `GET` | `/streams` | Implemented | Redis Stream lengths and pending summaries for known consumer groups. |
+| `POST` | `/control/kill-switch` | Implemented | Enables runtime kill switch through Redis state consumed by Rust. |
+| `POST` | `/control/resume` | Implemented | Disables runtime kill switch after explicit confirmation. |
+| `GET` | `/orders/open` | Implemented | Best-effort open order view derived from recent execution reports. |
+| `GET` | `/positions` | Implemented | Best-effort positions derived from recent matched execution reports and signals. |
+| `POST` | `/orders/cancel-all` | Not implemented | Returns `501` until Rust has real CLOB cancel support. |
 
-## Planned Operator API
+## Operator API
 
-These endpoints should be added after the state model is stable:
+Control payloads:
 
-| Method | Path | Purpose |
+| Method | Path | Payload |
 | --- | --- | --- |
-| `POST` | `/control/kill-switch` | Enable kill switch and force Rust to reject new signals. |
-| `POST` | `/control/resume` | Disable kill switch after operator confirmation. |
-| `POST` | `/orders/cancel-all` | Cancel open Polymarket orders through Rust execution controls. |
-| `GET` | `/orders/open` | Return open orders from Postgres plus latest CLOB reconciliation. |
-| `GET` | `/positions` | Return positions, balances, and market exposure. |
-| `GET` | `/streams` | Return Redis Stream lengths, pending counts, and dead-letter counts. |
+| `POST` | `/control/kill-switch` | `{ "reason": "...", "operator": "..." }` |
+| `POST` | `/control/resume` | `{ "confirm": true, "reason": "...", "operator": "..." }` |
 
 API responses should be JSON-first and include enough IDs for debugging: `signal_id`, `order_id`, `market_id`, and `asset_id` where applicable.
 
@@ -36,15 +38,24 @@ The CLI should target operators and scripts. It should call the Operator API fir
 | `status` | Show service status, stream health, and current execution mode. |
 | `risk` | Show kill switch, exposure, max order size, max daily loss, and stale-signal window. |
 | `streams` | Show Redis Stream length, pending count, and dead-letter count. |
-| `orders` | List open orders. |
-| `cancel-all` | Cancel open orders after explicit confirmation. |
+| `orders` | List best-effort open orders from execution reports. |
+| `positions` | List best-effort positions from matched reports and signals. |
+| `cancel-all` | Calls API and currently returns not implemented until Rust CLOB cancellation exists. |
 | `kill-switch on` | Enable the kill switch. |
-| `kill-switch off` | Resume trading after operator confirmation. |
+| `kill-switch off` | Resume trading after `--confirm`. |
 
 Output modes:
 
 - `table` for humans.
 - `json` for scripts and agents.
+
+Example:
+
+```bash
+PYTHONPATH=python-service python -m src.cli --output json status
+PYTHONPATH=python-service python -m src.cli kill-switch on --reason "manual pause" --operator carlos
+PYTHONPATH=python-service python -m src.cli kill-switch off --reason "resume" --confirm
+```
 
 ## Web Dashboard
 

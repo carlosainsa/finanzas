@@ -20,6 +20,7 @@ pub struct Config {
     pub max_market_exposure: f64,
     pub max_daily_loss: f64,
     pub kill_switch: bool,
+    pub operator_kill_switch_key: String,
     pub order_reconciliation_timeout_ms: u64,
 }
 
@@ -55,6 +56,8 @@ impl Config {
             max_market_exposure: parse_env_f64("MAX_MARKET_EXPOSURE", 100.0)?,
             max_daily_loss: parse_env_f64("MAX_DAILY_LOSS", 50.0)?,
             kill_switch: parse_env_bool("KILL_SWITCH", false),
+            operator_kill_switch_key: std::env::var("OPERATOR_KILL_SWITCH_KEY")
+                .unwrap_or("operator:kill_switch".into()),
             order_reconciliation_timeout_ms: parse_env_u64(
                 "ORDER_RECONCILIATION_TIMEOUT_MS",
                 10_000,

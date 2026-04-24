@@ -6,6 +6,27 @@ use redis::{
 };
 
 #[derive(Clone)]
+pub struct KeyValueStore {
+    conn: ConnectionManager,
+}
+
+impl KeyValueStore {
+    pub async fn new(url: &str) -> Result<Self> {
+        let client = Client::open(url)?;
+        let conn = ConnectionManager::new(client).await?;
+        Ok(Self { conn })
+    }
+
+    pub async fn get_bool(&mut self, key: &str) -> Result<bool> {
+        let value: Option<String> = self.conn.get(key).await?;
+        Ok(matches!(
+            value.as_deref().map(str::to_ascii_lowercase).as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        ))
+    }
+}
+
+#[derive(Clone)]
 pub struct StreamProducer {
     conn: ConnectionManager,
 }

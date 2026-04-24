@@ -96,6 +96,7 @@ mod tests {
             max_market_exposure: 100.0,
             max_daily_loss: 50.0,
             kill_switch: false,
+            operator_kill_switch_key: "operator:kill_switch".into(),
             order_reconciliation_timeout_ms: 10_000,
         }
     }
