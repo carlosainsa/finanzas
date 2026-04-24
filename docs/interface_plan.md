@@ -73,4 +73,15 @@ npm install
 npm run dev
 ```
 
+Serve through FastAPI after building:
+
+```bash
+cd frontend
+npm run build
+cd ..
+PYTHONPATH=python-service uvicorn src.api.app:app --app-dir python-service --reload
+```
+
+When `frontend/dist/index.html` exists, FastAPI serves the dashboard at `/` and keeps API endpoints on their existing paths.
+
 See [architecture_plan.md](architecture_plan.md) for system context and [implementation_roadmap.md](implementation_roadmap.md) for phase ordering.

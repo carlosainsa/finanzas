@@ -194,3 +194,10 @@ def test_cancel_all_is_not_implemented() -> None:
     response = client.post("/orders/cancel-all")
 
     assert response.status_code == 501
+
+
+def test_frontend_dist_path_points_to_repo_frontend() -> None:
+    path = api_app.frontend_dist_path()
+
+    assert path.name == "dist"
+    assert path.parent.name == "frontend"

@@ -1,6 +1,8 @@
+from pathlib import Path
 from typing import Any, Awaitable, cast
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.config import settings
@@ -135,3 +137,12 @@ async def markets_discover(
         "markets": [market.model_dump(mode="json") for market in markets],
         "source": settings.gamma_api_url,
     }
+
+
+def frontend_dist_path() -> Path:
+    return Path(__file__).resolve().parents[4] / "frontend" / "dist"
+
+
+dist_path = frontend_dist_path()
+if (dist_path / "index.html").exists():
+    app.mount("/", StaticFiles(directory=dist_path, html=True), name="dashboard")
