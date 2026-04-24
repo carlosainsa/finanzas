@@ -2,6 +2,12 @@
 
 This review extracts implementation ideas that can add value to this trading system without copying code.
 
+## Adopted into roadmap
+
+- [architecture_plan.md](architecture_plan.md) defines the target incremental architecture.
+- [interface_plan.md](interface_plan.md) defines the v1 Operator API + CLI interface. A dashboard web is intentionally deferred.
+- [implementation_roadmap.md](implementation_roadmap.md) turns these ideas into phased implementation work.
+
 ## Highest-value next steps
 
 1. **Research data lake**
