@@ -2,4 +2,8 @@
 __pycache__/
 *.pyc
 target/
-
+.mypy_cache/
+.pytest_cache/
+data_lake/
+*.duckdb
+*.duckdb.wal

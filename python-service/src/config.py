@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     operator_api_url: str = "http://127.0.0.1:8000"
+    data_lake_root: str = "data_lake"
+    data_lake_duckdb_path: str = "data_lake/research.duckdb"
+    data_lake_export_count: int = 1000
     orderbook_stream: str = "orderbook:stream"
     signals_stream: str = "signals:stream"
     execution_reports_stream: str = "execution:reports:stream"

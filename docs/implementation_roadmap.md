@@ -32,6 +32,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Write normalized market, orderbook, signal, execution, order, and position snapshots to Parquet.
 - Use DuckDB for calibration, realized edge, maker/taker style analysis, and strategy PnL reports.
 - Keep Postgres as operational state; use Parquet/DuckDB for research and backtesting.
+- Initial implementation exports Redis Streams to partitioned Parquet and creates DuckDB views as described in [data_lake_plan.md](data_lake_plan.md).
 
 ## Phase 5: Market Discovery and Evidence Scoring
 

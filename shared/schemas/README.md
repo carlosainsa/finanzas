@@ -42,3 +42,16 @@ Operator runtime controls:
 | --- | --- | --- | --- |
 | `operator:kill_switch` | Operator API / CLI | `rust-engine` executor | Runtime kill switch. Values `1`, `true`, `yes`, or `on` reject new signals. |
 | `operator:commands:stream` | Operator API / CLI | operators | Audit trail for operator control commands. |
+
+Research data lake:
+
+| Dataset | Source |
+| --- | --- |
+| `orderbooks` | `orderbook:stream` |
+| `signals` | `signals:stream` |
+| `execution_reports` | `execution:reports:stream` |
+| `orderbook_deadletter` | `orderbook:deadletter` |
+| `signals_deadletter` | `signals:deadletter` |
+| `operator_commands` | `operator:commands:stream` |
+
+See `docs/data_lake_plan.md` for the Parquet/DuckDB layout.
