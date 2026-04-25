@@ -23,6 +23,7 @@ pub struct Config {
     pub kill_switch: bool,
     pub operator_kill_switch_key: String,
     pub order_reconciliation_timeout_ms: u64,
+    pub cancel_confirmation_timeout_ms: u64,
     pub signals_stream: String,
     pub execution_reports_stream: String,
     pub operator_commands_stream: String,
@@ -70,6 +71,10 @@ impl Config {
                 .unwrap_or("operator:kill_switch".into()),
             order_reconciliation_timeout_ms: parse_env_u64(
                 "ORDER_RECONCILIATION_TIMEOUT_MS",
+                10_000,
+            )?,
+            cancel_confirmation_timeout_ms: parse_env_u64(
+                "CANCEL_CONFIRMATION_TIMEOUT_MS",
                 10_000,
             )?,
             signals_stream: std::env::var("SIGNALS_STREAM").unwrap_or("signals:stream".into()),

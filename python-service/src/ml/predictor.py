@@ -37,5 +37,6 @@ class Predictor:
             size=min(settings.predictor_order_size, best_bid.size),
             confidence=confidence,
             timestamp_ms=int(time.time() * 1000),
+            source_timestamp_ms=orderbook.timestamp_ms,
             strategy="passive_spread_capture_v1",
         )

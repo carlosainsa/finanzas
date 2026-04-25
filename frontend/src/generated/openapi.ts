@@ -802,12 +802,24 @@ export interface components {
         RuntimeMetricsResponse: {
             /** Clob Errors */
             clob_errors: number;
+            /** Clob Errors By Type */
+            clob_errors_by_type: {
+                [key: string]: number;
+            };
             /** Control Results */
             control_results: number;
+            /** Control Results By Type */
+            control_results_by_type: {
+                [key: string]: number;
+            };
             /** Execution Reports */
             execution_reports: number;
+            /** Order To Report Latency Ms */
+            order_to_report_latency_ms?: number | null;
             /** Orders Submitted */
             orders_submitted: number;
+            /** Signal To Order Latency Ms */
+            signal_to_order_latency_ms?: number | null;
             /** Signals Received */
             signals_received: number;
             /** Signals Rejected */
@@ -816,6 +828,8 @@ export interface components {
             source: string[];
             /** Ws To Report Latency Ms */
             ws_to_report_latency_ms?: number | null;
+            /** Ws To Signal Latency Ms */
+            ws_to_signal_latency_ms?: number | null;
         };
         /** ScoredMarket */
         ScoredMarket: {

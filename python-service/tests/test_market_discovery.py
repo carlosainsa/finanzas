@@ -91,10 +91,11 @@ def test_discover_markets_cli_params(monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    def fake_request_json(client, method, path, json=None, params=None):
+    def fake_request_json(client, method, path, json=None, params=None, token=None):
         captured["method"] = method
         captured["path"] = path
         captured["params"] = params
+        captured["token"] = token
         return {"markets": []}
 
     monkeypatch.setattr(cli, "request_json", fake_request_json)

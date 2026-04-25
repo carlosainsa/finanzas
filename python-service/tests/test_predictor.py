@@ -24,6 +24,7 @@ def test_predictor_returns_valid_signal_for_wide_spread() -> None:
     assert signal is not None
     assert signal.side == "BUY"
     assert signal.price == 0.45
+    assert signal.source_timestamp_ms == 1760000000000
     assert signal.strategy == "passive_spread_capture_v1"
 
 

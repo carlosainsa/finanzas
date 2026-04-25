@@ -210,6 +210,49 @@ impl StateStore {
         Ok(())
     }
 
+    pub async fn confirm_cancel_requests_for_order(
+        &self,
+        order_id: &str,
+        payload: &serde_json::Value,
+    ) -> Result<u64> {
+        let Some(client) = &self.client else {
+            return Ok(0);
+        };
+        let updated = client
+            .execute(
+                "update cancel_requests
+                 set status = 'CONFIRMED', payload = $2, updated_at = now()
+                 where order_id = $1 and status = 'SENT'",
+                &[&order_id, &payload],
+            )
+            .await?;
+        Ok(updated)
+    }
+
+    pub async fn cancel_request_statuses(
+        &self,
+        command_id: &str,
+        order_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, String>> {
+        let Some(client) = &self.client else {
+            return Ok(std::collections::HashMap::new());
+        };
+        if order_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let rows = client
+            .query(
+                "select order_id, status from cancel_requests
+                 where command_id = $1 and order_id = any($2)",
+                &[&command_id, &order_ids],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.get("order_id"), row.get("status")))
+            .collect())
+    }
+
     pub async fn record_trade_lifecycle(
         &self,
         trade_id: &str,

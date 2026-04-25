@@ -19,9 +19,14 @@ async def get_pool() -> asyncpg.Pool | None:
 
 async def require_pool() -> asyncpg.Pool | None:
     pool = await get_pool()
-    if pool is None and settings.require_postgres_state:
-        raise RuntimeError("DATABASE_URL is required when REQUIRE_POSTGRES_STATE=true")
-    if pool is not None and settings.require_postgres_state:
+    require_canonical_state = (
+        settings.require_postgres_state or settings.app_env.lower() == "production"
+    )
+    if pool is None and require_canonical_state:
+        raise RuntimeError(
+            "DATABASE_URL is required when REQUIRE_POSTGRES_STATE=true or APP_ENV=production"
+        )
+    if pool is not None and require_canonical_state:
         await validate_schema_version(pool)
     return pool
 

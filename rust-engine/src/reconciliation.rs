@@ -94,6 +94,10 @@ impl OrderTracker {
             .collect()
     }
 
+    pub(crate) async fn remove_order(&self, order_id: &str) -> Option<TrackedOrder> {
+        self.inner.lock().await.remove(order_id)
+    }
+
     async fn dry_run_due(&self, timeout_ms: u64, now_ms: u64) -> Vec<TrackedOrder> {
         let mut inner = self.inner.lock().await;
         inner
@@ -368,6 +372,15 @@ async fn reconcile_order_event(
     store
         .record_order_lifecycle(&event.id, execution_status_name(status), &payload)
         .await?;
+    if status == ExecutionStatus::Cancelled {
+        order_tracker.remove_order(&event.id).await;
+        store
+            .confirm_cancel_requests_for_order(
+                &event.id,
+                &json!({"confirmed_by": "user_ws", "event": payload}),
+            )
+            .await?;
+    }
 
     Ok(Some(ExecutionReport {
         signal_id: order.signal_id,
@@ -533,6 +546,7 @@ mod tests {
             size: 10.0,
             confidence: 0.9,
             timestamp_ms: now_ms(),
+            source_timestamp_ms: None,
             strategy: Some("test".to_owned()),
         }
     }
@@ -601,6 +615,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(report.status, ExecutionStatus::Cancelled);
+        assert!(tracker.get("order-1").await.is_none());
     }
 
     #[tokio::test]

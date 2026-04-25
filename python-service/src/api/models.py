@@ -139,9 +139,14 @@ class RuntimeMetricsResponse(BaseModel):
     signals_rejected: int
     orders_submitted: int
     clob_errors: int
+    clob_errors_by_type: dict[str, int]
     execution_reports: int
     control_results: int
+    control_results_by_type: dict[str, int]
     ws_to_report_latency_ms: float | None = None
+    ws_to_signal_latency_ms: float | None = None
+    signal_to_order_latency_ms: float | None = None
+    order_to_report_latency_ms: float | None = None
     source: list[str]
 
 

@@ -60,6 +60,8 @@ The CLI should target operators and scripts. It should call the Operator API fir
 | `streams` | Show Redis Stream length, pending count, and dead-letter count. |
 | `orders` | List canonical Postgres open orders when `DATABASE_URL` is configured, otherwise Redis fallback. |
 | `positions` | List canonical Postgres positions when `DATABASE_URL` is configured, otherwise Redis fallback. |
+| `metrics` | Show runtime counters and stage latency summaries. |
+| `control-results` | Show recent async operator command outcomes. |
 | `discover-markets` | List ranked Gamma markets for operator review. |
 | `cancel-bot-open` | Enqueues cancellation for bot-known open orders only. |
 | `cancel-all` | Calls API and enqueues an async Rust `cancel_all` command. |
@@ -75,6 +77,8 @@ Example:
 
 ```bash
 PYTHONPATH=python-service python -m src.cli --output json status
+PYTHONPATH=python-service python -m src.cli --output json metrics
+PYTHONPATH=python-service python -m src.cli control-results --limit 20
 PYTHONPATH=python-service python -m src.cli kill-switch on --reason "manual pause" --operator carlos
 PYTHONPATH=python-service python -m src.cli kill-switch off --reason "resume" --confirm
 ```

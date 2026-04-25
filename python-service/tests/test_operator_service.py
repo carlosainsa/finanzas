@@ -213,6 +213,7 @@ def test_prometheus_metrics_formats_numeric_values() -> None:
             "signals_received": 2,
             "signals_rejected": 1,
             "ws_to_report_latency_ms": 12.5,
+            "signal_to_order_latency_ms": 2.0,
         }
     )
 
@@ -220,6 +221,7 @@ def test_prometheus_metrics_formats_numeric_values() -> None:
     assert "# TYPE polymarket_signals_received_total counter" in output
     assert "# TYPE polymarket_ws_to_report_latency_ms gauge" in output
     assert "polymarket_ws_to_report_latency_ms 12.5" in output
+    assert "polymarket_signal_to_order_latency_ms 2.0" in output
 
 
 def test_resume_requires_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:

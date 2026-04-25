@@ -823,17 +823,53 @@
             "title": "Clob Errors",
             "type": "integer"
           },
+          "clob_errors_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Clob Errors By Type",
+            "type": "object"
+          },
           "control_results": {
             "title": "Control Results",
             "type": "integer"
+          },
+          "control_results_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Control Results By Type",
+            "type": "object"
           },
           "execution_reports": {
             "title": "Execution Reports",
             "type": "integer"
           },
+          "order_to_report_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order To Report Latency Ms"
+          },
           "orders_submitted": {
             "title": "Orders Submitted",
             "type": "integer"
+          },
+          "signal_to_order_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal To Order Latency Ms"
           },
           "signals_received": {
             "title": "Signals Received",
@@ -860,6 +896,17 @@
               }
             ],
             "title": "Ws To Report Latency Ms"
+          },
+          "ws_to_signal_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ws To Signal Latency Ms"
           }
         },
         "required": [
@@ -867,8 +914,10 @@
           "signals_rejected",
           "orders_submitted",
           "clob_errors",
+          "clob_errors_by_type",
           "execution_reports",
           "control_results",
+          "control_results_by_type",
           "source"
         ],
         "title": "RuntimeMetricsResponse",

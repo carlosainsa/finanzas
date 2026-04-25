@@ -42,10 +42,12 @@ def test_trade_signal_contract() -> None:
             "size": 1.0,
             "confidence": 0.8,
             "timestamp_ms": 1760000000000,
+            "source_timestamp_ms": 1759999999990,
         }
     )
 
     assert signal.side == "BUY"
+    assert signal.source_timestamp_ms == 1759999999990
 
 
 def test_execution_report_contract() -> None:

@@ -59,4 +59,4 @@ The next stage should improve trading quality before adding a web dashboard.
 5. Market discovery and evidence scoring.
 6. Optional dashboard web, served through FastAPI.
 
-See [interface_plan.md](interface_plan.md) for the API/CLI surface and [implementation_roadmap.md](implementation_roadmap.md) for execution phases.
+See [interface_plan.md](interface_plan.md) for the API/CLI surface, [implementation_roadmap.md](implementation_roadmap.md) for execution phases, and [production_runbook.md](production_runbook.md) for production operations.

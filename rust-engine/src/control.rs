@@ -1,9 +1,11 @@
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use polymarket_client_sdk::clob::types::request::OrdersRequest;
 use serde::Deserialize;
 use serde_json::json;
+use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 
 use crate::clob_client::AuthenticatedClob;
@@ -180,15 +182,6 @@ async fn handle_cancel_all(
         ExecutionMode::Live => {
             let clob = clob.context("authenticated CLOB client is not initialized")?;
             let response = clob.client.cancel_all_orders().await?;
-            let open_after = clob.client.orders(&OrdersRequest::default(), None).await?;
-            let open_after_ids: Vec<String> =
-                open_after.data.into_iter().map(|order| order.id).collect();
-            let mut divergences: Vec<String> = response
-                .canceled
-                .iter()
-                .filter(|order_id| open_after_ids.contains(order_id))
-                .cloned()
-                .collect();
             for order_id in &response.canceled {
                 info!(
                     command_id = %command_id,
@@ -203,63 +196,6 @@ async fn handle_cancel_all(
                         &json!({"source": "cancel_all"}),
                     )
                     .await?;
-                if open_after_ids.contains(order_id) {
-                    warn!(
-                        command_id = %command_id,
-                        order_id = %order_id,
-                        "Canceled order still appears in CLOB open orders"
-                    );
-                    store
-                        .record_cancel_request(
-                            &command_id,
-                            order_id,
-                            "DIVERGED",
-                            &json!({"source": "cancel_all", "reason": "order still open after cancel"}),
-                        )
-                        .await?;
-                    continue;
-                }
-                if let Some(order) = order_tracker.get(order_id).await {
-                    let report = ExecutionReport {
-                        signal_id: order.signal_id,
-                        order_id: order.order_id,
-                        status: ExecutionStatus::Cancelled,
-                        filled_price: None,
-                        filled_size: None,
-                        error: None,
-                        timestamp_ms: now_ms(),
-                    };
-                    publish_execution_report(
-                        publisher,
-                        store,
-                        &config.execution_reports_stream,
-                        &report,
-                    )
-                    .await?;
-                    store
-                        .record_cancel_request(
-                            &command_id,
-                            order_id,
-                            "CONFIRMED",
-                            &json!({"source": "cancel_all", "confirmed_by": "clob_open_orders"}),
-                        )
-                        .await?;
-                } else {
-                    warn!(
-                        command_id = %command_id,
-                        order_id = %order_id,
-                        "CLOB cancel_all canceled an order not tracked by this runtime"
-                    );
-                    divergences.push(order_id.clone());
-                    store
-                        .record_cancel_request(
-                            &command_id,
-                            order_id,
-                            "DIVERGED",
-                            &json!({"source": "cancel_all"}),
-                        )
-                        .await?;
-                }
             }
             for (order_id, reason) in &response.not_canceled {
                 warn!(
@@ -277,6 +213,28 @@ async fn handle_cancel_all(
                     )
                     .await?;
             }
+            let user_ws_statuses = wait_for_cancel_confirmations(
+                store,
+                &command_id,
+                &response.canceled,
+                config.cancel_confirmation_timeout_ms,
+            )
+            .await?;
+            let open_after = clob.client.orders(&OrdersRequest::default(), None).await?;
+            let open_after_ids: HashSet<String> =
+                open_after.data.into_iter().map(|order| order.id).collect();
+            let divergences = finalize_cancel_confirmations(CancelFinalizeContext {
+                publisher,
+                store,
+                execution_reports_stream: &config.execution_reports_stream,
+                order_tracker,
+                command_id: &command_id,
+                source: "cancel_all",
+                canceled_order_ids: &response.canceled,
+                user_ws_statuses: &user_ws_statuses,
+                open_after_ids: &open_after_ids,
+            })
+            .await?;
             publish_control_result(
                 publisher,
                 &config.operator_results_stream,
@@ -378,66 +336,6 @@ async fn handle_cancel_bot_open(
                     .await?;
             }
             let response = clob.client.cancel_orders(&refs).await?;
-            let open_after = clob.client.orders(&OrdersRequest::default(), None).await?;
-            let open_after_ids: Vec<String> =
-                open_after.data.into_iter().map(|order| order.id).collect();
-            let mut divergences: Vec<String> = response
-                .canceled
-                .iter()
-                .filter(|order_id| open_after_ids.contains(order_id))
-                .cloned()
-                .collect();
-            for order_id in &response.canceled {
-                if open_after_ids.contains(order_id) {
-                    warn!(
-                        command_id = %command_id,
-                        order_id = %order_id,
-                        "Bot-scoped canceled order still appears in CLOB open orders"
-                    );
-                    store
-                        .record_cancel_request(
-                            &command_id,
-                            order_id,
-                            "DIVERGED",
-                            &json!({"source": "cancel_bot_open", "reason": "order still open after cancel"}),
-                        )
-                        .await?;
-                    continue;
-                }
-                if let Some(order) = resolve_bot_order(store, order_tracker, order_id).await? {
-                    publish_cancelled_report(
-                        publisher,
-                        store,
-                        &config.execution_reports_stream,
-                        order.signal_id,
-                        order.order_id,
-                    )
-                    .await?;
-                    store
-                        .record_cancel_request(
-                            &command_id,
-                            order_id,
-                            "CONFIRMED",
-                            &json!({"source": "cancel_bot_open", "confirmed_by": "clob_open_orders"}),
-                        )
-                        .await?;
-                } else {
-                    warn!(
-                        command_id = %command_id,
-                        order_id = %order_id,
-                        "Bot-scoped cancel returned an unresolvable order"
-                    );
-                    divergences.push(order_id.clone());
-                    store
-                        .record_cancel_request(
-                            &command_id,
-                            order_id,
-                            "DIVERGED",
-                            &json!({"source": "cancel_bot_open", "reason": "unresolvable bot order"}),
-                        )
-                        .await?;
-                }
-            }
             for (order_id, reason) in &response.not_canceled {
                 warn!(
                     command_id = %command_id,
@@ -454,6 +352,28 @@ async fn handle_cancel_bot_open(
                     )
                     .await?;
             }
+            let user_ws_statuses = wait_for_cancel_confirmations(
+                store,
+                &command_id,
+                &response.canceled,
+                config.cancel_confirmation_timeout_ms,
+            )
+            .await?;
+            let open_after = clob.client.orders(&OrdersRequest::default(), None).await?;
+            let open_after_ids: HashSet<String> =
+                open_after.data.into_iter().map(|order| order.id).collect();
+            let divergences = finalize_cancel_confirmations(CancelFinalizeContext {
+                publisher,
+                store,
+                execution_reports_stream: &config.execution_reports_stream,
+                order_tracker,
+                command_id: &command_id,
+                source: "cancel_bot_open",
+                canceled_order_ids: &response.canceled,
+                user_ws_statuses: &user_ws_statuses,
+                open_after_ids: &open_after_ids,
+            })
+            .await?;
             publish_control_result(
                 publisher,
                 &config.operator_results_stream,
@@ -478,7 +398,7 @@ async fn handle_cancel_bot_open(
 
 fn cancel_result_status(
     divergences: &[String],
-    not_canceled: &std::collections::HashMap<String, String>,
+    not_canceled: &HashMap<String, String>,
 ) -> &'static str {
     if !divergences.is_empty() {
         "DIVERGED"
@@ -487,6 +407,109 @@ fn cancel_result_status(
     } else {
         "CONFIRMED"
     }
+}
+
+async fn wait_for_cancel_confirmations(
+    store: &StateStore,
+    command_id: &str,
+    order_ids: &[String],
+    timeout_ms: u64,
+) -> Result<HashMap<String, String>> {
+    let deadline = now_ms().saturating_add(timeout_ms);
+    loop {
+        let statuses = store.cancel_request_statuses(command_id, order_ids).await?;
+        let all_terminal = order_ids.iter().all(|order_id| {
+            matches!(
+                statuses.get(order_id).map(String::as_str),
+                Some("CONFIRMED" | "DIVERGED" | "FAILED")
+            )
+        });
+        if all_terminal || now_ms() >= deadline {
+            return Ok(statuses);
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
+}
+
+struct CancelFinalizeContext<'a> {
+    publisher: &'a mut StreamProducer,
+    store: &'a StateStore,
+    execution_reports_stream: &'a str,
+    order_tracker: &'a OrderTracker,
+    command_id: &'a str,
+    source: &'a str,
+    canceled_order_ids: &'a [String],
+    user_ws_statuses: &'a HashMap<String, String>,
+    open_after_ids: &'a HashSet<String>,
+}
+
+async fn finalize_cancel_confirmations(ctx: CancelFinalizeContext<'_>) -> Result<Vec<String>> {
+    let mut divergences = Vec::new();
+    for order_id in ctx.canceled_order_ids {
+        if matches!(
+            ctx.user_ws_statuses.get(order_id).map(String::as_str),
+            Some("CONFIRMED")
+        ) {
+            info!(
+                command_id = %ctx.command_id,
+                order_id = %order_id,
+                "Cancel confirmed by user WebSocket"
+            );
+            continue;
+        }
+        if ctx.open_after_ids.contains(order_id) {
+            warn!(
+                command_id = %ctx.command_id,
+                order_id = %order_id,
+                "Canceled order still appears in CLOB open orders after confirmation timeout"
+            );
+            divergences.push(order_id.clone());
+            ctx.store
+                .record_cancel_request(
+                    ctx.command_id,
+                    order_id,
+                    "DIVERGED",
+                    &json!({"source": ctx.source, "reason": "order still open after cancel confirmation timeout"}),
+                )
+                .await?;
+            continue;
+        }
+        if let Some(order) = resolve_bot_order(ctx.store, ctx.order_tracker, order_id).await? {
+            ctx.order_tracker.remove_order(order_id).await;
+            publish_cancelled_report(
+                ctx.publisher,
+                ctx.store,
+                ctx.execution_reports_stream,
+                order.signal_id,
+                order.order_id,
+            )
+            .await?;
+            ctx.store
+                .record_cancel_request(
+                    ctx.command_id,
+                    order_id,
+                    "CONFIRMED",
+                    &json!({"source": ctx.source, "confirmed_by": "clob_open_orders_fallback"}),
+                )
+                .await?;
+        } else {
+            warn!(
+                command_id = %ctx.command_id,
+                order_id = %order_id,
+                "Canceled order could not be reconciled to a bot order"
+            );
+            divergences.push(order_id.clone());
+            ctx.store
+                .record_cancel_request(
+                    ctx.command_id,
+                    order_id,
+                    "DIVERGED",
+                    &json!({"source": ctx.source, "reason": "unresolvable bot order"}),
+                )
+                .await?;
+        }
+    }
+    Ok(divergences)
 }
 
 async fn bot_open_order_ids(

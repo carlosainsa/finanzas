@@ -53,6 +53,7 @@ class TradeSignal(BaseModel):
     size: float = Field(gt=0)
     confidence: float = Field(ge=0, le=1)
     timestamp_ms: int
+    source_timestamp_ms: int | None = None
     strategy: str | None = None
 
 

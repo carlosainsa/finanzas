@@ -26,6 +26,7 @@ pub struct TradeSignal {
     pub size: f64,
     pub confidence: f64,
     pub timestamp_ms: u64,
+    pub source_timestamp_ms: Option<u64>,
     pub strategy: Option<String>,
 }
 

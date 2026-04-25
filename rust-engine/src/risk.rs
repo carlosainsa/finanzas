@@ -99,6 +99,7 @@ mod tests {
             kill_switch: false,
             operator_kill_switch_key: "operator:kill_switch".into(),
             order_reconciliation_timeout_ms: 10_000,
+            cancel_confirmation_timeout_ms: 10_000,
             signals_stream: "signals:stream".into(),
             execution_reports_stream: "execution:reports:stream".into(),
             operator_commands_stream: "operator:commands:stream".into(),
@@ -120,6 +121,7 @@ mod tests {
             size: 1.0,
             confidence: 0.9,
             timestamp_ms: now_ms(),
+            source_timestamp_ms: None,
             strategy: Some("test".into()),
         }
     }

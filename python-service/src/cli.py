@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="polymarket-operator")
     parser.add_argument("--api-url", default=settings.operator_api_url)
     parser.add_argument("--token", default=settings.operator_api_token)
+    parser.add_argument("--read-token", default=settings.operator_read_token)
+    parser.add_argument("--control-token", default=settings.operator_control_token)
     parser.add_argument("--output", choices=("table", "json"), default="table")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -41,6 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("streams")
     subparsers.add_parser("orders")
     subparsers.add_parser("positions")
+    subparsers.add_parser("metrics")
+    control_results = subparsers.add_parser("control-results")
+    control_results.add_argument("--limit", type=int)
     cancel_all = subparsers.add_parser("cancel-all")
     cancel_all.add_argument("--reason", required=True)
     cancel_all.add_argument("--operator")
@@ -66,18 +71,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 def dispatch(args: argparse.Namespace) -> JsonObject:
     api_url = str(args.api_url).rstrip("/")
-    headers = {"Authorization": f"Bearer {args.token}"} if args.token else None
-    with httpx.Client(base_url=api_url, timeout=10.0, headers=headers) as client:
+    with httpx.Client(base_url=api_url, timeout=10.0) as client:
         if args.command == "status":
-            return request_json(client, "GET", "/status")
+            return request_json(client, "GET", "/status", token=read_token(args))
         if args.command == "risk":
-            return request_json(client, "GET", "/risk")
+            return request_json(client, "GET", "/risk", token=read_token(args))
         if args.command == "streams":
-            return request_json(client, "GET", "/streams")
+            return request_json(client, "GET", "/streams", token=read_token(args))
         if args.command == "orders":
-            return request_json(client, "GET", "/orders/open")
+            return request_json(client, "GET", "/orders/open", token=read_token(args))
         if args.command == "positions":
-            return request_json(client, "GET", "/positions")
+            return request_json(client, "GET", "/positions", token=read_token(args))
+        if args.command == "metrics":
+            return request_json(client, "GET", "/metrics", token=read_token(args))
+        if args.command == "control-results":
+            return request_json(
+                client,
+                "GET",
+                "/control/results",
+                params=optional_params({"limit": args.limit}),
+                token=read_token(args),
+            )
         if args.command == "cancel-all":
             if not args.confirm:
                 raise SystemExit("cancel-all requires --confirm")
@@ -91,6 +105,7 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                     "confirm": True,
                     "confirmation_phrase": args.confirmation_phrase,
                 },
+                token=control_token(args),
             )
         if args.command == "cancel-bot-open":
             return request_json(
@@ -98,6 +113,7 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                 "POST",
                 "/orders/cancel-bot-open",
                 json={"reason": args.reason, "operator": args.operator},
+                token=control_token(args),
             )
         if args.command == "discover-markets":
             params = optional_params(
@@ -108,7 +124,9 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                     "min_volume": args.min_volume,
                 }
             )
-            return request_json(client, "GET", "/markets/discover", params=params)
+            return request_json(
+                client, "GET", "/markets/discover", params=params, token=read_token(args)
+            )
         if args.command == "kill-switch":
             return dispatch_kill_switch(client, args)
     raise ValueError(f"unsupported command: {args.command}")
@@ -120,11 +138,15 @@ def dispatch_kill_switch(client: httpx.Client, args: argparse.Namespace) -> Json
         "operator": args.operator,
     }
     if args.state == "on":
-        return request_json(client, "POST", "/control/kill-switch", json=payload)
+        return request_json(
+            client, "POST", "/control/kill-switch", json=payload, token=control_token(args)
+        )
     if not args.confirm:
         raise SystemExit("kill-switch off requires --confirm")
     payload["confirm"] = True
-    return request_json(client, "POST", "/control/resume", json=payload)
+    return request_json(
+        client, "POST", "/control/resume", json=payload, token=control_token(args)
+    )
 
 
 def request_json(
@@ -133,8 +155,10 @@ def request_json(
     path: str,
     json: dict[str, object] | None = None,
     params: dict[str, QueryValue] | None = None,
+    token: str | None = None,
 ) -> JsonObject:
-    response = client.request(method, path, json=json, params=params)
+    headers = {"Authorization": f"Bearer {token}"} if token else None
+    response = client.request(method, path, json=json, params=params, headers=headers)
     if response.status_code >= 400:
         raise httpx.HTTPStatusError(
             f"{method} {path} returned {response.status_code}: {response.text}",
@@ -149,6 +173,14 @@ def request_json(
 
 def optional_params(params: dict[str, QueryValue | None]) -> dict[str, QueryValue]:
     return {key: value for key, value in params.items() if value is not None}
+
+
+def read_token(args: argparse.Namespace) -> str | None:
+    return args.read_token or args.token or args.control_token
+
+
+def control_token(args: argparse.Namespace) -> str | None:
+    return args.control_token or args.token
 
 
 def print_table(value: object, indent: int = 0) -> None:

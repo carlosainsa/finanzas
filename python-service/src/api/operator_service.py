@@ -1,5 +1,6 @@
 import json
 import time
+from collections.abc import Iterable
 from typing import Any, Protocol, cast
 from uuid import uuid4
 
@@ -239,7 +240,7 @@ async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, objec
     reports = await recent_execution_reports(redis, count=count)
     results = await control_results(redis, count=count)
     signals = await signal_index(redis, count=count)
-    latency_values = report_latencies(reports, signals)
+    latency = stage_latencies(reports, signals)
     return {
         "signals_received": len(signals),
         "signals_rejected": sum(1 for report in reports if report.get("status") == "ERROR"),
@@ -247,11 +248,17 @@ async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, objec
             1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED", "MATCHED"}
         ),
         "clob_errors": sum(1 for report in reports if report.get("error")),
+        "clob_errors_by_type": count_by_key(error_type(report.get("error")) for report in reports),
         "execution_reports": len(reports),
         "control_results": len(results),
-        "ws_to_report_latency_ms": sum(latency_values) / len(latency_values)
-        if latency_values
-        else None,
+        "control_results_by_type": count_by_key(
+            str(result.get("command_type") or result.get("type") or "unknown")
+            for result in results
+        ),
+        "ws_to_report_latency_ms": average(latency["ws_to_report"]),
+        "ws_to_signal_latency_ms": average(latency["ws_to_signal"]),
+        "signal_to_order_latency_ms": average(latency["signal_to_order"]),
+        "order_to_report_latency_ms": average(latency["order_to_report"]),
         "source": [
             settings.signals_stream,
             settings.execution_reports_stream,
@@ -275,6 +282,76 @@ def report_latencies(
     return values
 
 
+def stage_latencies(
+    reports: list[dict[str, object]], signals: dict[str, dict[str, object]]
+) -> dict[str, list[float]]:
+    values: dict[str, list[float]] = {
+        "ws_to_signal": [],
+        "signal_to_order": [],
+        "order_to_report": [],
+        "ws_to_report": [],
+    }
+    reports_by_signal: dict[str, list[dict[str, object]]] = {}
+    for signal_id, signal in signals.items():
+        signal_ts = as_float(signal.get("timestamp_ms"))
+        source_ts = as_float(signal.get("source_timestamp_ms"))
+        if signal_ts >= source_ts > 0:
+            values["ws_to_signal"].append(signal_ts - source_ts)
+        reports_by_signal[signal_id] = []
+
+    for report in reports:
+        signal_id = str(report.get("signal_id", ""))
+        if signal_id in reports_by_signal:
+            reports_by_signal[signal_id].append(report)
+
+    terminal_statuses = {"MATCHED", "CANCELLED", "ERROR"}
+    for signal_id, signal_reports in reports_by_signal.items():
+        signal = signals[signal_id]
+        signal_ts = as_float(signal.get("timestamp_ms"))
+        source_ts = as_float(signal.get("source_timestamp_ms"))
+        ordered = sorted(signal_reports, key=lambda report: as_float(report.get("timestamp_ms")))
+        if not ordered:
+            continue
+        first_report_ts = as_float(ordered[0].get("timestamp_ms"))
+        if first_report_ts >= signal_ts > 0:
+            values["signal_to_order"].append(first_report_ts - signal_ts)
+        terminal_reports = [
+            report for report in ordered if report.get("status") in terminal_statuses
+        ]
+        if terminal_reports and first_report_ts > 0:
+            terminal_ts = as_float(terminal_reports[-1].get("timestamp_ms"))
+            if terminal_ts >= first_report_ts:
+                values["order_to_report"].append(terminal_ts - first_report_ts)
+            if terminal_ts >= source_ts > 0:
+                values["ws_to_report"].append(terminal_ts - source_ts)
+        elif first_report_ts >= source_ts > 0:
+            values["ws_to_report"].append(first_report_ts - source_ts)
+    return values
+
+
+def average(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def count_by_key(values: Iterable[object]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        if not value:
+            continue
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def error_type(value: object) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text.split(":", 1)[0].lower().replace(" ", "_")
+
+
 def prometheus_metrics(metrics: dict[str, object]) -> str:
     names = {
         "signals_received": "polymarket_signals_received_total",
@@ -284,6 +361,9 @@ def prometheus_metrics(metrics: dict[str, object]) -> str:
         "execution_reports": "polymarket_execution_reports_total",
         "control_results": "polymarket_control_results_total",
         "ws_to_report_latency_ms": "polymarket_ws_to_report_latency_ms",
+        "ws_to_signal_latency_ms": "polymarket_ws_to_signal_latency_ms",
+        "signal_to_order_latency_ms": "polymarket_signal_to_order_latency_ms",
+        "order_to_report_latency_ms": "polymarket_order_to_report_latency_ms",
     }
     lines = []
     for key, metric_name in names.items():
