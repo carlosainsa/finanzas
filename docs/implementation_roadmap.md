@@ -39,6 +39,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Use DuckDB for calibration, realized edge, maker/taker style analysis, and strategy PnL reports.
 - Keep Postgres as operational state; use Parquet/DuckDB for research and backtesting.
 - Initial implementation exports Redis Streams to partitioned Parquet and creates DuckDB views as described in [data_lake_plan.md](data_lake_plan.md).
+- Financial, learning, and game-theory model plans are documented in [modeling_plan.md](modeling_plan.md) and [game_theory_plan.md](game_theory_plan.md).
 
 ## Phase 5: Market Discovery and Evidence Scoring
 
@@ -62,6 +63,34 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - GitHub Actions runs `scripts/check_all.sh` on push and pull request, with Cargo, pip, and npm caches.
 - CI rejects stale generated OpenAPI/TypeScript artifacts.
 - The dashboard separates read/control tokens and shows recent `/control/results`.
+
+## Next Steps
+
+1. Research dataset quality
+   - Add incremental data lake export state so Redis Stream IDs are not re-exported blindly.
+   - Add market metadata snapshots to the data lake so strategy results can be grouped by liquidity, category, end date, and market type.
+   - Add explicit model/data version fields to signal and research outputs.
+
+2. Quantitative baseline
+   - Implement an offline deterministic baseline using spread, depth, orderbook imbalance, short-horizon momentum, and stale-market filters.
+   - Compare the baseline against `passive_spread_capture_v1` with `backtest_summary`, `post_fill_pnl_horizons`, and adverse-selection metrics.
+   - Add walk-forward splits by date before any model is considered for dry-run promotion.
+
+3. Game-theory research loop
+   - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data.
+   - Use `adverse_selection_by_strategy` to reject passive strategies that show negative post-fill PnL after 30 seconds.
+   - Use `quote_competition` and `fill_rate_by_distance_to_mid` to tune quote distance, timeout, and cancel policy.
+   - Treat `binary_no_arbitrage` as an advisory research signal until fees, spread, latency, and fill probability are modeled.
+
+4. Learning-model readiness
+   - Build feature tables from DuckDB for the supervised fair-probability and fill/slippage models described in [modeling_plan.md](modeling_plan.md).
+   - Add calibration metrics: Brier score, log loss, reliability buckets, and realized edge by probability bucket.
+   - Evaluate gradient boosting only after the deterministic baseline is reproducible and stable.
+
+5. Promotion gates
+   - Add a pre-live report that combines realized edge, fill-rate, adverse-selection rate, slippage, and drawdown.
+   - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
+   - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.
 
 ## Acceptance Criteria
 

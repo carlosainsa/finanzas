@@ -60,6 +60,16 @@ PYTHONPATH=python-service python -m src.research.backtest \
 
 The initial report writes `backtest_trades.parquet` and `backtest_summary.parquet` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, and error counts. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
 
+Game-theory reports can also be generated from the same DuckDB database:
+
+```bash
+PYTHONPATH=python-service python -m src.research.game_theory \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/game_theory
+```
+
+This writes post-fill PnL horizons, fill-rate by distance to mid, adverse-selection summaries, quote competition, and binary no-arbitrage gaps. The model intent is documented in [game_theory_plan.md](game_theory_plan.md) and [modeling_plan.md](modeling_plan.md).
+
 ## Notes
 
 - This exporter is batch-oriented. It reads the latest stream range and overwrites the current day's `part-000.parquet`.
