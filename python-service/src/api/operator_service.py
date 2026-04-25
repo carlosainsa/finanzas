@@ -49,7 +49,7 @@ async def set_kill_switch(
     redis: RedisLike, enabled: bool, reason: str, operator: str | None
 ) -> dict[str, object]:
     await redis.set(settings.operator_kill_switch_key, "1" if enabled else "0")
-    command = {
+    command: dict[str, object] = {
         "type": "kill_switch",
         "enabled": enabled,
         "reason": reason,
@@ -61,16 +61,48 @@ async def set_kill_switch(
 
 
 async def request_cancel_all(
+    redis: RedisLike,
+    reason: str,
+    operator: str | None,
+    confirm: bool,
+    confirmation_phrase: str | None,
+) -> dict[str, object]:
+    return await publish_control_command(
+        redis,
+        "cancel_all",
+        reason,
+        operator,
+        {
+            "confirm": confirm,
+            "confirmation_phrase": confirmation_phrase,
+            "scope": "account",
+        },
+    )
+
+
+async def request_cancel_bot_open(
     redis: RedisLike, reason: str, operator: str | None
 ) -> dict[str, object]:
+    return await publish_control_command(redis, "cancel_bot_open", reason, operator)
+
+
+async def publish_control_command(
+    redis: RedisLike,
+    command_type: str,
+    reason: str,
+    operator: str | None,
+    extra_fields: dict[str, object] | None = None,
+) -> dict[str, object]:
     command_id = str(uuid4())
-    command = {
-        "type": "cancel_all",
+    command: dict[str, object] = {
+        "type": command_type,
         "command_id": command_id,
         "reason": reason,
         "operator": operator,
         "timestamp_ms": now_ms(),
     }
+    if extra_fields:
+        command.update(extra_fields)
     await redis.xadd(settings.operator_commands_stream, {"payload": json.dumps(command)})
     return {"accepted": True, "command": command}
 
@@ -174,11 +206,13 @@ async def positions(
 
 async def strategy_metrics(redis: RedisLike, count: int = 500) -> dict[str, object]:
     reports = await recent_execution_reports(redis, count=count)
+    signals = await signal_index(redis, count=count)
     total = len(reports)
     matched = sum(1 for report in reports if report.get("status") == "MATCHED")
     open_count = sum(1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED"})
     errors = sum(1 for report in reports if report.get("status") == "ERROR")
     filled_size = sum(as_float(report.get("filled_size")) for report in reports)
+    latency_values = report_latencies(reports, signals)
     return {
         "sample_size": total,
         "matched": matched,
@@ -187,8 +221,58 @@ async def strategy_metrics(redis: RedisLike, count: int = 500) -> dict[str, obje
         "match_rate": matched / total if total else 0.0,
         "error_rate": errors / total if total else 0.0,
         "filled_size": filled_size,
+        "latency_ms": sum(latency_values) / len(latency_values)
+        if latency_values
+        else None,
         "source": settings.execution_reports_stream,
     }
+
+
+async def control_results(
+    redis: RedisLike, count: int = 100
+) -> list[dict[str, object]]:
+    entries = await redis.xrevrange(settings.operator_results_stream, count=count)
+    return [payload for _, payload in parse_stream_payloads(entries)]
+
+
+async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, object]:
+    reports = await recent_execution_reports(redis, count=count)
+    results = await control_results(redis, count=count)
+    signals = await signal_index(redis, count=count)
+    latency_values = report_latencies(reports, signals)
+    return {
+        "signals_received": len(signals),
+        "signals_rejected": sum(1 for report in reports if report.get("status") == "ERROR"),
+        "orders_submitted": sum(
+            1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED", "MATCHED"}
+        ),
+        "clob_errors": sum(1 for report in reports if report.get("error")),
+        "execution_reports": len(reports),
+        "control_results": len(results),
+        "ws_to_report_latency_ms": sum(latency_values) / len(latency_values)
+        if latency_values
+        else None,
+        "source": [
+            settings.signals_stream,
+            settings.execution_reports_stream,
+            settings.operator_results_stream,
+        ],
+    }
+
+
+def report_latencies(
+    reports: list[dict[str, object]], signals: dict[str, dict[str, object]]
+) -> list[float]:
+    values: list[float] = []
+    for report in reports:
+        signal = signals.get(str(report.get("signal_id", "")))
+        if signal is None:
+            continue
+        report_ts = as_float(report.get("timestamp_ms"))
+        signal_ts = as_float(signal.get("timestamp_ms"))
+        if report_ts >= signal_ts > 0:
+            values.append(report_ts - signal_ts)
+    return values
 
 
 async def recent_execution_reports(

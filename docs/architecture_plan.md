@@ -16,6 +16,7 @@ This document turns the external repo analysis in [repo_ideas.md](repo_ideas.md)
   - `signals:deadletter`
 - **Postgres** is optional today and should become the recommended state store for real operation.
 - **FastAPI** exposes Operator API endpoints, optional bearer auth, `/api/*` browser aliases, and serves the built dashboard when `frontend/dist` exists.
+- **Operator controls** distinguish bot-scoped cancellation from emergency account-wide cancellation.
 
 ## Target Architecture
 
@@ -40,6 +41,7 @@ The next stage should improve trading quality before adding a web dashboard.
    - Build Operator API and CLI as the official v1 interface.
    - Serve the dashboard from FastAPI after the API and state model are stable.
    - Protect operator routes with bearer auth when `OPERATOR_API_TOKEN` is configured.
+   - Prefer `OPERATOR_READ_TOKEN` and `OPERATOR_CONTROL_TOKEN` for production role separation.
 
 5. **Research loop**
    - Add Parquet/DuckDB data lake for historical market data and strategy evaluation.

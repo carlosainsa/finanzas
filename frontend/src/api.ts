@@ -1,4 +1,5 @@
-import type { components } from './generated/openapi';
+import type { components, paths } from './generated/openapi';
+import { createOperatorClient } from './generated/client';
 
 export type PendingSummary = components['schemas']['PendingSummary'];
 export type StreamSummary = components['schemas']['StreamSummary'];
@@ -8,6 +9,8 @@ export type ExecutionReport = components['schemas']['ExecutionReport'];
 export type Position = components['schemas']['Position'];
 export type MarketDiscovery = components['schemas']['ScoredMarket'];
 export type StrategyMetrics = components['schemas']['StrategyMetricsResponse'];
+export type ControlResult = components['schemas']['ControlResult'];
+export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 
 export type DashboardData = {
   status: StatusResponse;
@@ -18,10 +21,13 @@ export type DashboardData = {
   reports: ExecutionReport[];
   markets: MarketDiscovery[];
   metrics: StrategyMetrics;
+  controlResults: ControlResult[];
+  runtime: RuntimeMetrics;
 };
 
-const API_BASE = import.meta.env.VITE_OPERATOR_API_BASE ?? '/api';
+const API_BASE = import.meta.env.VITE_OPERATOR_API_BASE ?? '';
 const TOKEN_STORAGE_KEY = 'polymarket.operator.token';
+const client = createOperatorClient(API_BASE);
 
 export function getOperatorToken(): string {
   return import.meta.env.VITE_OPERATOR_API_TOKEN ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
@@ -36,34 +42,40 @@ export function setOperatorToken(token: string): void {
   }
 }
 
-function requestHeaders(extra?: HeadersInit): HeadersInit {
-  const token = getOperatorToken();
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...extra,
-  };
+client.use({
+  onRequest({ request }) {
+    const token = getOperatorToken();
+    if (token) {
+      request.headers.set('Authorization', `Bearer ${token}`);
+    }
+    return request;
+  },
+});
+
+function unwrap<T>(data: T | undefined, error: unknown, path: string): T {
+  if (error || data === undefined) {
+    throw new Error(`${path} failed`);
+  }
+  return data;
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: requestHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`);
-  }
-  return response.json() as Promise<T>;
+async function getJson<T>(path: keyof paths): Promise<T> {
+  const { data, error } = await client.GET(path as never);
+  return unwrap(data as T | undefined, error, String(path));
 }
 
 export async function loadDashboard(): Promise<DashboardData> {
-  const status = await getJson<StatusResponse>('/status');
-  const [risk, streams, orders, positions, reports, markets, metrics] = await Promise.all([
-    getJson<RiskResponse>('/risk'),
-    getJson<{ streams: StreamSummary[] }>('/streams'),
-    getJson<{ orders: ExecutionReport[] }>('/orders/open'),
-    getJson<{ positions: Position[] }>('/positions'),
-    getJson<{ reports: ExecutionReport[] }>('/execution-reports?limit=50'),
-    getJson<{ markets: MarketDiscovery[] }>('/markets/discover?limit=12'),
-    getJson<StrategyMetrics>('/strategy/metrics?limit=500'),
+  const status = await getJson<StatusResponse>('/api/status');
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, runtime] = await Promise.all([
+    getJson<RiskResponse>('/api/risk'),
+    getJson<{ streams: StreamSummary[] }>('/api/streams'),
+    getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
+    getJson<{ positions: Position[] }>('/api/positions'),
+    client.GET('/api/execution-reports', { params: { query: { limit: 50 } } }),
+    client.GET('/api/markets/discover', { params: { query: { limit: 12 } } }),
+    client.GET('/api/strategy/metrics', { params: { query: { limit: 500 } } }),
+    client.GET('/api/control/results', { params: { query: { limit: 20 } } }),
+    client.GET('/api/metrics', { params: { query: { limit: 500 } } }),
   ]);
 
   return {
@@ -72,35 +84,48 @@ export async function loadDashboard(): Promise<DashboardData> {
     streams: streams.streams,
     orders: orders.orders,
     positions: positions.positions,
-    reports: reports.reports,
-    markets: markets.markets,
-    metrics,
+    reports: unwrap(reports.data, reports.error, '/api/execution-reports').reports,
+    markets: unwrap(markets.data, markets.error, '/api/markets/discover').markets,
+    metrics: unwrap(metrics.data, metrics.error, '/api/strategy/metrics'),
+    controlResults: unwrap(controlResults.data, controlResults.error, '/api/control/results').results,
+    runtime: unwrap(runtime.data, runtime.error, '/api/metrics'),
   };
 }
 
 export async function setKillSwitch(enabled: boolean): Promise<void> {
   const path = enabled ? '/control/kill-switch' : '/control/resume';
-  const body = enabled
-    ? { reason: 'dashboard operator pause', operator: 'dashboard' }
-    : { confirm: true, reason: 'dashboard resume', operator: 'dashboard' };
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: requestHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`);
+  const { error } = enabled
+    ? await client.POST('/api/control/kill-switch', {
+      body: { reason: 'dashboard operator pause', operator: 'dashboard' },
+    })
+    : await client.POST('/api/control/resume', {
+      body: { confirm: true, reason: 'dashboard resume', operator: 'dashboard' },
+    });
+  if (error) {
+    throw new Error(`${path} failed`);
   }
 }
 
-export async function cancelAllOrders(): Promise<void> {
-  const response = await fetch(`${API_BASE}/orders/cancel-all`, {
-    method: 'POST',
-    headers: requestHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ reason: 'dashboard cancel all', operator: 'dashboard' }),
+export async function cancelBotOpenOrders(): Promise<void> {
+  const { error } = await client.POST('/api/orders/cancel-bot-open', {
+    body: { reason: 'dashboard cancel bot open orders', operator: 'dashboard' },
   });
-  if (!response.ok) {
-    throw new Error(`/orders/cancel-all returned ${response.status}`);
+  if (error) {
+    throw new Error('/api/orders/cancel-bot-open failed');
+  }
+}
+
+export async function cancelAllOrders(confirmationPhrase: string): Promise<void> {
+  const { error } = await client.POST('/api/orders/cancel-all', {
+    body: {
+      reason: 'dashboard emergency cancel all',
+      operator: 'dashboard',
+      confirm: true,
+      confirmation_phrase: confirmationPhrase,
+    },
+  });
+  if (error) {
+    throw new Error('/api/orders/cancel-all failed');
   }
 }
 
@@ -135,6 +160,7 @@ export const fallbackData: DashboardData = {
   positions: [],
   reports: [],
   markets: [],
+  controlResults: [],
   metrics: {
     sample_size: 0,
     matched: 0,
@@ -143,6 +169,17 @@ export const fallbackData: DashboardData = {
     match_rate: 0,
     error_rate: 0,
     filled_size: 0,
+    latency_ms: null,
     source: 'execution:reports:stream',
+  },
+  runtime: {
+    signals_received: 0,
+    signals_rejected: 0,
+    orders_submitted: 0,
+    clob_errors: 0,
+    execution_reports: 0,
+    control_results: 0,
+    ws_to_report_latency_ms: null,
+    source: ['signals:stream', 'execution:reports:stream', 'operator:results:stream'],
   },
 };

@@ -41,7 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("streams")
     subparsers.add_parser("orders")
     subparsers.add_parser("positions")
-    subparsers.add_parser("cancel-all")
+    cancel_all = subparsers.add_parser("cancel-all")
+    cancel_all.add_argument("--reason", required=True)
+    cancel_all.add_argument("--operator")
+    cancel_all.add_argument("--confirm", action="store_true")
+    cancel_all.add_argument("--confirmation-phrase", required=True)
+    cancel_bot_open = subparsers.add_parser("cancel-bot-open")
+    cancel_bot_open.add_argument("--reason", required=True)
+    cancel_bot_open.add_argument("--operator")
     discover = subparsers.add_parser("discover-markets")
     discover.add_argument("--limit", type=int)
     discover.add_argument("--query")
@@ -72,11 +79,25 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
         if args.command == "positions":
             return request_json(client, "GET", "/positions")
         if args.command == "cancel-all":
+            if not args.confirm:
+                raise SystemExit("cancel-all requires --confirm")
             return request_json(
                 client,
                 "POST",
                 "/orders/cancel-all",
-                json={"reason": "operator cancel all", "operator": "cli"},
+                json={
+                    "reason": args.reason,
+                    "operator": args.operator,
+                    "confirm": True,
+                    "confirmation_phrase": args.confirmation_phrase,
+                },
+            )
+        if args.command == "cancel-bot-open":
+            return request_json(
+                client,
+                "POST",
+                "/orders/cancel-bot-open",
+                json={"reason": args.reason, "operator": args.operator},
             )
         if args.command == "discover-markets":
             params = optional_params(

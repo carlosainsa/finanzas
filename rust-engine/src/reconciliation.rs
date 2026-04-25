@@ -32,10 +32,10 @@ pub(crate) struct TrackedOrder {
 }
 
 impl TrackedOrder {
-    fn from_stored_order(order_id: &str, order: StoredOrder) -> Self {
+    pub(crate) fn from_stored_order(_order_id: &str, order: StoredOrder) -> Self {
         Self {
             signal_id: order.signal_id,
-            order_id: order_id.to_owned(),
+            order_id: order.order_id,
             market_id: order.market_id,
             asset_id: order.asset_id,
             submitted_at_ms: now_ms(),
@@ -79,6 +79,18 @@ impl OrderTracker {
             .await
             .drain()
             .map(|(_, order)| order)
+            .collect()
+    }
+
+    pub(crate) async fn open_order_ids(&self) -> Vec<String> {
+        self.inner.lock().await.keys().cloned().collect()
+    }
+
+    pub(crate) async fn remove_orders(&self, order_ids: &[String]) -> Vec<TrackedOrder> {
+        let mut inner = self.inner.lock().await;
+        order_ids
+            .iter()
+            .filter_map(|order_id| inner.remove(order_id))
             .collect()
     }
 

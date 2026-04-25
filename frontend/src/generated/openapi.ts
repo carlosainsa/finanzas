@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/control/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Control Results */
+        get: operations["get_control_results_api_control_results_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/control/resume": {
         parameters: {
             query?: never;
@@ -89,6 +106,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Metrics */
+        get: operations["get_runtime_metrics_api_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders/cancel-all": {
         parameters: {
             query?: never;
@@ -100,6 +134,23 @@ export interface paths {
         put?: never;
         /** Cancel All */
         post: operations["cancel_all_api_orders_cancel_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/orders/cancel-bot-open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Bot Open */
+        post: operations["cancel_bot_open_api_orders_cancel_bot_open_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -225,6 +276,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/control/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Control Results */
+        get: operations["get_control_results_control_results_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/control/resume": {
         parameters: {
             query?: never;
@@ -293,6 +361,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Metrics */
+        get: operations["get_runtime_metrics_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orders/cancel-all": {
         parameters: {
             query?: never;
@@ -304,6 +389,23 @@ export interface paths {
         put?: never;
         /** Cancel All */
         post: operations["cancel_all_orders_cancel_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/cancel-bot-open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Bot Open */
+        post: operations["cancel_bot_open_orders_cancel_bot_open_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -418,11 +520,28 @@ export interface components {
     schemas: {
         /** CancelAllRequest */
         CancelAllRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+            /** Confirmation Phrase */
+            confirmation_phrase?: string | null;
             /** Operator */
             operator?: string | null;
             /**
              * Reason
              * @default operator cancel all
+             */
+            reason: string;
+        };
+        /** CancelBotOpenRequest */
+        CancelBotOpenRequest: {
+            /** Operator */
+            operator?: string | null;
+            /**
+             * Reason
+             * @default operator cancel bot open orders
              */
             reason: string;
         };
@@ -448,6 +567,38 @@ export interface components {
             command: components["schemas"]["ControlCommand"];
             /** Kill Switch */
             kill_switch?: boolean | null;
+        };
+        /** ControlResult */
+        ControlResult: {
+            /** Canceled */
+            canceled?: string[] | null;
+            /** Canceled Count */
+            canceled_count?: number | null;
+            /** Command Id */
+            command_id: string;
+            /** Command Type */
+            command_type?: string | null;
+            /** Divergences */
+            divergences?: string[] | null;
+            /** Error */
+            error?: string | null;
+            /** Not Canceled */
+            not_canceled?: {
+                [key: string]: string;
+            } | null;
+            /** Status */
+            status: string;
+            /** Timestamp Ms */
+            timestamp_ms: number;
+            /** Type */
+            type: string;
+        };
+        /** ControlResultsResponse */
+        ControlResultsResponse: {
+            /** Results */
+            results: components["schemas"]["ControlResult"][];
+            /** Source */
+            source: string;
         };
         /** ExecutionReport */
         ExecutionReport: {
@@ -613,6 +764,25 @@ export interface components {
             /** Source */
             source: string;
         };
+        /** RuntimeMetricsResponse */
+        RuntimeMetricsResponse: {
+            /** Clob Errors */
+            clob_errors: number;
+            /** Control Results */
+            control_results: number;
+            /** Execution Reports */
+            execution_reports: number;
+            /** Orders Submitted */
+            orders_submitted: number;
+            /** Signals Received */
+            signals_received: number;
+            /** Signals Rejected */
+            signals_rejected: number;
+            /** Source */
+            source: string[];
+            /** Ws To Report Latency Ms */
+            ws_to_report_latency_ms?: number | null;
+        };
         /** ScoredMarket */
         ScoredMarket: {
             /** Evidence Score */
@@ -647,6 +817,8 @@ export interface components {
             errors: number;
             /** Filled Size */
             filled_size: number;
+            /** Latency Ms */
+            latency_ms?: number | null;
             /** Match Rate */
             match_rate: number;
             /** Matched */
@@ -711,6 +883,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ControlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_control_results_api_control_results_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlResultsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -844,6 +1047,37 @@ export interface operations {
             };
         };
     };
+    get_runtime_metrics_api_metrics_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeMetricsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cancel_all_api_orders_cancel_all_post: {
         parameters: {
             query?: never;
@@ -854,6 +1088,39 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["CancelAllRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_bot_open_api_orders_cancel_bot_open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CancelBotOpenRequest"];
             };
         };
         responses: {
@@ -1041,6 +1308,37 @@ export interface operations {
             };
         };
     };
+    get_control_results_control_results_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlResultsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resume_control_resume_post: {
         parameters: {
             query?: never;
@@ -1161,6 +1459,37 @@ export interface operations {
             };
         };
     };
+    get_runtime_metrics_metrics_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeMetricsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cancel_all_orders_cancel_all_post: {
         parameters: {
             query?: never;
@@ -1171,6 +1500,39 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["CancelAllRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_bot_open_orders_cancel_bot_open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CancelBotOpenRequest"];
             };
         };
         responses: {

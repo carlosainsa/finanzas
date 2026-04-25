@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     port: int = 8000
     operator_api_url: str = "http://127.0.0.1:8000"
     operator_api_token: str | None = None
+    operator_read_token: str | None = None
+    operator_control_token: str | None = None
+    require_postgres_state: bool = False
     database_url: str | None = None
     data_lake_root: str = "data_lake"
     data_lake_duckdb_path: str = "data_lake/research.duckdb"

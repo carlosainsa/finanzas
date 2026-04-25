@@ -19,7 +19,10 @@ Implemented in `python-service/src/api/app.py`:
 | `GET` | `/execution-reports` | Implemented | Recent execution reports for dashboard/audit views. |
 | `GET` | `/strategy/metrics` | Implemented | Best-effort strategy metrics derived from recent execution reports. |
 | `GET` | `/markets/discover` | Implemented | Read-only Gamma market discovery and deterministic ranking. |
-| `POST` | `/orders/cancel-all` | Implemented | Publishes async `cancel_all` to Rust control and returns `202 Accepted` with `command_id`. |
+| `POST` | `/orders/cancel-bot-open` | Implemented | Cancels only open orders known to this bot through `OrderTracker`/Postgres. |
+| `POST` | `/orders/cancel-all` | Implemented | Emergency account-wide cancel requiring strong confirmation; returns `202 Accepted` with `command_id`. |
+| `GET` | `/control/results` | Implemented | Recent operator command outcomes from `operator:results:stream`. |
+| `GET` | `/metrics` | Implemented | Runtime counters and latency summaries derived from Redis Streams. |
 
 Every operator route is also available under `/api/*` so the integrated dashboard can use same-origin requests when FastAPI serves `frontend/dist`.
 
@@ -31,11 +34,17 @@ Control payloads:
 | --- | --- | --- |
 | `POST` | `/control/kill-switch` | `{ "reason": "...", "operator": "..." }` |
 | `POST` | `/control/resume` | `{ "confirm": true, "reason": "...", "operator": "..." }` |
-| `POST` | `/orders/cancel-all` | `{ "reason": "...", "operator": "..." }` |
+| `POST` | `/orders/cancel-bot-open` | `{ "reason": "...", "operator": "..." }` |
+| `POST` | `/orders/cancel-all` | `{ "reason": "...", "operator": "...", "confirm": true, "confirmation_phrase": "CANCEL ALL OPEN ORDERS" }` |
 
 API responses should be JSON-first and include enough IDs for debugging: `signal_id`, `order_id`, `market_id`, and `asset_id` where applicable.
 
-If `OPERATOR_API_TOKEN` is set, all operator routes except `/health` require `Authorization: Bearer <token>`. Local development can omit the token.
+Auth roles:
+
+- `OPERATOR_READ_TOKEN` can read status, streams, orders, positions, metrics, and control results.
+- `OPERATOR_CONTROL_TOKEN` can read and execute control actions.
+- `OPERATOR_API_TOKEN` remains a legacy token accepted for both roles.
+- Local development can omit tokens; production should set tokens and run behind TLS/reverse proxy.
 
 ## Planned CLI
 
@@ -49,6 +58,7 @@ The CLI should target operators and scripts. It should call the Operator API fir
 | `orders` | List canonical Postgres open orders when `DATABASE_URL` is configured, otherwise Redis fallback. |
 | `positions` | List canonical Postgres positions when `DATABASE_URL` is configured, otherwise Redis fallback. |
 | `discover-markets` | List ranked Gamma markets for operator review. |
+| `cancel-bot-open` | Enqueues cancellation for bot-known open orders only. |
 | `cancel-all` | Calls API and enqueues an async Rust `cancel_all` command. |
 | `kill-switch on` | Enable the kill switch. |
 | `kill-switch off` | Resume trading after `--confirm`. |

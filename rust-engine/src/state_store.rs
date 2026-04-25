@@ -9,6 +9,7 @@ pub struct StateStore {
 }
 
 pub struct StoredOrder {
+    pub order_id: String,
     pub signal_id: String,
     pub market_id: String,
     pub asset_id: String,
@@ -80,6 +81,7 @@ impl StateStore {
                 ],
             )
             .await?;
+        self.refresh_position_for_report(report).await?;
         Ok(())
     }
 
@@ -130,10 +132,35 @@ impl StateStore {
         };
 
         Ok(Some(StoredOrder {
+            order_id: order_id.to_owned(),
             signal_id: row.get("signal_id"),
             market_id: row.get("market_id"),
             asset_id: row.get("asset_id"),
         }))
+    }
+
+    pub async fn open_bot_orders(&self) -> Result<Vec<StoredOrder>> {
+        let Some(client) = &self.client else {
+            return Ok(Vec::new());
+        };
+        let rows = client
+            .query(
+                "select order_id, signal_id, market_id, asset_id
+                 from orders
+                 where status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'Delayed', 'Unmatched')
+                 order by updated_at asc",
+                &[],
+            )
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| StoredOrder {
+                order_id: row.get("order_id"),
+                signal_id: row.get("signal_id"),
+                market_id: row.get("market_id"),
+                asset_id: row.get("asset_id"),
+            })
+            .collect())
     }
 
     pub async fn record_order_lifecycle(
@@ -151,6 +178,30 @@ impl StateStore {
                  set status = $2, payload = $3, updated_at = now()
                  where order_id = $1",
                 &[&order_id, &status, &payload],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn record_cancel_request(
+        &self,
+        command_id: &str,
+        order_id: &str,
+        status: &str,
+        payload: &serde_json::Value,
+    ) -> Result<()> {
+        let Some(client) = &self.client else {
+            return Ok(());
+        };
+        client
+            .execute(
+                "insert into cancel_requests (command_id, order_id, status, payload)
+                 values ($1, $2, $3, $4)
+                 on conflict (command_id, order_id) do update set
+                    status = excluded.status,
+                    payload = excluded.payload,
+                    updated_at = now()",
+                &[&command_id, &order_id, &status, &payload],
             )
             .await?;
         Ok(())
@@ -189,53 +240,84 @@ impl StateStore {
         };
         client
             .batch_execute(
-                "
-                create table if not exists trade_signals (
-                    signal_id text primary key,
-                    market_id text not null,
-                    asset_id text not null,
-                    payload jsonb not null,
-                    created_at timestamptz not null default now()
-                );
+                "create table if not exists schema_migrations (
+                    version text primary key,
+                    applied_at timestamptz not null default now()
+                );",
+            )
+            .await?;
+        for (version, sql) in migrations() {
+            let exists = client
+                .query_opt(
+                    "select version from schema_migrations where version = $1",
+                    &[&version],
+                )
+                .await?
+                .is_some();
+            if exists {
+                continue;
+            }
+            client.batch_execute(sql).await?;
+            client
+                .execute(
+                    "insert into schema_migrations (version) values ($1)",
+                    &[&version],
+                )
+                .await?;
+        }
+        Ok(())
+    }
 
-                create table if not exists execution_reports (
-                    signal_id text not null,
-                    order_id text not null,
-                    status text not null,
-                    payload jsonb not null,
-                    created_at timestamptz not null default now(),
-                    primary key (signal_id, order_id)
-                );
-
-                create table if not exists orders (
-                    order_id text primary key,
-                    signal_id text not null,
-                    market_id text not null,
-                    asset_id text not null,
-                    status text not null,
-                    payload jsonb not null,
-                    created_at timestamptz not null default now(),
-                    updated_at timestamptz not null default now()
-                );
-
-                create table if not exists trades (
-                    trade_id text primary key,
-                    order_id text not null,
-                    signal_id text not null,
-                    status text not null,
-                    payload jsonb not null,
-                    created_at timestamptz not null default now(),
-                    updated_at timestamptz not null default now()
-                );
-
-                create table if not exists risk_snapshots (
-                    id bigserial primary key,
-                    payload jsonb not null,
-                    created_at timestamptz not null default now()
-                );
-                ",
+    async fn refresh_position_for_report(&self, report: &ExecutionReport) -> Result<()> {
+        if report.status != crate::executor::ExecutionStatus::Matched {
+            return Ok(());
+        }
+        let Some(client) = &self.client else {
+            return Ok(());
+        };
+        client
+            .execute(
+                "insert into positions (market_id, asset_id, position)
+                 select
+                    ts.market_id,
+                    ts.asset_id,
+                    sum(
+                        case
+                            when ts.payload->>'side' = 'BUY' then
+                                coalesce((er.payload->>'filled_size')::double precision, 0)
+                            else
+                                -coalesce((er.payload->>'filled_size')::double precision, 0)
+                        end
+                    ) as position
+                 from execution_reports er
+                 join trade_signals ts on ts.signal_id = er.signal_id
+                 where er.status in ('Matched', 'MATCHED')
+                   and ts.market_id = (
+                       select market_id from trade_signals where signal_id = $1
+                   )
+                   and ts.asset_id = (
+                       select asset_id from trade_signals where signal_id = $1
+                   )
+                 group by ts.market_id, ts.asset_id
+                 on conflict (market_id, asset_id) do update set
+                    position = excluded.position,
+                    updated_at = now()",
+                &[&report.signal_id],
             )
             .await?;
         Ok(())
     }
+}
+
+fn migrations() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "0001_initial",
+            include_str!("../migrations/0001_initial.sql"),
+        ),
+        (
+            "0002_cancel_requests_positions",
+            include_str!("../migrations/0002_cancel_requests_positions.sql"),
+        ),
+    ]
 }

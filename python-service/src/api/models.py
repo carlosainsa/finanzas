@@ -74,6 +74,31 @@ class ControlResponse(BaseModel):
 class CancelAllRequest(BaseModel):
     reason: str = Field(default="operator cancel all")
     operator: str | None = None
+    confirm: bool = False
+    confirmation_phrase: str | None = None
+
+
+class CancelBotOpenRequest(BaseModel):
+    reason: str = Field(default="operator cancel bot open orders")
+    operator: str | None = None
+
+
+class ControlResult(BaseModel):
+    type: str
+    command_id: str
+    status: str
+    timestamp_ms: int
+    error: str | None = None
+    command_type: str | None = None
+    canceled: list[str] | None = None
+    canceled_count: int | None = None
+    not_canceled: dict[str, str] | None = None
+    divergences: list[str] | None = None
+
+
+class ControlResultsResponse(BaseModel):
+    results: list[ControlResult]
+    source: str
 
 
 class OrdersOpenResponse(BaseModel):
@@ -105,7 +130,19 @@ class StrategyMetricsResponse(BaseModel):
     match_rate: float
     error_rate: float
     filled_size: float
+    latency_ms: float | None = None
     source: str
+
+
+class RuntimeMetricsResponse(BaseModel):
+    signals_received: int
+    signals_rejected: int
+    orders_submitted: int
+    clob_errors: int
+    execution_reports: int
+    control_results: int
+    ws_to_report_latency_ms: float | None = None
+    source: list[str]
 
 
 class MarketsDiscoverResponse(BaseModel):

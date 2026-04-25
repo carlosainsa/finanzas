@@ -13,6 +13,7 @@ import {
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  cancelBotOpenOrders,
   cancelAllOrders,
   DashboardData,
   fallbackData,
@@ -64,16 +65,28 @@ export function App() {
   }
 
   async function submitCancelAll() {
-    const confirmed = window.confirm('Cancel all open CLOB orders for the authenticated account?');
-    if (!confirmed) {
+    const phrase = window.prompt('Type CANCEL ALL OPEN ORDERS to cancel every open CLOB order for the authenticated account.');
+    if (phrase !== 'CANCEL ALL OPEN ORDERS') {
       return;
     }
     setActionBusy(true);
     try {
-      await cancelAllOrders();
+      await cancelAllOrders(phrase);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'cancel-all command failed');
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function submitCancelBotOpen() {
+    setActionBusy(true);
+    try {
+      await cancelBotOpenOrders();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'cancel bot open command failed');
     } finally {
       setActionBusy(false);
     }
@@ -179,6 +192,9 @@ export function App() {
             </button>
             <button className="dangerButton" disabled={actionBusy} onClick={() => void submitCancelAll()}>
               <XCircle size={17} /> Cancel all
+            </button>
+            <button className="dangerButton" disabled={actionBusy} onClick={() => void submitCancelBotOpen()}>
+              <XCircle size={17} /> Cancel bot
             </button>
           </div>
         </section>

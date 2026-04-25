@@ -17,6 +17,13 @@ async def get_pool() -> asyncpg.Pool | None:
     return _pool
 
 
+async def require_pool() -> asyncpg.Pool | None:
+    pool = await get_pool()
+    if pool is None and settings.require_postgres_state:
+        raise RuntimeError("DATABASE_URL is required when REQUIRE_POSTGRES_STATE=true")
+    return pool
+
+
 async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
     rows = await pool.fetch(
         """
@@ -40,22 +47,9 @@ async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
 async def positions_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
     rows = await pool.fetch(
         """
-        select
-            ts.market_id,
-            ts.asset_id,
-            sum(
-                case
-                    when ts.payload->>'side' = 'BUY' then
-                        coalesce((er.payload->>'filled_size')::double precision, 0)
-                    else
-                        -coalesce((er.payload->>'filled_size')::double precision, 0)
-                end
-            ) as position
-        from execution_reports er
-        join trade_signals ts on ts.signal_id = er.signal_id
-        where er.status in ('Matched', 'MATCHED')
-        group by ts.market_id, ts.asset_id
-        order by ts.market_id, ts.asset_id
+        select market_id, asset_id, position
+        from positions
+        order by market_id, asset_id
         """
     )
     return [

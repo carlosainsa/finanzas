@@ -3,6 +3,22 @@
     "schemas": {
       "CancelAllRequest": {
         "properties": {
+          "confirm": {
+            "default": false,
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "confirmation_phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Phrase"
+          },
           "operator": {
             "anyOf": [
               {
@@ -21,6 +37,28 @@
           }
         },
         "title": "CancelAllRequest",
+        "type": "object"
+      },
+      "CancelBotOpenRequest": {
+        "properties": {
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "reason": {
+            "default": "operator cancel bot open orders",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "CancelBotOpenRequest",
         "type": "object"
       },
       "ControlCommand": {
@@ -112,6 +150,130 @@
           "command"
         ],
         "title": "ControlResponse",
+        "type": "object"
+      },
+      "ControlResult": {
+        "properties": {
+          "canceled": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canceled"
+          },
+          "canceled_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canceled Count"
+          },
+          "command_id": {
+            "title": "Command Id",
+            "type": "string"
+          },
+          "command_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Type"
+          },
+          "divergences": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Divergences"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "not_canceled": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Canceled"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp_ms": {
+            "title": "Timestamp Ms",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "command_id",
+          "status",
+          "timestamp_ms"
+        ],
+        "title": "ControlResult",
+        "type": "object"
+      },
+      "ControlResultsResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ControlResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "results",
+          "source"
+        ],
+        "title": "ControlResultsResponse",
         "type": "object"
       },
       "ExecutionReport": {
@@ -655,6 +817,63 @@
         "title": "RiskResponse",
         "type": "object"
       },
+      "RuntimeMetricsResponse": {
+        "properties": {
+          "clob_errors": {
+            "title": "Clob Errors",
+            "type": "integer"
+          },
+          "control_results": {
+            "title": "Control Results",
+            "type": "integer"
+          },
+          "execution_reports": {
+            "title": "Execution Reports",
+            "type": "integer"
+          },
+          "orders_submitted": {
+            "title": "Orders Submitted",
+            "type": "integer"
+          },
+          "signals_received": {
+            "title": "Signals Received",
+            "type": "integer"
+          },
+          "signals_rejected": {
+            "title": "Signals Rejected",
+            "type": "integer"
+          },
+          "source": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source",
+            "type": "array"
+          },
+          "ws_to_report_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ws To Report Latency Ms"
+          }
+        },
+        "required": [
+          "signals_received",
+          "signals_rejected",
+          "orders_submitted",
+          "clob_errors",
+          "execution_reports",
+          "control_results",
+          "source"
+        ],
+        "title": "RuntimeMetricsResponse",
+        "type": "object"
+      },
       "ScoredMarket": {
         "additionalProperties": false,
         "properties": {
@@ -741,6 +960,17 @@
           "filled_size": {
             "title": "Filled Size",
             "type": "number"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
           },
           "match_rate": {
             "title": "Match Rate",
@@ -921,6 +1151,51 @@
           }
         ],
         "summary": "Enable Kill Switch"
+      }
+    },
+    "/api/control/results": {
+      "get": {
+        "operationId": "get_control_results_api_control_results_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResultsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Control Results"
       }
     },
     "/api/control/resume": {
@@ -1132,6 +1407,51 @@
         "summary": "Markets Discover"
       }
     },
+    "/api/metrics": {
+      "get": {
+        "operationId": "get_runtime_metrics_api_metrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeMetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Runtime Metrics"
+      }
+    },
     "/api/orders/cancel-all": {
       "post": {
         "operationId": "cancel_all_api_orders_cancel_all_post",
@@ -1141,6 +1461,7 @@
               "schema": {
                 "$ref": "#/components/schemas/CancelAllRequest",
                 "default": {
+                  "confirm": false,
                   "reason": "operator cancel all"
                 }
               }
@@ -1175,6 +1496,51 @@
           }
         ],
         "summary": "Cancel All"
+      }
+    },
+    "/api/orders/cancel-bot-open": {
+      "post": {
+        "operationId": "cancel_bot_open_api_orders_cancel_bot_open_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelBotOpenRequest",
+                "default": {
+                  "reason": "operator cancel bot open orders"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Bot Open"
       }
     },
     "/api/orders/open": {
@@ -1378,6 +1744,51 @@
           }
         ],
         "summary": "Enable Kill Switch"
+      }
+    },
+    "/control/results": {
+      "get": {
+        "operationId": "get_control_results_control_results_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResultsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Control Results"
       }
     },
     "/control/resume": {
@@ -1589,6 +2000,51 @@
         "summary": "Markets Discover"
       }
     },
+    "/metrics": {
+      "get": {
+        "operationId": "get_runtime_metrics_metrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeMetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Runtime Metrics"
+      }
+    },
     "/orders/cancel-all": {
       "post": {
         "operationId": "cancel_all_orders_cancel_all_post",
@@ -1598,6 +2054,7 @@
               "schema": {
                 "$ref": "#/components/schemas/CancelAllRequest",
                 "default": {
+                  "confirm": false,
                   "reason": "operator cancel all"
                 }
               }
@@ -1632,6 +2089,51 @@
           }
         ],
         "summary": "Cancel All"
+      }
+    },
+    "/orders/cancel-bot-open": {
+      "post": {
+        "operationId": "cancel_bot_open_orders_cancel_bot_open_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelBotOpenRequest",
+                "default": {
+                  "reason": "operator cancel bot open orders"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Bot Open"
       }
     },
     "/orders/open": {

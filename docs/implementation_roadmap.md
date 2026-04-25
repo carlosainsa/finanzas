@@ -26,7 +26,9 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Keep dashboard work in Phase 6 so controls are API-first.
 - Runtime kill switch is backed by Redis key `operator:kill_switch` and read by Rust before each signal is accepted.
 - `cancel-all` publishes `cancel_all` to `operator:commands:stream`; Rust consumes it through `rust-control` and calls CLOB `cancel_all_orders()` in live mode.
-- Operator routes support optional bearer auth through `OPERATOR_API_TOKEN`.
+- `cancel-bot-open` is the preferred control path and only cancels orders known by this bot.
+- `cancel-all` is emergency-only and requires `confirmation_phrase = "CANCEL ALL OPEN ORDERS"`.
+- Operator routes support optional role-based bearer auth through `OPERATOR_READ_TOKEN`, `OPERATOR_CONTROL_TOKEN`, and legacy `OPERATOR_API_TOKEN`.
 
 ## Phase 4: Research Data Lake
 
@@ -50,7 +52,8 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - All dashboard actions must call the same Operator API used by the CLI.
 - Initial implementation is a TypeScript React dashboard in `frontend/` that consumes only Operator API endpoints.
 - FastAPI serves the built dashboard at `/`, while `/api/*` aliases keep the browser client and standalone API compatible.
-- Frontend API types are generated from OpenAPI with `npm run generate:types`.
+- Frontend API types and the typed OpenAPI client are generated from OpenAPI with `npm run generate:types`.
+- Local verification is consolidated in `scripts/check_all.sh`.
 
 ## Acceptance Criteria
 
