@@ -36,6 +36,7 @@ export function App() {
   const [actionBusy, setActionBusy] = useState(false);
   const [readTokenInput, setReadTokenInput] = useState(() => getReadToken());
   const [controlTokenInput, setControlTokenInput] = useState(() => getControlToken());
+  const [lastCommandId, setLastCommandId] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -75,7 +76,8 @@ export function App() {
     }
     setActionBusy(true);
     try {
-      await cancelAllOrders(phrase);
+      const response = await cancelAllOrders(phrase);
+      setLastCommandId(response.command.command_id ?? null);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'cancel-all command failed');
@@ -85,9 +87,14 @@ export function App() {
   }
 
   async function submitCancelBotOpen() {
+    const confirmed = window.confirm('Cancel only bot-tracked open orders? This does not cancel unrelated account orders.');
+    if (!confirmed) {
+      return;
+    }
     setActionBusy(true);
     try {
-      await cancelBotOpenOrders();
+      const response = await cancelBotOpenOrders();
+      setLastCommandId(response.command.command_id ?? null);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'cancel bot open command failed');
@@ -108,6 +115,17 @@ export function App() {
     () => data.streams.reduce((total, stream) => total + stream.length, 0),
     [data.streams],
   );
+  const ordersByStatus = useMemo(() => groupOrdersByStatus(data.orders, data.reports), [data.orders, data.reports]);
+  const latestCommandResult = useMemo(
+    () => data.controlResults.find((result) => result.command_id === lastCommandId),
+    [data.controlResults, lastCommandId],
+  );
+  const latencyBars = [
+    ['WS -> signal', data.runtime.ws_to_signal_latency_ms],
+    ['Signal -> order', data.runtime.signal_to_order_latency_ms],
+    ['Order -> report', data.runtime.order_to_report_latency_ms],
+    ['WS -> report', data.runtime.ws_to_report_latency_ms],
+  ] as const;
 
   return (
     <main className="shell">
@@ -194,7 +212,11 @@ export function App() {
           <div>
             <p className="eyebrow">Runtime Control</p>
             <h2>{data.status.kill_switch ? 'Trading paused by operator' : 'Executor accepting valid signals'}</h2>
-            <p>Rust still enforces final risk gates before any live order.</p>
+            <p>
+              {latestCommandResult
+                ? `Last command ${latestCommandResult.command_id}: ${latestCommandResult.status}`
+                : 'Rust still enforces final risk gates before any live order.'}
+            </p>
           </div>
           <div className="segmented">
             <button
@@ -252,7 +274,7 @@ export function App() {
           <Panel title="Open Orders" subtitle="best-effort from execution reports">
             <Table
               empty="No open orders"
-              rows={data.orders.map((order) => [
+              rows={ordersByStatus.open.map((order) => [
                 order.order_id || 'pending',
                 order.status,
                 order.filled_size ?? '-',
@@ -260,6 +282,32 @@ export function App() {
                 order.remaining_size ?? '-',
               ])}
               headers={['Order', 'Status', 'Last fill', 'Cum filled', 'Remaining']}
+            />
+          </Panel>
+
+          <Panel title="Partial Orders" subtitle="remaining size by order">
+            <Table
+              empty="No partial orders"
+              rows={ordersByStatus.partial.map((order) => [
+                order.order_id || 'pending',
+                order.cumulative_filled_size ?? order.filled_size ?? '-',
+                order.remaining_size ?? '-',
+                order.error ?? '-',
+              ])}
+              headers={['Order', 'Cum filled', 'Remaining', 'Error']}
+            />
+          </Panel>
+
+          <Panel title="Closed Orders" subtitle="cancelled and failed reports">
+            <Table
+              empty="No closed reports"
+              rows={[...ordersByStatus.cancelled, ...ordersByStatus.errors].slice(0, 8).map((order) => [
+                order.order_id || 'pending',
+                order.status,
+                order.remaining_size ?? '-',
+                order.error ?? '-',
+              ])}
+              headers={['Order', 'Status', 'Remaining', 'Error']}
             />
           </Panel>
 
@@ -280,11 +328,33 @@ export function App() {
               empty="No control results"
               rows={data.controlResults.slice(0, 6).map((result) => [
                 result.command_id,
+                result.command_type ?? result.type,
                 result.status,
                 result.canceled_count ?? result.canceled?.length ?? '-',
+                result.error ?? '-',
               ])}
-              headers={['Command', 'Status', 'Canceled']}
+              headers={['Command', 'Type', 'Status', 'Canceled', 'Error']}
             />
+          </Panel>
+
+          <Panel title="Runtime Metrics" subtitle="latency and controlled counters">
+            <div className="latencyChart">
+              {latencyBars.map(([label, value]) => (
+                <div className="latencyRow" key={label}>
+                  <span>{label}</span>
+                  <div className="barWrap">
+                    <div className="bar" style={{ width: `${latencyWidth(value)}%` }} />
+                  </div>
+                  <code>{formatNumber(value)} ms</code>
+                </div>
+              ))}
+            </div>
+            <div className="counterGrid">
+              <Counter label="Reports" value={data.runtime.execution_reports} />
+              <Counter label="Errors" value={data.runtime.clob_errors} />
+              <Counter label="Submitted" value={data.runtime.orders_submitted} />
+              <Counter label="Controls" value={data.runtime.control_results} />
+            </div>
           </Panel>
         </section>
 
@@ -317,6 +387,43 @@ export function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function groupOrdersByStatus(openOrders: DashboardData['orders'], reports: DashboardData['reports']) {
+  const open = openOrders.filter((order) => order.status !== 'PARTIAL');
+  const partial = [
+    ...openOrders.filter((order) => order.status === 'PARTIAL'),
+    ...reports.filter((order) => order.status === 'PARTIAL' && !openOrders.some((openOrder) => openOrder.order_id === order.order_id)),
+  ];
+  return {
+    open,
+    partial,
+    cancelled: reports.filter((order) => order.status === 'CANCELLED'),
+    errors: reports.filter((order) => order.status === 'ERROR'),
+  };
+}
+
+function latencyWidth(value: number | null | undefined): number {
+  if (!value || value <= 0) {
+    return 0;
+  }
+  return Math.min(100, Math.max(4, (value / 1000) * 100));
+}
+
+function formatNumber(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+  return value.toFixed(value >= 10 ? 0 : 2);
+}
+
+function Counter({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="counter">
+      <span>{label}</span>
+      <strong>{value.toLocaleString()}</strong>
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@ mkdir -p "$LOG_DIR"
 
 export TEST_REDIS_PORT="${TEST_REDIS_PORT:-6381}"
 export TEST_POSTGRES_PORT="${TEST_POSTGRES_PORT:-5433}"
+export TEST_OPERATOR_API_PORT="${TEST_OPERATOR_API_PORT:-18000}"
 export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:${TEST_REDIS_PORT}}"
 export DATABASE_URL="${DATABASE_URL:-postgres://finanzas:finanzas@127.0.0.1:${TEST_POSTGRES_PORT}/finanzas}"
 export EXECUTION_MODE="${EXECUTION_MODE:-dry_run}"
@@ -14,7 +15,7 @@ export APP_ENV="${APP_ENV:-development}"
 export REQUIRE_POSTGRES_STATE="${REQUIRE_POSTGRES_STATE:-true}"
 export OPERATOR_READ_TOKEN="${OPERATOR_READ_TOKEN:-smoke-read}"
 export OPERATOR_CONTROL_TOKEN="${OPERATOR_CONTROL_TOKEN:-smoke-control}"
-export OPERATOR_API_URL="${OPERATOR_API_URL:-http://127.0.0.1:8000}"
+export OPERATOR_API_URL="${OPERATOR_API_URL:-http://127.0.0.1:${TEST_OPERATOR_API_PORT}}"
 export DISABLE_MARKET_WS=true
 export ORDER_RECONCILIATION_TIMEOUT_MS="${ORDER_RECONCILIATION_TIMEOUT_MS:-1000}"
 export RUST_LOG="${RUST_LOG:-info}"
@@ -47,7 +48,7 @@ pids+=("$!")
 PYTHONPATH=python-service uvicorn src.api.app:app \
   --app-dir python-service \
   --host 127.0.0.1 \
-  --port 8000 \
+  --port "$TEST_OPERATOR_API_PORT" \
   >"$LOG_DIR/api.log" 2>&1 &
 pids+=("$!")
 

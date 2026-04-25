@@ -10,6 +10,7 @@ export type Position = components['schemas']['Position'];
 export type MarketDiscovery = components['schemas']['ScoredMarket'];
 export type StrategyMetrics = components['schemas']['StrategyMetricsResponse'];
 export type ControlResult = components['schemas']['ControlResult'];
+export type ControlResponse = components['schemas']['ControlResponse'];
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 
 export type DashboardData = {
@@ -135,17 +136,18 @@ export async function setKillSwitch(enabled: boolean): Promise<void> {
   }
 }
 
-export async function cancelBotOpenOrders(): Promise<void> {
-  const { error } = await client.POST('/api/orders/cancel-bot-open', {
+export async function cancelBotOpenOrders(): Promise<ControlResponse> {
+  const { data, error } = await client.POST('/api/orders/cancel-bot-open', {
     body: { reason: 'dashboard cancel bot open orders', operator: 'dashboard' },
   });
   if (error) {
     throw new Error('/api/orders/cancel-bot-open failed');
   }
+  return unwrap(data, error, '/api/orders/cancel-bot-open');
 }
 
-export async function cancelAllOrders(confirmationPhrase: string): Promise<void> {
-  const { error } = await client.POST('/api/orders/cancel-all', {
+export async function cancelAllOrders(confirmationPhrase: string): Promise<ControlResponse> {
+  const { data, error } = await client.POST('/api/orders/cancel-all', {
     body: {
       reason: 'dashboard emergency cancel all',
       operator: 'dashboard',
@@ -156,6 +158,7 @@ export async function cancelAllOrders(confirmationPhrase: string): Promise<void>
   if (error) {
     throw new Error('/api/orders/cancel-all failed');
   }
+  return unwrap(data, error, '/api/orders/cancel-all');
 }
 
 export const fallbackData: DashboardData = {

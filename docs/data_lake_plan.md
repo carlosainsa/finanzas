@@ -50,6 +50,16 @@ PYTHONPATH=python-service python -m src.research.data_lake \
 
 The exporter creates DuckDB views for datasets with Parquet files.
 
+Backtest reports can be generated from an exported DuckDB database:
+
+```bash
+PYTHONPATH=python-service python -m src.research.backtest \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/backtest
+```
+
+The initial report writes `backtest_trades.parquet` and `backtest_summary.parquet` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, and error counts. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
+
 ## Notes
 
 - This exporter is batch-oriented. It reads the latest stream range and overwrites the current day's `part-000.parquet`.

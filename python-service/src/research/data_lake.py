@@ -172,6 +172,8 @@ def normalize_row(
             "status": payload.get("status"),
             "filled_price": payload.get("filled_price"),
             "filled_size": payload.get("filled_size"),
+            "cumulative_filled_size": payload.get("cumulative_filled_size"),
+            "remaining_size": payload.get("remaining_size"),
             "error": payload.get("error"),
         }
     return base

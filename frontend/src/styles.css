@@ -307,6 +307,7 @@ h2 {
 .panel,
 .widePanel {
   padding: 18px;
+  overflow-x: auto;
 }
 
 .panelHeader {
@@ -357,6 +358,51 @@ h2 {
   height: 100%;
   min-width: 6px;
   background: #197c6d;
+}
+
+.latencyChart {
+  display: grid;
+  gap: 10px;
+}
+
+.latencyRow {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.8fr) minmax(120px, 1fr) 76px;
+  align-items: center;
+  gap: 10px;
+}
+
+.latencyRow span {
+  color: #38423f;
+  font-size: 12px;
+}
+
+.counterGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.counter {
+  padding: 10px;
+  background: #f7f3ea;
+  border-radius: 6px;
+}
+
+.counter span,
+.counter strong {
+  display: block;
+}
+
+.counter span {
+  color: #69736f;
+  font-size: 11px;
+}
+
+.counter strong {
+  margin-top: 3px;
+  font-size: 18px;
 }
 
 code {
@@ -490,6 +536,11 @@ th {
   }
 
   .streamRow {
+    grid-template-columns: 1fr;
+  }
+
+  .latencyRow,
+  .counterGrid {
     grid-template-columns: 1fr;
   }
 }
