@@ -1,10 +1,12 @@
 import json
 import time
 from typing import Any, Protocol, cast
+from uuid import uuid4
 
-from fastapi import HTTPException, status
+import asyncpg  # type: ignore[import-untyped]
 
 from src.config import settings
+from src.api.state_store import open_orders_from_postgres, positions_from_postgres
 
 
 class RedisLike(Protocol):
@@ -32,6 +34,7 @@ def managed_streams() -> list[str]:
         settings.orderbook_deadletter_stream,
         settings.signals_deadletter_stream,
         settings.operator_commands_stream,
+        settings.operator_results_stream,
     ]
 
 
@@ -55,6 +58,21 @@ async def set_kill_switch(
     }
     await redis.xadd(settings.operator_commands_stream, {"payload": json.dumps(command)})
     return {"kill_switch": enabled, "command": command}
+
+
+async def request_cancel_all(
+    redis: RedisLike, reason: str, operator: str | None
+) -> dict[str, object]:
+    command_id = str(uuid4())
+    command = {
+        "type": "cancel_all",
+        "command_id": command_id,
+        "reason": reason,
+        "operator": operator,
+        "timestamp_ms": now_ms(),
+    }
+    await redis.xadd(settings.operator_commands_stream, {"payload": json.dumps(command)})
+    return {"accepted": True, "command": command}
 
 
 async def stream_summary(redis: RedisLike) -> list[dict[str, object]]:
@@ -105,7 +123,13 @@ async def risk_summary(redis: RedisLike) -> dict[str, object]:
     }
 
 
-async def open_orders(redis: RedisLike, count: int = 200) -> list[dict[str, object]]:
+async def open_orders(
+    redis: RedisLike, count: int = 200, postgres_pool: asyncpg.Pool | None = None
+) -> list[dict[str, object]]:
+    if postgres_pool is not None:
+        orders = await open_orders_from_postgres(postgres_pool)
+        return cast(list[dict[str, object]], orders)
+
     reports = await recent_execution_reports(redis, count=count)
     latest_by_order: dict[str, dict[str, object]] = {}
     for report in reports:
@@ -120,7 +144,13 @@ async def open_orders(redis: RedisLike, count: int = 200) -> list[dict[str, obje
     ]
 
 
-async def positions(redis: RedisLike, count: int = 500) -> list[dict[str, object]]:
+async def positions(
+    redis: RedisLike, count: int = 500, postgres_pool: asyncpg.Pool | None = None
+) -> list[dict[str, object]]:
+    if postgres_pool is not None:
+        stored_positions = await positions_from_postgres(postgres_pool)
+        return cast(list[dict[str, object]], stored_positions)
+
     signals = await signal_index(redis, count=count)
     exposure: dict[tuple[str, str], float] = {}
     for report in await recent_execution_reports(redis, count=count):
@@ -159,13 +189,6 @@ async def strategy_metrics(redis: RedisLike, count: int = 500) -> dict[str, obje
         "filled_size": filled_size,
         "source": settings.execution_reports_stream,
     }
-
-
-def cancel_all_unavailable() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="cancel-all requires Rust CLOB cancel support before it can be enabled",
-    )
 
 
 async def recent_execution_reports(

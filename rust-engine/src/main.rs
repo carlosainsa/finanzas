@@ -1,7 +1,9 @@
 use anyhow::Result;
 use tracing::info;
 
+mod clob_client;
 mod config;
+mod control;
 mod executor;
 mod metrics;
 mod orderbook;
@@ -25,11 +27,19 @@ async fn main() -> Result<()> {
     let ws_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
     let exec_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
     let reconciliation_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
+    let control_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
     let exec_consumer = redis_client::StreamConsumer::new(
         &config.redis_url,
-        "signals:stream",
-        "rust-executor",
-        "executor-1",
+        &config.signals_stream,
+        &config.executor_consumer_group,
+        &config.executor_consumer_name,
+    )
+    .await?;
+    let control_consumer = redis_client::StreamConsumer::new(
+        &config.redis_url,
+        &config.operator_commands_stream,
+        &config.operator_consumer_group,
+        &config.operator_consumer_name,
     )
     .await?;
 
@@ -40,6 +50,12 @@ async fn main() -> Result<()> {
             config.market_asset_ids.clone()
         ),
         executor::run(exec_publisher, exec_consumer, config, order_tracker.clone()),
+        control::run(
+            control_publisher,
+            control_consumer,
+            reconciliation_config.clone(),
+            order_tracker.clone()
+        ),
         reconciliation::run(
             reconciliation_publisher,
             reconciliation_config,

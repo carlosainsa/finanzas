@@ -32,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="polymarket-operator")
     parser.add_argument("--api-url", default=settings.operator_api_url)
+    parser.add_argument("--token", default=settings.operator_api_token)
     parser.add_argument("--output", choices=("table", "json"), default="table")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -58,7 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def dispatch(args: argparse.Namespace) -> JsonObject:
     api_url = str(args.api_url).rstrip("/")
-    with httpx.Client(base_url=api_url, timeout=10.0) as client:
+    headers = {"Authorization": f"Bearer {args.token}"} if args.token else None
+    with httpx.Client(base_url=api_url, timeout=10.0, headers=headers) as client:
         if args.command == "status":
             return request_json(client, "GET", "/status")
         if args.command == "risk":
@@ -70,7 +72,12 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
         if args.command == "positions":
             return request_json(client, "GET", "/positions")
         if args.command == "cancel-all":
-            return request_json(client, "POST", "/orders/cancel-all")
+            return request_json(
+                client,
+                "POST",
+                "/orders/cancel-all",
+                json={"reason": "operator cancel all", "operator": "cli"},
+            )
         if args.command == "discover-markets":
             params = optional_params(
                 {

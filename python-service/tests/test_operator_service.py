@@ -10,6 +10,7 @@ from src.api.operator_service import (
     kill_switch_enabled,
     open_orders,
     positions,
+    request_cancel_all,
     set_kill_switch,
     strategy_metrics,
     stream_summary,
@@ -60,6 +61,18 @@ def test_kill_switch_state_is_written_and_read() -> None:
     assert asyncio.run(kill_switch_enabled(redis)) is True
     command = json.loads(redis.streams[settings.operator_commands_stream][0][1]["payload"])
     assert command["reason"] == "maintenance"
+
+
+def test_cancel_all_command_is_published() -> None:
+    redis = FakeRedis()
+
+    result = asyncio.run(request_cancel_all(redis, "risk off", "operator-1"))
+
+    assert result["accepted"] is True
+    command = json.loads(redis.streams[settings.operator_commands_stream][0][1]["payload"])
+    assert command["type"] == "cancel_all"
+    assert command["reason"] == "risk off"
+    assert command["command_id"]
 
 
 def test_stream_summary_handles_missing_streams() -> None:
@@ -188,12 +201,63 @@ def test_resume_requires_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.status_code == 400
 
 
-def test_cancel_all_is_not_implemented() -> None:
+def test_cancel_all_returns_accepted_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
     client = TestClient(api_app.app)
 
-    response = client.post("/orders/cancel-all")
+    response = client.post("/orders/cancel-all", json={"reason": "risk off"})
 
-    assert response.status_code == 501
+    assert response.status_code == 202
+    assert response.json()["accepted"] is True
+
+
+def test_api_prefix_aliases_operator_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    client = TestClient(api_app.app)
+
+    response = client.get("/api/status")
+
+    assert response.status_code == 200
+
+
+def test_operator_auth_rejects_missing_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(settings, "operator_api_token", "secret")
+    client = TestClient(api_app.app)
+
+    response = client.get("/status")
+
+    assert response.status_code == 401
+
+
+def test_operator_auth_accepts_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(settings, "operator_api_token", "secret")
+    client = TestClient(api_app.app)
+
+    response = client.get("/status", headers={"Authorization": "Bearer secret"})
+
+    assert response.status_code == 200
 
 
 def test_frontend_dist_path_points_to_repo_frontend() -> None:
@@ -201,3 +265,4 @@ def test_frontend_dist_path_points_to_repo_frontend() -> None:
 
     assert path.name == "dist"
     assert path.parent.name == "frontend"
+    assert path.parent.parent.name == "finanzas"

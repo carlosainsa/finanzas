@@ -22,6 +22,14 @@ pub struct Config {
     pub kill_switch: bool,
     pub operator_kill_switch_key: String,
     pub order_reconciliation_timeout_ms: u64,
+    pub signals_stream: String,
+    pub execution_reports_stream: String,
+    pub operator_commands_stream: String,
+    pub operator_results_stream: String,
+    pub executor_consumer_group: String,
+    pub executor_consumer_name: String,
+    pub operator_consumer_group: String,
+    pub operator_consumer_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +70,21 @@ impl Config {
                 "ORDER_RECONCILIATION_TIMEOUT_MS",
                 10_000,
             )?,
+            signals_stream: std::env::var("SIGNALS_STREAM").unwrap_or("signals:stream".into()),
+            execution_reports_stream: std::env::var("EXECUTION_REPORTS_STREAM")
+                .unwrap_or("execution:reports:stream".into()),
+            operator_commands_stream: std::env::var("OPERATOR_COMMANDS_STREAM")
+                .unwrap_or("operator:commands:stream".into()),
+            operator_results_stream: std::env::var("OPERATOR_RESULTS_STREAM")
+                .unwrap_or("operator:results:stream".into()),
+            executor_consumer_group: std::env::var("EXECUTOR_CONSUMER_GROUP")
+                .unwrap_or("rust-executor".into()),
+            executor_consumer_name: std::env::var("EXECUTOR_CONSUMER_NAME")
+                .unwrap_or("executor-1".into()),
+            operator_consumer_group: std::env::var("OPERATOR_CONSUMER_GROUP")
+                .unwrap_or("rust-control".into()),
+            operator_consumer_name: std::env::var("OPERATOR_CONSUMER_NAME")
+                .unwrap_or("control-1".into()),
         })
     }
 }

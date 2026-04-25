@@ -1,16 +1,13 @@
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use alloy_signer_local::PrivateKeySigner;
 use anyhow::{bail, Context, Result};
-use polymarket_client_sdk::auth::Signer as _;
 use polymarket_client_sdk::clob::types::{OrderStatusType, OrderType, Side as ClobSide};
-use polymarket_client_sdk::clob::{Client as ClobClient, Config as ClobConfig};
 use polymarket_client_sdk::types::{Decimal, U256};
-use polymarket_client_sdk::POLYGON;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
+use crate::clob_client::AuthenticatedClob;
 use crate::config::{Config, ExecutionMode};
 use crate::metrics::Metrics;
 use crate::reconciliation::OrderTracker;
@@ -110,7 +107,7 @@ pub async fn run(
         let report = executor.execute(signal).await;
         let payload = serde_json::to_string(&report)?;
         publisher
-            .add_json("execution:reports:stream", &payload)
+            .add_json(&executor.config.execution_reports_stream, &payload)
             .await?;
         executor.store.record_execution_report(&report).await?;
         consumer.ack(&message.id).await?;
@@ -127,34 +124,13 @@ struct OrderExecutor {
     control_store: KeyValueStore,
 }
 
-struct AuthenticatedClob {
-    signer: PrivateKeySigner,
-    client: polymarket_client_sdk::clob::Client<
-        polymarket_client_sdk::auth::state::Authenticated<polymarket_client_sdk::auth::Normal>,
-    >,
-}
-
 impl OrderExecutor {
     async fn new(config: Config, order_tracker: OrderTracker) -> Result<Self> {
         let store = StateStore::connect(config.database_url.as_deref()).await?;
         let control_store = KeyValueStore::new(&config.redis_url).await?;
         let clob = match config.execution_mode {
             ExecutionMode::DryRun => None,
-            ExecutionMode::Live => {
-                let private_key = config
-                    .private_key
-                    .as_deref()
-                    .context("PRIVATE_KEY or POLYMARKET_PRIVATE_KEY is required in live mode")?;
-                let signer = PrivateKeySigner::from_str(private_key)?.with_chain_id(Some(POLYGON));
-                let client = ClobClient::new(
-                    &config.polymarket_api_url,
-                    ClobConfig::builder().use_server_time(true).build(),
-                )?
-                .authentication_builder(&signer)
-                .authenticate()
-                .await?;
-                Some(AuthenticatedClob { signer, client })
-            }
+            ExecutionMode::Live => Some(AuthenticatedClob::from_config(&config).await?),
         };
 
         Ok(Self {

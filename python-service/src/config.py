@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     operator_api_url: str = "http://127.0.0.1:8000"
+    operator_api_token: str | None = None
+    database_url: str | None = None
     data_lake_root: str = "data_lake"
     data_lake_duckdb_path: str = "data_lake/research.duckdb"
     data_lake_export_count: int = 1000
@@ -23,6 +25,7 @@ class Settings(BaseSettings):
     orderbook_deadletter_stream: str = "orderbook:deadletter"
     signals_deadletter_stream: str = "signals:deadletter"
     operator_commands_stream: str = "operator:commands:stream"
+    operator_results_stream: str = "operator:results:stream"
     operator_kill_switch_key: str = "operator:kill_switch"
     orderbook_consumer_group: str = "python-predictor"
     orderbook_consumer_name: str = "predictor-1"

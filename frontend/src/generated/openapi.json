@@ -1,0 +1,1798 @@
+{
+  "components": {
+    "schemas": {
+      "CancelAllRequest": {
+        "properties": {
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "reason": {
+            "default": "operator cancel all",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "CancelAllRequest",
+        "type": "object"
+      },
+      "ControlCommand": {
+        "properties": {
+          "command_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Id"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "timestamp_ms": {
+            "title": "Timestamp Ms",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "reason",
+          "operator",
+          "timestamp_ms"
+        ],
+        "title": "ControlCommand",
+        "type": "object"
+      },
+      "ControlResponse": {
+        "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          },
+          "command": {
+            "$ref": "#/components/schemas/ControlCommand"
+          },
+          "kill_switch": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kill Switch"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "ControlResponse",
+        "type": "object"
+      },
+      "ExecutionReport": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filled_price": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled Price"
+          },
+          "filled_size": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled Size"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "signal_id": {
+            "title": "Signal Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "MATCHED",
+              "DELAYED",
+              "UNMATCHED",
+              "CANCELLED",
+              "ERROR"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp_ms": {
+            "title": "Timestamp Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "signal_id",
+          "order_id",
+          "status",
+          "timestamp_ms"
+        ],
+        "title": "ExecutionReport",
+        "type": "object"
+      },
+      "ExecutionReportsResponse": {
+        "properties": {
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/ExecutionReport"
+            },
+            "title": "Reports",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reports",
+          "source"
+        ],
+        "title": "ExecutionReportsResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "KillSwitchRequest": {
+        "properties": {
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "KillSwitchRequest",
+        "type": "object"
+      },
+      "MarketCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "clob_token_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Clob Token Ids",
+            "type": "array"
+          },
+          "closed": {
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "enable_order_book": {
+            "title": "Enable Order Book",
+            "type": "boolean"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "liquidity": {
+            "title": "Liquidity",
+            "type": "number"
+          },
+          "market_id": {
+            "title": "Market Id",
+            "type": "string"
+          },
+          "outcome_prices": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Outcome Prices",
+            "type": "array"
+          },
+          "outcomes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "resolution_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Source"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "number"
+          }
+        },
+        "required": [
+          "market_id",
+          "question",
+          "active",
+          "closed",
+          "archived",
+          "enable_order_book",
+          "liquidity",
+          "volume",
+          "outcomes",
+          "outcome_prices",
+          "clob_token_ids"
+        ],
+        "title": "MarketCandidate",
+        "type": "object"
+      },
+      "MarketsDiscoverResponse": {
+        "properties": {
+          "markets": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredMarket"
+            },
+            "title": "Markets",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "markets",
+          "source"
+        ],
+        "title": "MarketsDiscoverResponse",
+        "type": "object"
+      },
+      "OrdersOpenResponse": {
+        "properties": {
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/ExecutionReport"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "orders",
+          "source"
+        ],
+        "title": "OrdersOpenResponse",
+        "type": "object"
+      },
+      "PendingSummary": {
+        "properties": {
+          "consumers": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumers"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending"
+          },
+          "raw": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw"
+          }
+        },
+        "title": "PendingSummary",
+        "type": "object"
+      },
+      "Position": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "market_id": {
+            "title": "Market Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "number"
+          }
+        },
+        "required": [
+          "market_id",
+          "asset_id",
+          "position"
+        ],
+        "title": "Position",
+        "type": "object"
+      },
+      "PositionsResponse": {
+        "properties": {
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/Position"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "positions",
+          "source"
+        ],
+        "title": "PositionsResponse",
+        "type": "object"
+      },
+      "PredictorSummary": {
+        "properties": {
+          "min_confidence": {
+            "title": "Min Confidence",
+            "type": "number"
+          },
+          "min_spread": {
+            "title": "Min Spread",
+            "type": "number"
+          },
+          "order_size": {
+            "title": "Order Size",
+            "type": "number"
+          }
+        },
+        "required": [
+          "min_spread",
+          "order_size",
+          "min_confidence"
+        ],
+        "title": "PredictorSummary",
+        "type": "object"
+      },
+      "ResumeRequest": {
+        "properties": {
+          "confirm": {
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm",
+          "reason"
+        ],
+        "title": "ResumeRequest",
+        "type": "object"
+      },
+      "RiskLimits": {
+        "properties": {
+          "max_daily_loss": {
+            "title": "Max Daily Loss",
+            "type": "number"
+          },
+          "max_market_exposure": {
+            "title": "Max Market Exposure",
+            "type": "number"
+          },
+          "max_order_size": {
+            "title": "Max Order Size",
+            "type": "number"
+          },
+          "min_confidence": {
+            "title": "Min Confidence",
+            "type": "number"
+          },
+          "predictor_min_confidence": {
+            "title": "Predictor Min Confidence",
+            "type": "number"
+          },
+          "predictor_order_size": {
+            "title": "Predictor Order Size",
+            "type": "number"
+          },
+          "signal_max_age_ms": {
+            "title": "Signal Max Age Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_order_size",
+          "min_confidence",
+          "signal_max_age_ms",
+          "max_market_exposure",
+          "max_daily_loss",
+          "predictor_min_confidence",
+          "predictor_order_size"
+        ],
+        "title": "RiskLimits",
+        "type": "object"
+      },
+      "RiskResponse": {
+        "properties": {
+          "enforcement": {
+            "title": "Enforcement",
+            "type": "string"
+          },
+          "execution_mode": {
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "kill_switch": {
+            "title": "Kill Switch",
+            "type": "boolean"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/RiskLimits"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kill_switch",
+          "source",
+          "execution_mode",
+          "limits",
+          "enforcement"
+        ],
+        "title": "RiskResponse",
+        "type": "object"
+      },
+      "ScoredMarket": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_score": {
+            "title": "Evidence Score",
+            "type": "number"
+          },
+          "liquidity_score": {
+            "title": "Liquidity Score",
+            "type": "number"
+          },
+          "market": {
+            "$ref": "#/components/schemas/MarketCandidate"
+          },
+          "price_quality_score": {
+            "title": "Price Quality Score",
+            "type": "number"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "volume_score": {
+            "title": "Volume Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "market",
+          "score",
+          "liquidity_score",
+          "volume_score",
+          "price_quality_score",
+          "evidence_score",
+          "reason"
+        ],
+        "title": "ScoredMarket",
+        "type": "object"
+      },
+      "StatusResponse": {
+        "properties": {
+          "kill_switch": {
+            "title": "Kill Switch",
+            "type": "boolean"
+          },
+          "predictor": {
+            "$ref": "#/components/schemas/PredictorSummary"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/StreamSummary"
+            },
+            "title": "Streams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "kill_switch",
+          "streams",
+          "predictor"
+        ],
+        "title": "StatusResponse",
+        "type": "object"
+      },
+      "StrategyMetricsResponse": {
+        "properties": {
+          "error_rate": {
+            "title": "Error Rate",
+            "type": "number"
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "filled_size": {
+            "title": "Filled Size",
+            "type": "number"
+          },
+          "match_rate": {
+            "title": "Match Rate",
+            "type": "number"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_size",
+          "matched",
+          "open",
+          "errors",
+          "match_rate",
+          "error_rate",
+          "filled_size",
+          "source"
+        ],
+        "title": "StrategyMetricsResponse",
+        "type": "object"
+      },
+      "StreamSummary": {
+        "properties": {
+          "consumer_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumer Group"
+          },
+          "length": {
+            "title": "Length",
+            "type": "integer"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stream": {
+            "title": "Stream",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stream",
+          "length",
+          "consumer_group",
+          "pending"
+        ],
+        "title": "StreamSummary",
+        "type": "object"
+      },
+      "StreamsResponse": {
+        "properties": {
+          "streams": {
+            "items": {
+              "$ref": "#/components/schemas/StreamSummary"
+            },
+            "title": "Streams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "streams"
+        ],
+        "title": "StreamsResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Polymarket Trading Control API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/control/kill-switch": {
+      "post": {
+        "operationId": "enable_kill_switch_api_control_kill_switch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KillSwitchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Kill Switch"
+      }
+    },
+    "/api/control/resume": {
+      "post": {
+        "operationId": "resume_api_control_resume_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume"
+      }
+    },
+    "/api/execution-reports": {
+      "get": {
+        "operationId": "execution_reports_api_execution_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionReportsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Execution Reports"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/markets/discover": {
+      "get": {
+        "operationId": "markets_discover_api_markets_discover_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_liquidity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Liquidity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_volume",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Volume"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketsDiscoverResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Markets Discover"
+      }
+    },
+    "/api/orders/cancel-all": {
+      "post": {
+        "operationId": "cancel_all_api_orders_cancel_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAllRequest",
+                "default": {
+                  "reason": "operator cancel all"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel All"
+      }
+    },
+    "/api/orders/open": {
+      "get": {
+        "operationId": "orders_open_api_orders_open_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdersOpenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Orders Open"
+      }
+    },
+    "/api/positions": {
+      "get": {
+        "operationId": "get_positions_api_positions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Positions"
+      }
+    },
+    "/api/risk": {
+      "get": {
+        "operationId": "risk_api_risk_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Risk"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "get_status_api_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Status"
+      }
+    },
+    "/api/strategy/metrics": {
+      "get": {
+        "operationId": "get_strategy_metrics_api_strategy_metrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyMetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Strategy Metrics"
+      }
+    },
+    "/api/streams": {
+      "get": {
+        "operationId": "streams_api_streams_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Streams"
+      }
+    },
+    "/control/kill-switch": {
+      "post": {
+        "operationId": "enable_kill_switch_control_kill_switch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KillSwitchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Kill Switch"
+      }
+    },
+    "/control/resume": {
+      "post": {
+        "operationId": "resume_control_resume_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume"
+      }
+    },
+    "/execution-reports": {
+      "get": {
+        "operationId": "execution_reports_execution_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionReportsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Execution Reports"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/markets/discover": {
+      "get": {
+        "operationId": "markets_discover_markets_discover_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_liquidity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Liquidity"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_volume",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Volume"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketsDiscoverResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Markets Discover"
+      }
+    },
+    "/orders/cancel-all": {
+      "post": {
+        "operationId": "cancel_all_orders_cancel_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAllRequest",
+                "default": {
+                  "reason": "operator cancel all"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel All"
+      }
+    },
+    "/orders/open": {
+      "get": {
+        "operationId": "orders_open_orders_open_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrdersOpenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Orders Open"
+      }
+    },
+    "/positions": {
+      "get": {
+        "operationId": "get_positions_positions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Positions"
+      }
+    },
+    "/risk": {
+      "get": {
+        "operationId": "risk_risk_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Risk"
+      }
+    },
+    "/status": {
+      "get": {
+        "operationId": "get_status_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Status"
+      }
+    },
+    "/strategy/metrics": {
+      "get": {
+        "operationId": "get_strategy_metrics_strategy_metrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyMetricsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Strategy Metrics"
+      }
+    },
+    "/streams": {
+      "get": {
+        "operationId": "streams_streams_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Streams"
+      }
+    }
+  }
+}

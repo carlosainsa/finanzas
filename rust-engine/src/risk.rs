@@ -98,6 +98,14 @@ mod tests {
             kill_switch: false,
             operator_kill_switch_key: "operator:kill_switch".into(),
             order_reconciliation_timeout_ms: 10_000,
+            signals_stream: "signals:stream".into(),
+            execution_reports_stream: "execution:reports:stream".into(),
+            operator_commands_stream: "operator:commands:stream".into(),
+            operator_results_stream: "operator:results:stream".into(),
+            executor_consumer_group: "rust-executor".into(),
+            executor_consumer_name: "executor-1".into(),
+            operator_consumer_group: "rust-control".into(),
+            operator_consumer_name: "control-1".into(),
         }
     }
 

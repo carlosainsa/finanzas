@@ -1,81 +1,13 @@
-export type PendingSummary = {
-  pending?: number;
-  min?: string | null;
-  max?: string | null;
-  consumers?: unknown[];
-  raw?: string;
-};
+import type { components } from './generated/openapi';
 
-export type StreamSummary = {
-  stream: string;
-  length: number;
-  consumer_group: string | null;
-  pending: PendingSummary | null;
-};
-
-export type StatusResponse = {
-  status: string;
-  kill_switch: boolean;
-  streams: StreamSummary[];
-  predictor: {
-    min_spread: number;
-    order_size: number;
-    min_confidence: number;
-  };
-};
-
-export type RiskResponse = {
-  kill_switch: boolean;
-  source: string;
-  execution_mode: string;
-  limits: Record<string, number>;
-  enforcement: string;
-};
-
-export type ExecutionReport = {
-  signal_id: string;
-  order_id: string;
-  status: 'MATCHED' | 'DELAYED' | 'UNMATCHED' | 'CANCELLED' | 'ERROR';
-  timestamp_ms: number;
-  filled_price?: number | null;
-  filled_size?: number | null;
-  error?: string | null;
-};
-
-export type Position = {
-  market_id: string;
-  asset_id: string;
-  position: number;
-};
-
-export type MarketDiscovery = {
-  market: {
-    market_id: string;
-    question: string;
-    liquidity: number;
-    volume: number;
-    outcome_prices: number[];
-    clob_token_ids: string[];
-    tags: string[];
-  };
-  score: number;
-  liquidity_score: number;
-  volume_score: number;
-  price_quality_score: number;
-  evidence_score: number;
-  reason: string;
-};
-
-export type StrategyMetrics = {
-  sample_size: number;
-  matched: number;
-  open: number;
-  errors: number;
-  match_rate: number;
-  error_rate: number;
-  filled_size: number;
-  source: string;
-};
+export type PendingSummary = components['schemas']['PendingSummary'];
+export type StreamSummary = components['schemas']['StreamSummary'];
+export type StatusResponse = components['schemas']['StatusResponse'];
+export type RiskResponse = components['schemas']['RiskResponse'];
+export type ExecutionReport = components['schemas']['ExecutionReport'];
+export type Position = components['schemas']['Position'];
+export type MarketDiscovery = components['schemas']['ScoredMarket'];
+export type StrategyMetrics = components['schemas']['StrategyMetricsResponse'];
 
 export type DashboardData = {
   status: StatusResponse;
@@ -89,9 +21,33 @@ export type DashboardData = {
 };
 
 const API_BASE = import.meta.env.VITE_OPERATOR_API_BASE ?? '/api';
+const TOKEN_STORAGE_KEY = 'polymarket.operator.token';
+
+export function getOperatorToken(): string {
+  return import.meta.env.VITE_OPERATOR_API_TOKEN ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
+}
+
+export function setOperatorToken(token: string): void {
+  const trimmed = token.trim();
+  if (trimmed) {
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
+  } else {
+    window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+function requestHeaders(extra?: HeadersInit): HeadersInit {
+  const token = getOperatorToken();
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extra,
+  };
+}
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`);
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: requestHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`${path} returned ${response.status}`);
   }
@@ -129,11 +85,22 @@ export async function setKillSwitch(enabled: boolean): Promise<void> {
     : { confirm: true, reason: 'dashboard resume', operator: 'dashboard' };
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: requestHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   if (!response.ok) {
     throw new Error(`${path} returned ${response.status}`);
+  }
+}
+
+export async function cancelAllOrders(): Promise<void> {
+  const response = await fetch(`${API_BASE}/orders/cancel-all`, {
+    method: 'POST',
+    headers: requestHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ reason: 'dashboard cancel all', operator: 'dashboard' }),
+  });
+  if (!response.ok) {
+    throw new Error(`/orders/cancel-all returned ${response.status}`);
   }
 }
 
@@ -154,6 +121,8 @@ export const fallbackData: DashboardData = {
       signal_max_age_ms: 5000,
       max_market_exposure: 100,
       max_daily_loss: 50,
+      predictor_min_confidence: 0.55,
+      predictor_order_size: 1,
     },
     enforcement: 'rust-engine',
   },

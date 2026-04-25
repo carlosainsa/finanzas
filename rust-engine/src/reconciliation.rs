@@ -22,9 +22,9 @@ pub struct OrderTracker {
 }
 
 #[derive(Debug, Clone)]
-struct TrackedOrder {
-    signal_id: String,
-    order_id: String,
+pub(crate) struct TrackedOrder {
+    pub(crate) signal_id: String,
+    pub(crate) order_id: String,
     market_id: String,
     asset_id: String,
     submitted_at_ms: u64,
@@ -69,8 +69,17 @@ impl OrderTracker {
             .insert(order.order_id.clone(), order);
     }
 
-    async fn get(&self, order_id: &str) -> Option<TrackedOrder> {
+    pub(crate) async fn get(&self, order_id: &str) -> Option<TrackedOrder> {
         self.inner.lock().await.get(order_id).cloned()
+    }
+
+    pub(crate) async fn cancel_all_tracked(&self) -> Vec<TrackedOrder> {
+        self.inner
+            .lock()
+            .await
+            .drain()
+            .map(|(_, order)| order)
+            .collect()
     }
 
     async fn dry_run_due(&self, timeout_ms: u64, now_ms: u64) -> Vec<TrackedOrder> {
@@ -102,6 +111,7 @@ pub async fn run(
             &mut publisher,
             &store,
             order_tracker,
+            &config.execution_reports_stream,
             config.order_reconciliation_timeout_ms,
         )
         .await;
@@ -128,6 +138,7 @@ async fn run_dry_run_reconciliation(
     publisher: &mut StreamProducer,
     store: &StateStore,
     order_tracker: OrderTracker,
+    execution_reports_stream: &str,
     timeout_ms: u64,
 ) -> Result<()> {
     let mut interval = time::interval(Duration::from_millis(250));
@@ -143,7 +154,7 @@ async fn run_dry_run_reconciliation(
                 error: None,
                 timestamp_ms: now_ms(),
             };
-            publish_execution_report(publisher, store, &report).await?;
+            publish_execution_report(publisher, store, execution_reports_stream, &report).await?;
         }
     }
 }
@@ -190,7 +201,13 @@ async fn run_live_session(
                         match reconcile_user_message(text, order_tracker, store).await {
                             Ok(reports) => {
                                 for report in reports {
-                                    publish_execution_report(publisher, store, &report).await?;
+                                    publish_execution_report(
+                                        publisher,
+                                        store,
+                                        &config.execution_reports_stream,
+                                        &report,
+                                    )
+                                    .await?;
                                 }
                             }
                             Err(err) => error!(error = %err, raw = %text, "Invalid Polymarket user message"),
@@ -207,12 +224,11 @@ async fn run_live_session(
 async fn publish_execution_report(
     publisher: &mut StreamProducer,
     store: &StateStore,
+    stream: &str,
     report: &ExecutionReport,
 ) -> Result<()> {
     let payload = serde_json::to_string(report)?;
-    publisher
-        .add_json("execution:reports:stream", &payload)
-        .await?;
+    publisher.add_json(stream, &payload).await?;
     store.record_execution_report(report).await?;
     Ok(())
 }

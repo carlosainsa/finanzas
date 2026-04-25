@@ -4,16 +4,18 @@ This document turns the external repo analysis in [repo_ideas.md](repo_ideas.md)
 
 ## Current State
 
-- **Rust engine** handles Polymarket market WebSocket ingestion, Redis Stream publishing, trade signal consumption, risk gating, optional Postgres persistence, and dry-run/live execution.
+- **Rust engine** handles Polymarket market WebSocket ingestion, Redis Stream publishing, trade signal consumption, risk gating, operator control commands, optional Postgres persistence, and dry-run/live execution.
 - **Python service** consumes normalized orderbooks from Redis Streams, validates schemas with Pydantic, runs the predictor, and publishes trade signals.
 - **Redis Streams** are the internal event bus:
   - `orderbook:stream`
   - `signals:stream`
   - `execution:reports:stream`
+  - `operator:commands:stream`
+  - `operator:results:stream`
   - `orderbook:deadletter`
   - `signals:deadletter`
 - **Postgres** is optional today and should become the recommended state store for real operation.
-- **FastAPI** currently exposes informational endpoints only: `GET /health`, `GET /status`, and `GET /risk`.
+- **FastAPI** exposes Operator API endpoints, optional bearer auth, `/api/*` browser aliases, and serves the built dashboard when `frontend/dist` exists.
 
 ## Target Architecture
 
@@ -36,7 +38,8 @@ The next stage should improve trading quality before adding a web dashboard.
 
 4. **Operator interface**
    - Build Operator API and CLI as the official v1 interface.
-   - Defer dashboard web until the API and state model are stable.
+   - Serve the dashboard from FastAPI after the API and state model are stable.
+   - Protect operator routes with bearer auth when `OPERATOR_API_TOKEN` is configured.
 
 5. **Research loop**
    - Add Parquet/DuckDB data lake for historical market data and strategy evaluation.
@@ -49,6 +52,6 @@ The next stage should improve trading quality before adding a web dashboard.
 3. Operator API + CLI.
 4. Research data lake with Parquet/DuckDB.
 5. Market discovery and evidence scoring.
-6. Optional dashboard web.
+6. Optional dashboard web, served through FastAPI.
 
 See [interface_plan.md](interface_plan.md) for the API/CLI surface and [implementation_roadmap.md](implementation_roadmap.md) for execution phases.

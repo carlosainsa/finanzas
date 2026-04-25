@@ -23,9 +23,10 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Extend FastAPI from informational endpoints to operator controls described in [interface_plan.md](interface_plan.md).
 - Add CLI commands for `status`, `risk`, `streams`, `orders`, `cancel-all`, and `kill-switch on|off`.
 - Keep CLI output dual-mode: `table` and `json`.
-- Do not build dashboard web in this phase.
+- Keep dashboard work in Phase 6 so controls are API-first.
 - Runtime kill switch is backed by Redis key `operator:kill_switch` and read by Rust before each signal is accepted.
-- `cancel-all` intentionally returns `501` until Rust implements real CLOB cancellation.
+- `cancel-all` publishes `cancel_all` to `operator:commands:stream`; Rust consumes it through `rust-control` and calls CLOB `cancel_all_orders()` in live mode.
+- Operator routes support optional bearer auth through `OPERATOR_API_TOKEN`.
 
 ## Phase 4: Research Data Lake
 
@@ -48,6 +49,8 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Show status, streams, risk, orders, positions, execution reports, and strategy metrics.
 - All dashboard actions must call the same Operator API used by the CLI.
 - Initial implementation is a TypeScript React dashboard in `frontend/` that consumes only Operator API endpoints.
+- FastAPI serves the built dashboard at `/`, while `/api/*` aliases keep the browser client and standalone API compatible.
+- Frontend API types are generated from OpenAPI with `npm run generate:types`.
 
 ## Acceptance Criteria
 

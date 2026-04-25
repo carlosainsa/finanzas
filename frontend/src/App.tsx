@@ -8,10 +8,19 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  XCircle,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { DashboardData, fallbackData, loadDashboard, setKillSwitch } from './api';
+import {
+  cancelAllOrders,
+  DashboardData,
+  fallbackData,
+  getOperatorToken,
+  loadDashboard,
+  setKillSwitch,
+  setOperatorToken,
+} from './api';
 
 const navItems = ['Overview', 'Streams', 'Risk', 'Orders', 'Discovery'];
 
@@ -21,6 +30,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [tokenInput, setTokenInput] = useState(() => getOperatorToken());
 
   async function refresh() {
     setLoading(true);
@@ -51,6 +61,27 @@ export function App() {
     } finally {
       setActionBusy(false);
     }
+  }
+
+  async function submitCancelAll() {
+    const confirmed = window.confirm('Cancel all open CLOB orders for the authenticated account?');
+    if (!confirmed) {
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await cancelAllOrders();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'cancel-all command failed');
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  function saveToken() {
+    setOperatorToken(tokenInput);
+    void refresh();
   }
 
   const streamTotal = useMemo(
@@ -93,6 +124,20 @@ export function App() {
           </div>
           <div className="topActions">
             {error ? <span className="apiError">{error}</span> : <span className="apiOk">API connected</span>}
+            <input
+              className="tokenInput"
+              placeholder="Bearer token"
+              type="password"
+              value={tokenInput}
+              onChange={(event) => setTokenInput(event.target.value)}
+              onBlur={saveToken}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  saveToken();
+                }
+              }}
+              aria-label="Operator API bearer token"
+            />
             <button className="iconButton" onClick={() => void refresh()} aria-label="Refresh dashboard">
               <RefreshCw size={17} className={loading ? 'spin' : ''} />
             </button>
@@ -131,6 +176,9 @@ export function App() {
               onClick={() => void toggleKillSwitch(false)}
             >
               <PlayCircle size={17} /> Resume
+            </button>
+            <button className="dangerButton" disabled={actionBusy} onClick={() => void submitCancelAll()}>
+              <XCircle size={17} /> Cancel all
             </button>
           </div>
         </section>
