@@ -17,10 +17,13 @@ import {
   cancelAllOrders,
   DashboardData,
   fallbackData,
-  getOperatorToken,
+  getControlToken,
+  getReadToken,
+  hasControlToken,
   loadDashboard,
   setKillSwitch,
-  setOperatorToken,
+  setControlToken,
+  setReadToken,
 } from './api';
 
 const navItems = ['Overview', 'Streams', 'Risk', 'Orders', 'Discovery'];
@@ -31,7 +34,8 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [tokenInput, setTokenInput] = useState(() => getOperatorToken());
+  const [readTokenInput, setReadTokenInput] = useState(() => getReadToken());
+  const [controlTokenInput, setControlTokenInput] = useState(() => getControlToken());
 
   async function refresh() {
     setLoading(true);
@@ -93,9 +97,12 @@ export function App() {
   }
 
   function saveToken() {
-    setOperatorToken(tokenInput);
+    setReadToken(readTokenInput);
+    setControlToken(controlTokenInput);
     void refresh();
   }
+
+  const controlEnabled = hasControlToken() && !actionBusy;
 
   const streamTotal = useMemo(
     () => data.streams.reduce((total, stream) => total + stream.length, 0),
@@ -139,17 +146,31 @@ export function App() {
             {error ? <span className="apiError">{error}</span> : <span className="apiOk">API connected</span>}
             <input
               className="tokenInput"
-              placeholder="Bearer token"
+              placeholder="Read token"
               type="password"
-              value={tokenInput}
-              onChange={(event) => setTokenInput(event.target.value)}
+              value={readTokenInput}
+              onChange={(event) => setReadTokenInput(event.target.value)}
               onBlur={saveToken}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   saveToken();
                 }
               }}
-              aria-label="Operator API bearer token"
+              aria-label="Operator API read bearer token"
+            />
+            <input
+              className="tokenInput"
+              placeholder="Control token"
+              type="password"
+              value={controlTokenInput}
+              onChange={(event) => setControlTokenInput(event.target.value)}
+              onBlur={saveToken}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  saveToken();
+                }
+              }}
+              aria-label="Operator API control bearer token"
             />
             <button className="iconButton" onClick={() => void refresh()} aria-label="Refresh dashboard">
               <RefreshCw size={17} className={loading ? 'spin' : ''} />
@@ -178,22 +199,22 @@ export function App() {
           <div className="segmented">
             <button
               className={data.status.kill_switch ? 'dangerButton selected' : 'dangerButton'}
-              disabled={actionBusy}
+              disabled={!controlEnabled}
               onClick={() => void toggleKillSwitch(true)}
             >
               <PauseCircle size={17} /> Pause
             </button>
             <button
               className={!data.status.kill_switch ? 'safeButton selected' : 'safeButton'}
-              disabled={actionBusy}
+              disabled={!controlEnabled}
               onClick={() => void toggleKillSwitch(false)}
             >
               <PlayCircle size={17} /> Resume
             </button>
-            <button className="dangerButton" disabled={actionBusy} onClick={() => void submitCancelAll()}>
+            <button className="dangerButton" disabled={!controlEnabled} onClick={() => void submitCancelAll()}>
               <XCircle size={17} /> Cancel all
             </button>
-            <button className="dangerButton" disabled={actionBusy} onClick={() => void submitCancelBotOpen()}>
+            <button className="dangerButton" disabled={!controlEnabled} onClick={() => void submitCancelBotOpen()}>
               <XCircle size={17} /> Cancel bot
             </button>
           </div>
@@ -249,6 +270,18 @@ export function App() {
                 position.position.toFixed(2),
               ])}
               headers={['Market', 'Asset', 'Position']}
+            />
+          </Panel>
+
+          <Panel title="Control Results" subtitle="recent operator commands">
+            <Table
+              empty="No control results"
+              rows={data.controlResults.slice(0, 6).map((result) => [
+                result.command_id,
+                result.status,
+                result.canceled_count ?? result.canceled?.length ?? '-',
+              ])}
+              headers={['Command', 'Status', 'Canceled']}
             />
           </Panel>
         </section>

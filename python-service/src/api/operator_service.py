@@ -275,6 +275,27 @@ def report_latencies(
     return values
 
 
+def prometheus_metrics(metrics: dict[str, object]) -> str:
+    names = {
+        "signals_received": "polymarket_signals_received_total",
+        "signals_rejected": "polymarket_signals_rejected_total",
+        "orders_submitted": "polymarket_orders_submitted_total",
+        "clob_errors": "polymarket_clob_errors_total",
+        "execution_reports": "polymarket_execution_reports_total",
+        "control_results": "polymarket_control_results_total",
+        "ws_to_report_latency_ms": "polymarket_ws_to_report_latency_ms",
+    }
+    lines = []
+    for key, metric_name in names.items():
+        value = metrics.get(key)
+        if not isinstance(value, (int, float)):
+            continue
+        metric_type = "counter" if metric_name.endswith("_total") else "gauge"
+        lines.append(f"# TYPE {metric_name} {metric_type}")
+        lines.append(f"{metric_name} {value}")
+    return "\n".join(lines) + "\n"
+
+
 async def recent_execution_reports(
     redis: RedisLike, count: int = 200
 ) -> list[dict[str, object]]:

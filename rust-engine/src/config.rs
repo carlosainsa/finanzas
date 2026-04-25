@@ -3,6 +3,7 @@ use anyhow::Result;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub redis_url: String,
+    pub app_env: String,
     pub polymarket_ws_url: String,
     pub polymarket_user_ws_url: String,
     pub polymarket_api_url: String,
@@ -40,8 +41,9 @@ pub enum ExecutionMode {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        Ok(Self {
+        Self {
             redis_url: std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".into()),
+            app_env: std::env::var("APP_ENV").unwrap_or("development".into()),
             polymarket_ws_url: std::env::var("POLYMARKET_WS_URL")
                 .unwrap_or("wss://ws-subscriptions-clob.polymarket.com/ws/market".into()),
             polymarket_user_ws_url: std::env::var("POLYMARKET_USER_WS_URL")
@@ -85,7 +87,33 @@ impl Config {
                 .unwrap_or("rust-control".into()),
             operator_consumer_name: std::env::var("OPERATOR_CONSUMER_NAME")
                 .unwrap_or("control-1".into()),
-        })
+        }
+        .validate()
+    }
+
+    fn validate(self) -> Result<Self> {
+        if self.app_env.eq_ignore_ascii_case("production") {
+            let mut missing = Vec::new();
+            if self.database_url.is_none() {
+                missing.push("DATABASE_URL");
+            }
+            if std::env::var("OPERATOR_READ_TOKEN").is_err() {
+                missing.push("OPERATOR_READ_TOKEN");
+            }
+            if std::env::var("OPERATOR_CONTROL_TOKEN").is_err() {
+                missing.push("OPERATOR_CONTROL_TOKEN");
+            }
+            if std::env::var("EXECUTION_MODE").is_err() {
+                missing.push("EXECUTION_MODE");
+            }
+            if !missing.is_empty() {
+                anyhow::bail!(
+                    "production configuration missing required settings: {}",
+                    missing.join(", ")
+                );
+            }
+        }
+        Ok(self)
     }
 }
 

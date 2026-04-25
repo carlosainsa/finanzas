@@ -1,11 +1,12 @@
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, cast
 
-from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Response, status
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.config import settings
+from src.config import validate_production_settings
 from src.api.auth import require_control_auth, require_read_auth
 from src.api.models import (
     CancelBotOpenRequest,
@@ -31,6 +32,7 @@ from src.api.operator_service import (
     request_cancel_all,
     risk_summary,
     runtime_metrics,
+    prometheus_metrics,
     set_kill_switch,
     strategy_metrics,
     status_summary,
@@ -42,6 +44,7 @@ from src.data.redis_client import get_redis
 from src.discovery.markets import discover_markets
 
 app = FastAPI(title="Polymarket Trading Control API")
+validate_production_settings()
 router = APIRouter()
 ReadAuthDependency = Annotated[None, Depends(require_read_auth)]
 ControlAuthDependency = Annotated[None, Depends(require_control_auth)]
@@ -199,6 +202,13 @@ async def get_control_results(
 async def get_runtime_metrics(_: ReadAuthDependency, limit: int = 500) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
     return await runtime_metrics(redis, count=max(1, min(limit, 1000)))
+
+
+@router.get("/metrics/prometheus", response_class=Response)
+async def get_prometheus_metrics(_: ReadAuthDependency, limit: int = 500) -> Response:
+    redis = cast(RedisLike, await get_redis())
+    metrics = await runtime_metrics(redis, count=max(1, min(limit, 1000)))
+    return Response(content=prometheus_metrics(metrics), media_type="text/plain")
 
 
 @router.get("/markets/discover", response_model=MarketsDiscoverResponse)

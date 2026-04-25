@@ -16,6 +16,7 @@ from src.api.operator_service import (
     set_kill_switch,
     strategy_metrics,
     stream_summary,
+    prometheus_metrics,
 )
 from src.config import settings
 
@@ -204,6 +205,21 @@ def test_strategy_metrics_summarize_recent_reports() -> None:
     assert metrics["matched"] == 1
     assert metrics["errors"] == 1
     assert metrics["filled_size"] == 3.0
+
+
+def test_prometheus_metrics_formats_numeric_values() -> None:
+    output = prometheus_metrics(
+        {
+            "signals_received": 2,
+            "signals_rejected": 1,
+            "ws_to_report_latency_ms": 12.5,
+        }
+    )
+
+    assert "polymarket_signals_received_total 2" in output
+    assert "# TYPE polymarket_signals_received_total counter" in output
+    assert "# TYPE polymarket_ws_to_report_latency_ms gauge" in output
+    assert "polymarket_ws_to_report_latency_ms 12.5" in output
 
 
 def test_resume_requires_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:

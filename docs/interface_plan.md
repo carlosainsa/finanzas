@@ -23,6 +23,7 @@ Implemented in `python-service/src/api/app.py`:
 | `POST` | `/orders/cancel-all` | Implemented | Emergency account-wide cancel requiring strong confirmation; returns `202 Accepted` with `command_id`. |
 | `GET` | `/control/results` | Implemented | Recent operator command outcomes from `operator:results:stream`. |
 | `GET` | `/metrics` | Implemented | Runtime counters and latency summaries derived from Redis Streams. |
+| `GET` | `/metrics/prometheus` | Implemented | Prometheus text exposition for core runtime counters and latency gauges. |
 
 Every operator route is also available under `/api/*` so the integrated dashboard can use same-origin requests when FastAPI serves `frontend/dist`.
 
@@ -44,7 +45,9 @@ Auth roles:
 - `OPERATOR_READ_TOKEN` can read status, streams, orders, positions, metrics, and control results.
 - `OPERATOR_CONTROL_TOKEN` can read and execute control actions.
 - `OPERATOR_API_TOKEN` remains a legacy token accepted for both roles.
-- Local development can omit tokens; production should set tokens and run behind TLS/reverse proxy.
+- Local development can omit tokens.
+- `APP_ENV=production` requires `DATABASE_URL`, `OPERATOR_READ_TOKEN`, `OPERATOR_CONTROL_TOKEN`, and `EXECUTION_MODE`.
+- Production should run behind TLS/reverse proxy and should not expose FastAPI directly to the public internet.
 
 ## Planned CLI
 
@@ -78,7 +81,13 @@ PYTHONPATH=python-service python -m src.cli kill-switch off --reason "resume" --
 
 ## Web Dashboard
 
-The dashboard lives in `frontend/` and consumes only the Operator API. It shows status, streams, risk limits, open orders, derived positions, execution metrics, read-only market discovery, and operator controls including kill switch and async cancel-all.
+The dashboard lives in `frontend/` and consumes only the Operator API. It shows status, streams, risk limits, open orders, derived positions, execution metrics, read-only market discovery, recent control results, and operator controls including kill switch and async cancel-all.
+
+Dashboard auth behavior:
+
+- Read and control tokens are separate inputs.
+- Read-only sessions can view state but dangerous controls are disabled.
+- Control sessions use the control token for non-GET requests.
 
 Run locally:
 

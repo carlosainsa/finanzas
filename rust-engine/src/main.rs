@@ -1,5 +1,6 @@
 use anyhow::Result;
 use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 mod clob_client;
 mod config;
@@ -15,7 +16,10 @@ mod ws_client;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
     dotenv::dotenv().ok();
 
     info!("Starting Rust trading engine...");

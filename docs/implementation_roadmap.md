@@ -28,6 +28,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - `cancel-all` publishes `cancel_all` to `operator:commands:stream`; Rust consumes it through `rust-control` and calls CLOB `cancel_all_orders()` in live mode.
 - `cancel-bot-open` is the preferred control path and only cancels orders known by this bot.
 - `cancel-all` is emergency-only and requires `confirmation_phrase = "CANCEL ALL OPEN ORDERS"`.
+- Cancellation requests move through `SENT`, `CONFIRMED`, `DIVERGED`, or `FAILED`; HTTP acceptance alone is not treated as final cancellation.
 - Operator routes support optional role-based bearer auth through `OPERATOR_READ_TOKEN`, `OPERATOR_CONTROL_TOKEN`, and legacy `OPERATOR_API_TOKEN`.
 
 ## Phase 4: Research Data Lake
@@ -54,6 +55,9 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - FastAPI serves the built dashboard at `/`, while `/api/*` aliases keep the browser client and standalone API compatible.
 - Frontend API types and the typed OpenAPI client are generated from OpenAPI with `npm run generate:types`.
 - Local verification is consolidated in `scripts/check_all.sh`.
+- GitHub Actions runs `scripts/check_all.sh` on push and pull request, with Cargo, pip, and npm caches.
+- CI rejects stale generated OpenAPI/TypeScript artifacts.
+- The dashboard separates read/control tokens and shows recent `/control/results`.
 
 ## Acceptance Criteria
 
@@ -62,3 +66,4 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Any live execution must pass Rust risk gates.
 - Redis Streams remain the internal service boundary.
 - Postgres is recommended for operation, even if optional for local dry-run development.
+- `APP_ENV=production` must fail startup unless required production settings are present.

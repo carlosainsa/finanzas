@@ -190,6 +190,9 @@ impl StateStore {
         status: &str,
         payload: &serde_json::Value,
     ) -> Result<()> {
+        if !matches!(status, "SENT" | "CONFIRMED" | "DIVERGED" | "FAILED") {
+            anyhow::bail!("invalid cancel request status: {status}");
+        }
         let Some(client) = &self.client else {
             return Ok(());
         };
@@ -318,6 +321,10 @@ fn migrations() -> Vec<(&'static str, &'static str)> {
         (
             "0002_cancel_requests_positions",
             include_str!("../migrations/0002_cancel_requests_positions.sql"),
+        ),
+        (
+            "0003_cancel_request_status_constraint",
+            include_str!("../migrations/0003_cancel_request_status_constraint.sql"),
         ),
     ]
 }

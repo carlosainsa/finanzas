@@ -21,7 +21,23 @@ async def require_pool() -> asyncpg.Pool | None:
     pool = await get_pool()
     if pool is None and settings.require_postgres_state:
         raise RuntimeError("DATABASE_URL is required when REQUIRE_POSTGRES_STATE=true")
+    if pool is not None and settings.require_postgres_state:
+        await validate_schema_version(pool)
     return pool
+
+
+async def validate_schema_version(pool: asyncpg.Pool) -> None:
+    exists = await pool.fetchval(
+        "select to_regclass('public.schema_migrations') is not null"
+    )
+    if not exists:
+        raise RuntimeError("schema_migrations table is missing")
+    applied = await pool.fetchval(
+        "select exists(select 1 from schema_migrations where version = $1)",
+        "0003_cancel_request_status_constraint",
+    )
+    if not applied:
+        raise RuntimeError("required migration 0003_cancel_request_status_constraint is missing")
 
 
 async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:

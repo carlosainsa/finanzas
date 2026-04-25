@@ -79,6 +79,7 @@ mod tests {
     fn config() -> Config {
         Config {
             redis_url: "redis://localhost:6379".into(),
+            app_env: "development".into(),
             polymarket_ws_url: "ws://localhost".into(),
             polymarket_user_ws_url: "ws://localhost/user".into(),
             polymarket_api_url: "http://localhost".into(),

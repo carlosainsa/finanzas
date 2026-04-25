@@ -26,25 +26,54 @@ export type DashboardData = {
 };
 
 const API_BASE = import.meta.env.VITE_OPERATOR_API_BASE ?? '';
-const TOKEN_STORAGE_KEY = 'polymarket.operator.token';
+const LEGACY_TOKEN_STORAGE_KEY = 'polymarket.operator.token';
+const READ_TOKEN_STORAGE_KEY = 'polymarket.operator.readToken';
+const CONTROL_TOKEN_STORAGE_KEY = 'polymarket.operator.controlToken';
 const client = createOperatorClient(API_BASE);
 
-export function getOperatorToken(): string {
-  return import.meta.env.VITE_OPERATOR_API_TOKEN ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
+export function getReadToken(): string {
+  return (
+    import.meta.env.VITE_OPERATOR_API_TOKEN
+    ?? window.sessionStorage.getItem(READ_TOKEN_STORAGE_KEY)
+    ?? window.sessionStorage.getItem(LEGACY_TOKEN_STORAGE_KEY)
+    ?? ''
+  );
 }
 
-export function setOperatorToken(token: string): void {
+export function getControlToken(): string {
+  return (
+    import.meta.env.VITE_OPERATOR_API_TOKEN
+    ?? window.sessionStorage.getItem(CONTROL_TOKEN_STORAGE_KEY)
+    ?? ''
+  );
+}
+
+export function hasControlToken(): boolean {
+  return getControlToken().length > 0;
+}
+
+export function setReadToken(token: string): void {
+  setSessionToken(READ_TOKEN_STORAGE_KEY, token);
+}
+
+export function setControlToken(token: string): void {
+  setSessionToken(CONTROL_TOKEN_STORAGE_KEY, token);
+}
+
+function setSessionToken(key: string, token: string): void {
   const trimmed = token.trim();
   if (trimmed) {
-    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
+    window.sessionStorage.setItem(key, trimmed);
   } else {
-    window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.sessionStorage.removeItem(key);
   }
 }
 
 client.use({
   onRequest({ request }) {
-    const token = getOperatorToken();
+    const token = request.method === 'GET'
+      ? getReadToken() || getControlToken()
+      : getControlToken();
     if (token) {
       request.headers.set('Authorization', `Bearer ${token}`);
     }

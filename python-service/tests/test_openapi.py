@@ -6,6 +6,7 @@ def test_openapi_includes_control_results_and_metrics() -> None:
 
     assert "/api/control/results" in schema["paths"]
     assert "/api/metrics" in schema["paths"]
+    assert "/api/metrics/prometheus" in schema["paths"]
     assert "/api/orders/cancel-bot-open" in schema["paths"]
 
 

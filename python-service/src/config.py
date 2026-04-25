@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     polymarket_api_url: str = "https://clob.polymarket.com"
     gamma_api_url: str = "https://gamma-api.polymarket.com"
     private_key: str | None = None
+    app_env: str = "development"
     host: str = "0.0.0.0"
     port: int = 8000
     operator_api_url: str = "http://127.0.0.1:8000"
@@ -44,3 +45,21 @@ class Settings(BaseSettings):
     predictor_min_confidence: float = 0.55
 
 settings = Settings()
+
+
+def validate_production_settings() -> None:
+    if settings.app_env.lower() != "production":
+        return
+    missing = []
+    if settings.database_url is None:
+        missing.append("DATABASE_URL")
+    if settings.operator_read_token is None:
+        missing.append("OPERATOR_READ_TOKEN")
+    if settings.operator_control_token is None:
+        missing.append("OPERATOR_CONTROL_TOKEN")
+    if not settings.execution_mode:
+        missing.append("EXECUTION_MODE")
+    if missing:
+        raise RuntimeError(
+            "production configuration missing required settings: " + ", ".join(missing)
+        )

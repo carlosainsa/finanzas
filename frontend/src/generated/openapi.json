@@ -1452,6 +1452,44 @@
         "summary": "Get Runtime Metrics"
       }
     },
+    "/api/metrics/prometheus": {
+      "get": {
+        "operationId": "get_prometheus_metrics_api_metrics_prometheus_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Prometheus Metrics"
+      }
+    },
     "/api/orders/cancel-all": {
       "post": {
         "operationId": "cancel_all_api_orders_cancel_all_post",
@@ -2043,6 +2081,44 @@
           }
         ],
         "summary": "Get Runtime Metrics"
+      }
+    },
+    "/metrics/prometheus": {
+      "get": {
+        "operationId": "get_prometheus_metrics_metrics_prometheus_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Prometheus Metrics"
       }
     },
     "/orders/cancel-all": {
