@@ -64,32 +64,68 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - CI rejects stale generated OpenAPI/TypeScript artifacts.
 - The dashboard separates read/control tokens and shows recent `/control/results`.
 
-## Next Steps
+## Platform-First Next Steps
 
-1. Research dataset quality
+These steps improve the trading platform before introducing heavier models. The order is intentional: live trading should wait until state, controls, observability, and replayability are solid.
+
+1. Production state authority
+   - Make Postgres the required source for orders, trades, positions, balances, cancel requests, and control results when `APP_ENV=production`.
+   - Remove Redis fallback from production API reads; Redis Streams remain the transport boundary, not the long-term operational state.
+   - Add versioned migrations for every operational table and keep Python startup validation aligned with Rust migrations.
+
+2. Time-series storage strategy
+   - Use normal Postgres tables for canonical operational state that needs strict constraints and idempotency: orders, trades, fills, positions, balances, cancel requests, control results, and risk snapshots.
+   - Use partitioned Postgres tables or optional TimescaleDB hypertables for high-volume time-series: orderbook snapshots, price changes, runtime metrics, latency samples, signal history, and fill history.
+   - Keep TimescaleDB optional at first; promote it when retention, compression, continuous aggregates, or query volume justify the operational dependency.
+   - Keep Parquet/DuckDB as the offline research and backtesting store for reproducible historical analysis.
+   - Add retention policies by dataset class: short retention for raw orderbook ticks, longer retention for normalized snapshots, and permanent retention for orders/fills/control audit records.
+
+3. Operator safety and controls
+   - Keep `cancel-bot-open` as the default cancellation action and reserve `cancel-all` for emergencies.
+   - Show command lifecycle clearly in CLI and dashboard: `QUEUED`, `SENT`, `CONFIRMED`, `DIVERGED`, `FAILED`.
+   - Add operator audit fields everywhere: `command_id`, `operator`, `reason`, `created_at`, `completed_at`, and final error.
+   - Add a dry-run command preview endpoint before dangerous control actions.
+
+4. Reconciliation hardening
+   - Treat User WebSocket events as the preferred confirmation path for orders, fills, and cancellations.
+   - Use CLOB polling only as fallback with timeout and divergence tracking.
+   - Persist partial fills idempotently by `trade_id` and reject duplicate fill accounting.
+   - Add reconciliation reports that compare local Postgres state against CLOB open orders and recent fills.
+
+5. Observability and runbooks
+   - Expand `/metrics/prometheus` with bounded labels for command type, report status, rejection reason, and CLOB error type.
+   - Add latency histograms for WS to signal, signal to order, order to report, and command to confirmation.
+   - Keep structured JSON logs with `signal_id`, `order_id`, `command_id`, `market_id`, and `asset_id`.
+   - Add runbook steps for degraded WebSocket, Redis outage, Postgres outage, CLOB API errors, and emergency cancellation.
+
+6. Dashboard and CLI ergonomics
+   - Make dashboard pages task-based: Overview, Orders, Positions, Controls, Streams, Metrics, Research.
+   - Add filtering by market, asset, status, strategy, command type, and time window.
+   - Add clear stale-data indicators when API state is older than expected.
+   - Keep CLI parity with dashboard controls and ensure every command supports `--json`.
+
+7. Integration and CI confidence
+   - Promote the managed smoke test to a scheduled or manually required pre-release job.
+   - Add integration coverage for Redis restart, Postgres restart, stale signal rejection, duplicate fill events, and cancel divergence.
+   - Add local fixtures for representative Polymarket WebSocket and User WebSocket messages.
+   - Keep `scripts/check_all.sh` as the fast required gate and leave heavier end-to-end checks opt-in until runtime is acceptable.
+
+8. Data quality foundations
    - Add incremental data lake export state so Redis Stream IDs are not re-exported blindly.
-   - Add market metadata snapshots to the data lake so strategy results can be grouped by liquidity, category, end date, and market type.
-   - Add explicit model/data version fields to signal and research outputs.
+   - Add market metadata snapshots to the data lake so results can be grouped by liquidity, category, end date, and market type.
+   - Generate time-windowed datasets for orderbook, signals, execution reports, fills, and control events.
+   - Add explicit model/data version fields to signal and research outputs, even before ML models exist.
 
-2. Quantitative baseline
+9. Research and model readiness
    - Implement an offline deterministic baseline using spread, depth, orderbook imbalance, short-horizon momentum, and stale-market filters.
-   - Compare the baseline against `passive_spread_capture_v1` with `backtest_summary`, `post_fill_pnl_horizons`, and adverse-selection metrics.
-   - Add walk-forward splits by date before any model is considered for dry-run promotion.
+   - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data before promoting any strategy.
+   - Add walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by probability bucket.
+   - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
-3. Game-theory research loop
-   - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data.
-   - Use `adverse_selection_by_strategy` to reject passive strategies that show negative post-fill PnL after 30 seconds.
-   - Use `quote_competition` and `fill_rate_by_distance_to_mid` to tune quote distance, timeout, and cancel policy.
-   - Treat `binary_no_arbitrage` as an advisory research signal until fees, spread, latency, and fill probability are modeled.
-
-4. Learning-model readiness
-   - Build feature tables from DuckDB for the supervised fair-probability and fill/slippage models described in [modeling_plan.md](modeling_plan.md).
-   - Add calibration metrics: Brier score, log loss, reliability buckets, and realized edge by probability bucket.
-   - Evaluate gradient boosting only after the deterministic baseline is reproducible and stable.
-
-5. Promotion gates
-   - Add a pre-live report that combines realized edge, fill-rate, adverse-selection rate, slippage, and drawdown.
+10. Live promotion gates
+   - Add a pre-live report that combines realized edge, fill-rate, adverse-selection rate, slippage, drawdown, stale-data rate, and reconciliation divergence rate.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
+   - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.
 
 ## Acceptance Criteria
