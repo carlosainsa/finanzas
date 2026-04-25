@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, cast
 
-from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, Response, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -113,7 +113,7 @@ async def resume(request: ResumeRequest, _: ControlAuthDependency) -> dict[str, 
 )
 async def cancel_all(
     _: ControlAuthDependency,
-    request: Annotated[CancelAllRequest, Body()] = CancelAllRequest(),
+    request: CancelAllRequest,
 ) -> dict[str, object]:
     if not request.confirm or request.confirmation_phrase != "CANCEL ALL OPEN ORDERS":
         raise HTTPException(
@@ -137,7 +137,7 @@ async def cancel_all(
 )
 async def cancel_bot_open(
     _: ControlAuthDependency,
-    request: Annotated[CancelBotOpenRequest, Body()] = CancelBotOpenRequest(),
+    request: CancelBotOpenRequest,
 ) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
     return await request_cancel_bot_open(
