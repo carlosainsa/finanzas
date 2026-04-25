@@ -173,7 +173,7 @@ async def open_orders(
     return [
         report
         for report in latest_by_order.values()
-        if report.get("status") in {"DELAYED", "UNMATCHED"}
+        if report.get("status") in {"DELAYED", "UNMATCHED", "PARTIAL"}
     ]
 
 
@@ -187,7 +187,7 @@ async def positions(
     signals = await signal_index(redis, count=count)
     exposure: dict[tuple[str, str], float] = {}
     for report in await recent_execution_reports(redis, count=count):
-        if report.get("status") != "MATCHED":
+        if report.get("status") not in {"MATCHED", "PARTIAL"}:
             continue
         signal = signals.get(str(report.get("signal_id", "")))
         if signal is None:
@@ -245,11 +245,16 @@ async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, objec
         "signals_received": len(signals),
         "signals_rejected": sum(1 for report in reports if report.get("status") == "ERROR"),
         "orders_submitted": sum(
-            1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED", "MATCHED"}
+            1
+            for report in reports
+            if report.get("status") in {"DELAYED", "UNMATCHED", "PARTIAL", "MATCHED"}
         ),
         "clob_errors": sum(1 for report in reports if report.get("error")),
         "clob_errors_by_type": count_by_key(error_type(report.get("error")) for report in reports),
         "execution_reports": len(reports),
+        "execution_reports_by_status": count_by_key(
+            str(report.get("status") or "unknown") for report in reports
+        ),
         "control_results": len(results),
         "control_results_by_type": count_by_key(
             str(result.get("command_type") or result.get("type") or "unknown")
@@ -373,7 +378,36 @@ def prometheus_metrics(metrics: dict[str, object]) -> str:
         metric_type = "counter" if metric_name.endswith("_total") else "gauge"
         lines.append(f"# TYPE {metric_name} {metric_type}")
         lines.append(f"{metric_name} {value}")
+    labeled_metrics = {
+        "clob_errors_by_type": (
+            "polymarket_clob_errors_by_type_total",
+            "error_type",
+        ),
+        "control_results_by_type": (
+            "polymarket_control_results_by_type_total",
+            "command_type",
+        ),
+        "execution_reports_by_status": (
+            "polymarket_execution_reports_by_status_total",
+            "status",
+        ),
+    }
+    for key, (metric_name, label_name) in labeled_metrics.items():
+        values = metrics.get(key)
+        if not isinstance(values, dict):
+            continue
+        lines.append(f"# TYPE {metric_name} counter")
+        for label_value, value in sorted(values.items()):
+            if not isinstance(value, (int, float)):
+                continue
+            lines.append(
+                f'{metric_name}{{{label_name}="{escape_label_value(str(label_value))}"}} {value}'
+            )
     return "\n".join(lines) + "\n"
+
+
+def escape_label_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 async def recent_execution_reports(

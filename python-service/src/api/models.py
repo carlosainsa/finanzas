@@ -141,6 +141,7 @@ class RuntimeMetricsResponse(BaseModel):
     clob_errors: int
     clob_errors_by_type: dict[str, int]
     execution_reports: int
+    execution_reports_by_status: dict[str, int]
     control_results: int
     control_results_by_type: dict[str, int]
     ws_to_report_latency_ms: float | None = None

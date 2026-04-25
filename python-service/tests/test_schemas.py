@@ -55,9 +55,13 @@ def test_execution_report_contract() -> None:
         {
             "signal_id": "signal-1",
             "order_id": "order-1",
-            "status": "DELAYED",
+            "status": "PARTIAL",
+            "filled_size": 2.0,
+            "cumulative_filled_size": 2.0,
+            "remaining_size": 8.0,
             "timestamp_ms": 1760000000000,
         }
     )
 
-    assert report.status == "DELAYED"
+    assert report.status == "PARTIAL"
+    assert report.remaining_size == 8.0

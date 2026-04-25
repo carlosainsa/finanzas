@@ -14,6 +14,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Subscribe to the authenticated Polymarket user WebSocket.
 - Process `order` and `trade` events.
 - Persist lifecycle updates idempotently by `order_id`, `trade_id`, and `signal_id`.
+- Track partial fills by accumulating `filled_size` and `remaining_size` per `order_id`.
 - Use live user events to update open orders, fills, and positions.
 - Keep `dry_run` usable without credentials by simulating the lifecycle from `DELAYED` to `UNMATCHED`.
 - Use `USER_MARKET_IDS` condition IDs for the user channel; do not reuse `MARKET_ASSET_IDS` token IDs.
@@ -23,6 +24,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Extend FastAPI from informational endpoints to operator controls described in [interface_plan.md](interface_plan.md).
 - Add CLI commands for `status`, `risk`, `streams`, `orders`, `cancel-all`, and `kill-switch on|off`.
 - Keep CLI output dual-mode: `table` and `json`.
+- Use command-specific table columns for orders, positions, metrics, and control results.
 - Keep dashboard work in Phase 6 so controls are API-first.
 - Runtime kill switch is backed by Redis key `operator:kill_switch` and read by Rust before each signal is accepted.
 - `cancel-all` publishes `cancel_all` to `operator:commands:stream`; Rust consumes it through `rust-control` and calls CLOB `cancel_all_orders()` in live mode.
@@ -55,6 +57,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - FastAPI serves the built dashboard at `/`, while `/api/*` aliases keep the browser client and standalone API compatible.
 - Frontend API types and the typed OpenAPI client are generated from OpenAPI with `npm run generate:types`.
 - Local verification is consolidated in `scripts/check_all.sh`.
+- Local integration smoke testing uses `docker-compose.test.yml` plus `scripts/integration_smoke.py`.
 - GitHub Actions runs `scripts/check_all.sh` on push and pull request, with Cargo, pip, and npm caches.
 - CI rejects stale generated OpenAPI/TypeScript artifacts.
 - The dashboard separates read/control tokens and shows recent `/control/results`.

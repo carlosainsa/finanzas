@@ -128,6 +128,29 @@ def test_open_orders_uses_latest_execution_report_status() -> None:
     assert orders[0]["order_id"] == "order-1"
 
 
+def test_open_orders_include_partial_reports() -> None:
+    redis = FakeRedis()
+    asyncio.run(redis.xadd(
+        settings.execution_reports_stream,
+        {
+            "payload": json.dumps(
+                {
+                    "signal_id": "signal-1",
+                    "order_id": "order-1",
+                    "status": "PARTIAL",
+                    "remaining_size": 4,
+                    "timestamp_ms": 1,
+                }
+            )
+        },
+    ))
+
+    orders = asyncio.run(open_orders(redis))
+
+    assert len(orders) == 1
+    assert orders[0]["status"] == "PARTIAL"
+
+
 def test_positions_derive_matched_buy_exposure() -> None:
     redis = FakeRedis()
     asyncio.run(redis.xadd(
@@ -150,7 +173,7 @@ def test_positions_derive_matched_buy_exposure() -> None:
                 {
                     "signal_id": "signal-1",
                     "order_id": "order-1",
-                    "status": "MATCHED",
+                    "status": "PARTIAL",
                     "filled_size": 3,
                     "timestamp_ms": 1,
                 }
@@ -214,6 +237,9 @@ def test_prometheus_metrics_formats_numeric_values() -> None:
             "signals_rejected": 1,
             "ws_to_report_latency_ms": 12.5,
             "signal_to_order_latency_ms": 2.0,
+            "execution_reports_by_status": {"PARTIAL": 1, "MATCHED": 2},
+            "control_results_by_type": {"cancel_bot_open": 1},
+            "clob_errors_by_type": {"timeout": 1},
         }
     )
 
@@ -222,6 +248,12 @@ def test_prometheus_metrics_formats_numeric_values() -> None:
     assert "# TYPE polymarket_ws_to_report_latency_ms gauge" in output
     assert "polymarket_ws_to_report_latency_ms 12.5" in output
     assert "polymarket_signal_to_order_latency_ms 2.0" in output
+    assert 'polymarket_execution_reports_by_status_total{status="PARTIAL"} 1' in output
+    assert (
+        'polymarket_control_results_by_type_total{command_type="cancel_bot_open"} 1'
+        in output
+    )
+    assert 'polymarket_clob_errors_by_type_total{error_type="timeout"} 1' in output
 
 
 def test_resume_requires_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:

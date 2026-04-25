@@ -1,4 +1,5 @@
 from typing import Any
+from pathlib import Path
 
 import asyncpg  # type: ignore[import-untyped]
 
@@ -37,12 +38,21 @@ async def validate_schema_version(pool: asyncpg.Pool) -> None:
     )
     if not exists:
         raise RuntimeError("schema_migrations table is missing")
+    required_version = required_schema_version()
     applied = await pool.fetchval(
         "select exists(select 1 from schema_migrations where version = $1)",
-        "0003_cancel_request_status_constraint",
+        required_version,
     )
     if not applied:
-        raise RuntimeError("required migration 0003_cancel_request_status_constraint is missing")
+        raise RuntimeError(f"required migration {required_version} is missing")
+
+
+def required_schema_version() -> str:
+    migrations_dir = Path(__file__).resolve().parents[3] / "shared" / "migrations"
+    versions = sorted(path.stem for path in migrations_dir.glob("*.sql"))
+    if not versions:
+        raise RuntimeError("shared migrations directory is empty")
+    return versions[-1]
 
 
 async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
@@ -58,7 +68,7 @@ async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
         ) latest
           on er.order_id = latest.order_id
          and er.created_at = latest.created_at
-        where er.status in ('Delayed', 'Unmatched', 'DELAYED', 'UNMATCHED')
+        where er.status in ('Delayed', 'Unmatched', 'Partial', 'DELAYED', 'UNMATCHED', 'PARTIAL')
         order by er.created_at desc
         """
     )

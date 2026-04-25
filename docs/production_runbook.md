@@ -4,7 +4,7 @@ This runbook is the operational checklist for running the Polymarket trading sys
 
 ## Required Environment
 
-Use an `.env.production` file or equivalent secret manager. Do not commit secrets.
+Use `.env.production.example` as the template for an `.env.production` file or equivalent secret manager. Do not commit real secrets.
 
 ```bash
 APP_ENV=production
@@ -29,7 +29,7 @@ Production startup fails if `DATABASE_URL`, `OPERATOR_READ_TOKEN`, `OPERATOR_CON
 
 ## Migrations
 
-Rust applies versioned migrations on startup through `StateStore`. Python validates the required schema version when `APP_ENV=production` or `REQUIRE_POSTGRES_STATE=true`.
+Rust applies versioned migrations from `shared/migrations/` on startup through `StateStore`. Python validates the latest shared schema version when `APP_ENV=production` or `REQUIRE_POSTGRES_STATE=true`.
 
 Required schema marker:
 
@@ -37,7 +37,33 @@ Required schema marker:
 select version from schema_migrations order by applied_at;
 ```
 
-The current required version is `0003_cancel_request_status_constraint`.
+The current required version is the highest `*.sql` file in `shared/migrations/`.
+
+## Dependencies
+
+Python dependencies are split by use:
+
+- `python-service/requirements.txt`: runtime API, Redis, Postgres, config, HTTP.
+- `python-service/requirements-dev.txt`: CI/dev checks, tests, mypy, and research export dependencies.
+- `python-service/requirements-ml.txt`: optional ML stack, including torch.
+
+Install the smallest file that matches the process being deployed. API and consumer deployment should not install the ML stack unless the predictor is explicitly changed to require it.
+
+## Integration Smoke Test
+
+Start disposable Redis and Postgres:
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+```
+
+With the API, Python consumer, and Rust engine running in `EXECUTION_MODE=dry_run`, run:
+
+```bash
+PYTHONPATH=python-service python scripts/integration_smoke.py
+```
+
+The smoke test publishes a valid orderbook, waits for a signal, waits for a dry-run execution report, and verifies the Operator API status endpoint.
 
 ## Startup
 
@@ -114,8 +140,9 @@ Core metrics:
 - `signal_to_order_latency_ms`
 - `order_to_report_latency_ms`
 - `ws_to_report_latency_ms`
-- `clob_errors_by_type`
-- `control_results_by_type`
+- `clob_errors_by_type` labeled by controlled `error_type`
+- `control_results_by_type` labeled by controlled `command_type`
+- `execution_reports_by_status` labeled by controlled `status`
 
 ## Rollback
 

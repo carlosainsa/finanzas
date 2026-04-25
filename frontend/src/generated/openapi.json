@@ -279,6 +279,18 @@
       "ExecutionReport": {
         "additionalProperties": false,
         "properties": {
+          "cumulative_filled_size": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cumulative Filled Size"
+          },
           "error": {
             "anyOf": [
               {
@@ -319,6 +331,18 @@
             "title": "Order Id",
             "type": "string"
           },
+          "remaining_size": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Size"
+          },
           "signal_id": {
             "title": "Signal Id",
             "type": "string"
@@ -326,6 +350,7 @@
           "status": {
             "enum": [
               "MATCHED",
+              "PARTIAL",
               "DELAYED",
               "UNMATCHED",
               "CANCELLED",
@@ -845,6 +870,13 @@
             "title": "Execution Reports",
             "type": "integer"
           },
+          "execution_reports_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Execution Reports By Status",
+            "type": "object"
+          },
           "order_to_report_latency_ms": {
             "anyOf": [
               {
@@ -916,6 +948,7 @@
           "clob_errors",
           "clob_errors_by_type",
           "execution_reports",
+          "execution_reports_by_status",
           "control_results",
           "control_results_by_type",
           "source"

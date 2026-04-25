@@ -8,9 +8,11 @@
   "properties": {
     "signal_id":    { "type": "string", "description": "UUID de la señal que originó esta orden" },
     "order_id":     { "type": "string", "description": "Order ID devuelto por Polymarket CLOB" },
-    "status":       { "type": "string", "enum": ["MATCHED", "DELAYED", "UNMATCHED", "CANCELLED", "ERROR"] },
+    "status":       { "type": "string", "enum": ["MATCHED", "PARTIAL", "DELAYED", "UNMATCHED", "CANCELLED", "ERROR"] },
     "filled_price": { "type": "number", "minimum": 0, "maximum": 1 },
     "filled_size":  { "type": "number", "minimum": 0 },
+    "cumulative_filled_size": { "type": "number", "minimum": 0 },
+    "remaining_size": { "type": "number", "minimum": 0 },
     "error":        { "type": "string", "description": "Mensaje de error si status=ERROR" },
     "timestamp_ms": { "type": "integer" }
   }

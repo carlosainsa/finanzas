@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.output == "json":
         print(json.dumps(response, indent=2, sort_keys=True))
     else:
-        print_table(response)
+        print_command_table(args.command, response)
     return 0
 
 
@@ -181,6 +181,90 @@ def read_token(args: argparse.Namespace) -> str | None:
 
 def control_token(args: argparse.Namespace) -> str | None:
     return args.control_token or args.token
+
+
+def print_command_table(command: str, value: object) -> None:
+    if command == "orders" and isinstance(value, dict):
+        print_rows(
+            value.get("orders"),
+            ["order_id", "status", "filled_size", "remaining_size", "signal_id"],
+        )
+        return
+    if command == "positions" and isinstance(value, dict):
+        print_rows(value.get("positions"), ["market_id", "asset_id", "position"])
+        return
+    if command == "control-results" and isinstance(value, dict):
+        print_rows(
+            value.get("results"),
+            ["command_id", "command_type", "status", "canceled_count", "timestamp_ms"],
+        )
+        return
+    if command == "metrics" and isinstance(value, dict):
+        print_metrics(value)
+        return
+    print_table(value)
+
+
+def print_rows(value: object, columns: list[str]) -> None:
+    if not isinstance(value, list) or not value:
+        print("(empty)")
+        return
+    rows = [row for row in value if isinstance(row, dict)]
+    if not rows:
+        print("(empty)")
+        return
+    widths = {
+        column: max(len(column), *(len(format_cell(row.get(column))) for row in rows))
+        for column in columns
+    }
+    print(" | ".join(column.ljust(widths[column]) for column in columns))
+    print("-+-".join("-" * widths[column] for column in columns))
+    for row in rows:
+        print(
+            " | ".join(
+                format_cell(row.get(column)).ljust(widths[column]) for column in columns
+            )
+        )
+
+
+def print_metrics(value: dict[str, object]) -> None:
+    scalar_keys = [
+        "signals_received",
+        "signals_rejected",
+        "orders_submitted",
+        "clob_errors",
+        "execution_reports",
+        "control_results",
+        "ws_to_signal_latency_ms",
+        "signal_to_order_latency_ms",
+        "order_to_report_latency_ms",
+        "ws_to_report_latency_ms",
+    ]
+    for key in scalar_keys:
+        if key in value:
+            print(f"{key}: {format_cell(value.get(key))}")
+    for key in (
+        "execution_reports_by_status",
+        "control_results_by_type",
+        "clob_errors_by_type",
+    ):
+        item = value.get(key)
+        if isinstance(item, dict) and item:
+            print(f"{key}:")
+            print_rows(
+                [{"label": label, "value": count} for label, count in sorted(item.items())],
+                ["label", "value"],
+            )
+
+
+def format_cell(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True)
+    return str(value)
 
 
 def print_table(value: object, indent: int = 0) -> None:

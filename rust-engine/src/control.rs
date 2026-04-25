@@ -152,6 +152,8 @@ async fn handle_cancel_all(
                     status: ExecutionStatus::Cancelled,
                     filled_price: None,
                     filled_size: None,
+                    cumulative_filled_size: None,
+                    remaining_size: Some(0.0),
                     error: None,
                     timestamp_ms: now_ms(),
                 };
@@ -554,6 +556,8 @@ async fn publish_cancelled_report(
         status: ExecutionStatus::Cancelled,
         filled_price: None,
         filled_size: None,
+        cumulative_filled_size: None,
+        remaining_size: Some(0.0),
         error: None,
         timestamp_ms: now_ms(),
     };

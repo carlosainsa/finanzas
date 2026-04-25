@@ -45,6 +45,8 @@ pub struct ExecutionReport {
     pub status: ExecutionStatus,
     pub filled_price: Option<f64>,
     pub filled_size: Option<f64>,
+    pub cumulative_filled_size: Option<f64>,
+    pub remaining_size: Option<f64>,
     pub error: Option<String>,
     pub timestamp_ms: u64,
 }
@@ -53,6 +55,7 @@ pub struct ExecutionReport {
 #[serde(rename_all = "UPPERCASE")]
 pub enum ExecutionStatus {
     Matched,
+    Partial,
     Delayed,
     Unmatched,
     Cancelled,
@@ -165,6 +168,8 @@ impl OrderExecutor {
                     status: ExecutionStatus::Error,
                     filled_price: None,
                     filled_size: None,
+                    cumulative_filled_size: None,
+                    remaining_size: None,
                     error: Some(err.to_string()),
                     timestamp_ms: now_ms(),
                 }
@@ -194,6 +199,8 @@ impl OrderExecutor {
                 status: ExecutionStatus::Delayed,
                 filled_price: None,
                 filled_size: None,
+                cumulative_filled_size: None,
+                remaining_size: Some(signal.size),
                 error: None,
                 timestamp_ms: now_ms(),
             });
@@ -242,6 +249,8 @@ impl OrderExecutor {
             status: map_order_status(response.status),
             filled_price: None,
             filled_size: None,
+            cumulative_filled_size: None,
+            remaining_size: Some(signal.size),
             error: response.error_msg,
             timestamp_ms: now_ms(),
         })

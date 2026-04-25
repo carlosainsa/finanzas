@@ -62,8 +62,10 @@ class ExecutionReport(BaseModel):
 
     signal_id: str
     order_id: str
-    status: Literal["MATCHED", "DELAYED", "UNMATCHED", "CANCELLED", "ERROR"]
+    status: Literal["MATCHED", "PARTIAL", "DELAYED", "UNMATCHED", "CANCELLED", "ERROR"]
     timestamp_ms: int
     filled_price: float | None = Field(default=None, ge=0, le=1)
     filled_size: float | None = Field(default=None, ge=0)
+    cumulative_filled_size: float | None = Field(default=None, ge=0)
+    remaining_size: float | None = Field(default=None, ge=0)
     error: str | None = None

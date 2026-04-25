@@ -636,6 +636,8 @@ export interface components {
         };
         /** ExecutionReport */
         ExecutionReport: {
+            /** Cumulative Filled Size */
+            cumulative_filled_size?: number | null;
             /** Error */
             error?: string | null;
             /** Filled Price */
@@ -644,13 +646,15 @@ export interface components {
             filled_size?: number | null;
             /** Order Id */
             order_id: string;
+            /** Remaining Size */
+            remaining_size?: number | null;
             /** Signal Id */
             signal_id: string;
             /**
              * Status
              * @enum {string}
              */
-            status: "MATCHED" | "DELAYED" | "UNMATCHED" | "CANCELLED" | "ERROR";
+            status: "MATCHED" | "PARTIAL" | "DELAYED" | "UNMATCHED" | "CANCELLED" | "ERROR";
             /** Timestamp Ms */
             timestamp_ms: number;
         };
@@ -814,6 +818,10 @@ export interface components {
             };
             /** Execution Reports */
             execution_reports: number;
+            /** Execution Reports By Status */
+            execution_reports_by_status: {
+                [key: string]: number;
+            };
             /** Order To Report Latency Ms */
             order_to_report_latency_ms?: number | null;
             /** Orders Submitted */

@@ -208,6 +208,7 @@ export const fallbackData: DashboardData = {
     clob_errors: 0,
     clob_errors_by_type: {},
     execution_reports: 0,
+    execution_reports_by_status: {},
     control_results: 0,
     control_results_by_type: {},
     ws_to_report_latency_ms: null,

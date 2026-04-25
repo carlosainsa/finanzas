@@ -53,3 +53,41 @@ def test_cli_prefers_control_token_for_writes() -> None:
 
     assert cli.read_token(args) == "read"
     assert cli.control_token(args) == "control"
+
+
+def test_cli_prints_order_table(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "orders",
+        {
+            "orders": [
+                {
+                    "order_id": "order-1",
+                    "status": "PARTIAL",
+                    "filled_size": 2.5,
+                    "remaining_size": 7.5,
+                    "signal_id": "signal-1",
+                }
+            ]
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "order_id" in output
+    assert "remaining_size" in output
+    assert "order-1" in output
+    assert "PARTIAL" in output
+
+
+def test_cli_prints_metrics_labels(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "metrics",
+        {
+            "signals_received": 3,
+            "execution_reports_by_status": {"PARTIAL": 1, "MATCHED": 2},
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "signals_received: 3" in output
+    assert "execution_reports_by_status:" in output
+    assert "PARTIAL" in output

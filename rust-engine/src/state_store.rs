@@ -13,6 +13,19 @@ pub struct StoredOrder {
     pub signal_id: String,
     pub market_id: String,
     pub asset_id: String,
+    pub requested_size: Option<f64>,
+    pub filled_size: f64,
+    pub remaining_size: Option<f64>,
+}
+
+pub struct TradeLifecycleUpdate<'a> {
+    pub trade_id: &'a str,
+    pub order_id: &'a str,
+    pub signal_id: &'a str,
+    pub status: &'a str,
+    pub payload: &'a serde_json::Value,
+    pub fill_price: Option<f64>,
+    pub fill_size: Option<f64>,
 }
 
 impl StateStore {
@@ -96,14 +109,19 @@ impl StateStore {
         let payload = serde_json::to_value(signal)?;
         client
             .execute(
-                "insert into orders (order_id, signal_id, market_id, asset_id, status, payload)
-                 values ($1, $2, $3, $4, $5, $6)
+                "insert into orders (
+                    order_id, signal_id, market_id, asset_id, status, payload,
+                    requested_size, filled_size, remaining_size
+                 )
+                 values ($1, $2, $3, $4, $5, $6, $7, 0, $7)
                  on conflict (order_id) do update set
                     signal_id = excluded.signal_id,
                     market_id = excluded.market_id,
                     asset_id = excluded.asset_id,
                     status = excluded.status,
-                    payload = excluded.payload",
+                    payload = excluded.payload,
+                    requested_size = excluded.requested_size,
+                    remaining_size = coalesce(orders.remaining_size, excluded.remaining_size)",
                 &[
                     &order_id,
                     &signal.signal_id,
@@ -111,6 +129,7 @@ impl StateStore {
                     &signal.asset_id,
                     &"SUBMITTED",
                     &payload,
+                    &signal.size,
                 ],
             )
             .await?;
@@ -123,7 +142,8 @@ impl StateStore {
         };
         let Some(row) = client
             .query_opt(
-                "select signal_id, market_id, asset_id from orders where order_id = $1",
+                "select signal_id, market_id, asset_id, requested_size, filled_size, remaining_size
+                 from orders where order_id = $1",
                 &[&order_id],
             )
             .await?
@@ -136,6 +156,9 @@ impl StateStore {
             signal_id: row.get("signal_id"),
             market_id: row.get("market_id"),
             asset_id: row.get("asset_id"),
+            requested_size: row.get("requested_size"),
+            filled_size: row.get("filled_size"),
+            remaining_size: row.get("remaining_size"),
         }))
     }
 
@@ -145,9 +168,10 @@ impl StateStore {
         };
         let rows = client
             .query(
-                "select order_id, signal_id, market_id, asset_id
+                "select order_id, signal_id, market_id, asset_id, requested_size, filled_size, remaining_size
                  from orders
-                 where status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'Delayed', 'Unmatched')
+                 where status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'PARTIAL', 'Delayed', 'Unmatched', 'Partial')
+                    or coalesce(remaining_size, 0) > 0
                  order by updated_at asc",
                 &[],
             )
@@ -159,6 +183,9 @@ impl StateStore {
                 signal_id: row.get("signal_id"),
                 market_id: row.get("market_id"),
                 asset_id: row.get("asset_id"),
+                requested_size: row.get("requested_size"),
+                filled_size: row.get("filled_size"),
+                remaining_size: row.get("remaining_size"),
             })
             .collect())
     }
@@ -253,28 +280,69 @@ impl StateStore {
             .collect())
     }
 
-    pub async fn record_trade_lifecycle(
-        &self,
-        trade_id: &str,
-        order_id: &str,
-        signal_id: &str,
-        status: &str,
-        payload: &serde_json::Value,
-    ) -> Result<()> {
+    pub async fn record_trade_lifecycle(&self, update: TradeLifecycleUpdate<'_>) -> Result<()> {
         let Some(client) = &self.client else {
             return Ok(());
         };
         client
             .execute(
-                "insert into trades (trade_id, order_id, signal_id, status, payload)
-                 values ($1, $2, $3, $4, $5)
+                "insert into trades (trade_id, order_id, signal_id, status, payload, fill_price, fill_size)
+                 values ($1, $2, $3, $4, $5, $6, $7)
                  on conflict (trade_id) do update set
                     order_id = excluded.order_id,
                     signal_id = excluded.signal_id,
                     status = excluded.status,
                     payload = excluded.payload,
+                    fill_price = excluded.fill_price,
+                    fill_size = excluded.fill_size,
                     updated_at = now()",
-                &[&trade_id, &order_id, &signal_id, &status, &payload],
+                &[
+                    &update.trade_id,
+                    &update.order_id,
+                    &update.signal_id,
+                    &update.status,
+                    &update.payload,
+                    &update.fill_price,
+                    &update.fill_size,
+                ],
+            )
+            .await?;
+        client
+            .execute(
+                "update orders
+                 set
+                    filled_size = coalesce((
+                        select sum(fill_size)
+                        from trades
+                        where trades.order_id = orders.order_id
+                          and trades.status in ('MATCHED', 'MINED', 'CONFIRMED')
+                    ), 0),
+                    remaining_size = greatest(
+                        coalesce(requested_size, (payload->>'size')::double precision, 0)
+                        - coalesce((
+                            select sum(fill_size)
+                            from trades
+                            where trades.order_id = orders.order_id
+                              and trades.status in ('MATCHED', 'MINED', 'CONFIRMED')
+                        ), 0),
+                        0
+                    ),
+                    status = case
+                        when greatest(
+                            coalesce(requested_size, (payload->>'size')::double precision, 0)
+                            - coalesce((
+                                select sum(fill_size)
+                                from trades
+                                where trades.order_id = orders.order_id
+                                  and trades.status in ('MATCHED', 'MINED', 'CONFIRMED')
+                            ), 0),
+                            0
+                        ) = 0 then 'MATCHED'
+                        else 'PARTIAL'
+                    end,
+                    updated_at = now()
+                 where order_id = $1",
+                &[&update.order_id],
             )
             .await?;
         Ok(())
@@ -315,7 +383,10 @@ impl StateStore {
     }
 
     async fn refresh_position_for_report(&self, report: &ExecutionReport) -> Result<()> {
-        if report.status != crate::executor::ExecutionStatus::Matched {
+        if !matches!(
+            report.status,
+            crate::executor::ExecutionStatus::Matched | crate::executor::ExecutionStatus::Partial
+        ) {
             return Ok(());
         }
         let Some(client) = &self.client else {
@@ -330,14 +401,22 @@ impl StateStore {
                     sum(
                         case
                             when ts.payload->>'side' = 'BUY' then
-                                coalesce((er.payload->>'filled_size')::double precision, 0)
+                                coalesce(
+                                    (er.payload->>'cumulative_filled_size')::double precision,
+                                    (er.payload->>'filled_size')::double precision,
+                                    0
+                                )
                             else
-                                -coalesce((er.payload->>'filled_size')::double precision, 0)
+                                -coalesce(
+                                    (er.payload->>'cumulative_filled_size')::double precision,
+                                    (er.payload->>'filled_size')::double precision,
+                                    0
+                                )
                         end
                     ) as position
                  from execution_reports er
                  join trade_signals ts on ts.signal_id = er.signal_id
-                 where er.status in ('Matched', 'MATCHED')
+                 where er.status in ('Matched', 'MATCHED', 'Partial', 'PARTIAL')
                    and ts.market_id = (
                        select market_id from trade_signals where signal_id = $1
                    )
@@ -359,15 +438,19 @@ fn migrations() -> Vec<(&'static str, &'static str)> {
     vec![
         (
             "0001_initial",
-            include_str!("../migrations/0001_initial.sql"),
+            include_str!("../../shared/migrations/0001_initial.sql"),
         ),
         (
             "0002_cancel_requests_positions",
-            include_str!("../migrations/0002_cancel_requests_positions.sql"),
+            include_str!("../../shared/migrations/0002_cancel_requests_positions.sql"),
         ),
         (
             "0003_cancel_request_status_constraint",
-            include_str!("../migrations/0003_cancel_request_status_constraint.sql"),
+            include_str!("../../shared/migrations/0003_cancel_request_status_constraint.sql"),
+        ),
+        (
+            "0004_order_fill_state",
+            include_str!("../../shared/migrations/0004_order_fill_state.sql"),
         ),
     ]
 }

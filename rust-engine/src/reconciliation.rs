@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 use crate::config::{Config, ExecutionMode};
 use crate::executor::{ExecutionReport, ExecutionStatus, TradeSignal};
 use crate::redis_client::StreamProducer;
-use crate::state_store::{StateStore, StoredOrder};
+use crate::state_store::{StateStore, StoredOrder, TradeLifecycleUpdate};
 
 #[derive(Clone, Default)]
 pub struct OrderTracker {
@@ -27,21 +27,50 @@ pub(crate) struct TrackedOrder {
     pub(crate) order_id: String,
     market_id: String,
     asset_id: String,
+    requested_size: f64,
+    filled_size: f64,
+    remaining_size: f64,
+    seen_trade_ids: HashSet<String>,
     submitted_at_ms: u64,
     dry_run_reported: bool,
 }
 
 impl TrackedOrder {
     pub(crate) fn from_stored_order(_order_id: &str, order: StoredOrder) -> Self {
+        let requested_size = order
+            .requested_size
+            .unwrap_or_else(|| order.filled_size + order.remaining_size.unwrap_or(0.0));
+        let remaining_size = order
+            .remaining_size
+            .unwrap_or_else(|| (requested_size - order.filled_size).max(0.0));
         Self {
             signal_id: order.signal_id,
             order_id: order.order_id,
             market_id: order.market_id,
             asset_id: order.asset_id,
+            requested_size,
+            filled_size: order.filled_size,
+            remaining_size,
+            seen_trade_ids: HashSet::new(),
             submitted_at_ms: now_ms(),
             dry_run_reported: true,
         }
     }
+
+    fn fill_state_after(&self, fill_size: f64) -> OrderFillState {
+        let filled_size = (self.filled_size + fill_size).min(self.requested_size);
+        let remaining_size = (self.requested_size - filled_size).max(0.0);
+        OrderFillState {
+            filled_size,
+            remaining_size,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OrderFillState {
+    filled_size: f64,
+    remaining_size: f64,
 }
 
 impl OrderTracker {
@@ -60,6 +89,10 @@ impl OrderTracker {
             order_id: order_id.to_owned(),
             market_id: signal.market_id.clone(),
             asset_id: signal.asset_id.clone(),
+            requested_size: signal.size,
+            filled_size: 0.0,
+            remaining_size: signal.size,
+            seen_trade_ids: HashSet::new(),
             submitted_at_ms,
             dry_run_reported: false,
         };
@@ -96,6 +129,28 @@ impl OrderTracker {
 
     pub(crate) async fn remove_order(&self, order_id: &str) -> Option<TrackedOrder> {
         self.inner.lock().await.remove(order_id)
+    }
+
+    async fn apply_trade_fill(
+        &self,
+        order_id: &str,
+        trade_id: &str,
+        fill_size: f64,
+    ) -> Option<OrderFillState> {
+        let mut inner = self.inner.lock().await;
+        let order = inner.get_mut(order_id)?;
+        if order.seen_trade_ids.insert(trade_id.to_owned()) {
+            order.filled_size = (order.filled_size + fill_size).min(order.requested_size);
+            order.remaining_size = (order.requested_size - order.filled_size).max(0.0);
+        }
+        let state = OrderFillState {
+            filled_size: order.filled_size,
+            remaining_size: order.remaining_size,
+        };
+        if state.remaining_size <= f64::EPSILON {
+            inner.remove(order_id);
+        }
+        Some(state)
     }
 
     async fn dry_run_due(&self, timeout_ms: u64, now_ms: u64) -> Vec<TrackedOrder> {
@@ -167,6 +222,8 @@ async fn run_dry_run_reconciliation(
                 status: ExecutionStatus::Unmatched,
                 filled_price: None,
                 filled_size: None,
+                cumulative_filled_size: None,
+                remaining_size: Some(order.remaining_size),
                 error: None,
                 timestamp_ms: now_ms(),
             };
@@ -388,6 +445,12 @@ async fn reconcile_order_event(
         status,
         filled_price: Some(parse_decimal(&event.price)?),
         filled_size: Some(parse_decimal(&event.size_matched)?),
+        cumulative_filled_size: Some(parse_decimal(&event.size_matched)?),
+        remaining_size: Some(if status == ExecutionStatus::Cancelled {
+            0.0
+        } else {
+            (order.requested_size - parse_decimal(&event.size_matched)?).max(0.0)
+        }),
         error: None,
         timestamp_ms: seconds_to_ms(&event.timestamp)?,
     }))
@@ -411,23 +474,33 @@ async fn reconcile_trade_event(
     let Some(order) = resolve_order(&order_id, order_tracker, store).await? else {
         return Ok(None);
     };
-    let status = map_trade_status(&event.status);
+    let fill_price = parse_decimal(&event.price)?;
+    let fill_size = parse_trade_size(&event, &order.order_id)?;
+    let fill_state = order_tracker
+        .apply_trade_fill(&order_id, &event.id, fill_size)
+        .await
+        .unwrap_or_else(|| order.fill_state_after(fill_size));
+    let status = map_trade_status(&event.status, fill_state.remaining_size);
     store
-        .record_trade_lifecycle(
-            &event.id,
-            &order_id,
-            &order.signal_id,
-            execution_status_name(status),
-            &payload,
-        )
+        .record_trade_lifecycle(TradeLifecycleUpdate {
+            trade_id: &event.id,
+            order_id: &order_id,
+            signal_id: &order.signal_id,
+            status: execution_status_name(status),
+            payload: &payload,
+            fill_price: Some(fill_price),
+            fill_size: Some(fill_size),
+        })
         .await?;
 
     Ok(Some(ExecutionReport {
         signal_id: order.signal_id,
         order_id,
         status,
-        filled_price: Some(parse_decimal(&event.price)?),
-        filled_size: Some(parse_trade_size(&event, &order.order_id)?),
+        filled_price: Some(fill_price),
+        filled_size: Some(fill_size),
+        cumulative_filled_size: Some(fill_state.filled_size),
+        remaining_size: Some(fill_state.remaining_size),
         error: trade_error(&event.status),
         timestamp_ms: seconds_to_ms(&event.timestamp)?,
     }))
@@ -485,9 +558,12 @@ fn parse_trade_size(event: &UserTradeEvent, order_id: &str) -> Result<f64> {
         .unwrap_or_else(|| parse_decimal(&event.size))
 }
 
-fn map_trade_status(status: &str) -> ExecutionStatus {
+fn map_trade_status(status: &str, remaining_size: f64) -> ExecutionStatus {
     match status {
-        "MATCHED" | "MINED" | "CONFIRMED" => ExecutionStatus::Matched,
+        "MATCHED" | "MINED" | "CONFIRMED" if remaining_size <= f64::EPSILON => {
+            ExecutionStatus::Matched
+        }
+        "MATCHED" | "MINED" | "CONFIRMED" => ExecutionStatus::Partial,
         "FAILED" => ExecutionStatus::Error,
         _ => ExecutionStatus::Delayed,
     }
@@ -500,6 +576,7 @@ fn trade_error(status: &str) -> Option<String> {
 fn execution_status_name(status: ExecutionStatus) -> &'static str {
     match status {
         ExecutionStatus::Matched => "MATCHED",
+        ExecutionStatus::Partial => "PARTIAL",
         ExecutionStatus::Delayed => "DELAYED",
         ExecutionStatus::Unmatched => "UNMATCHED",
         ExecutionStatus::Cancelled => "CANCELLED",
@@ -684,8 +761,103 @@ mod tests {
         .pop()
         .unwrap();
 
-        assert_eq!(report.status, ExecutionStatus::Matched);
+        assert_eq!(report.status, ExecutionStatus::Partial);
         assert_eq!(report.filled_size, Some(4.0));
+        assert_eq!(report.cumulative_filled_size, Some(4.0));
+        assert_eq!(report.remaining_size, Some(6.0));
+    }
+
+    #[tokio::test]
+    async fn partial_fills_accumulate_until_terminal_fill() {
+        let tracker = tracker().await;
+        let store = store();
+        let first = reconcile_user_message(
+            r#"{
+                "asset_id": "asset-1",
+                "event_type": "trade",
+                "id": "trade-1",
+                "maker_orders": [],
+                "market": "0xmarket",
+                "price": "0.57",
+                "side": "BUY",
+                "size": "4",
+                "status": "MATCHED",
+                "taker_order_id": "order-1",
+                "timestamp": "1672290701",
+                "type": "TRADE"
+            }"#,
+            &tracker,
+            &store,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        let second = reconcile_user_message(
+            r#"{
+                "asset_id": "asset-1",
+                "event_type": "trade",
+                "id": "trade-2",
+                "maker_orders": [],
+                "market": "0xmarket",
+                "price": "0.57",
+                "side": "BUY",
+                "size": "6",
+                "status": "MATCHED",
+                "taker_order_id": "order-1",
+                "timestamp": "1672290702",
+                "type": "TRADE"
+            }"#,
+            &tracker,
+            &store,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        assert_eq!(first.status, ExecutionStatus::Partial);
+        assert_eq!(first.cumulative_filled_size, Some(4.0));
+        assert_eq!(first.remaining_size, Some(6.0));
+        assert_eq!(second.status, ExecutionStatus::Matched);
+        assert_eq!(second.cumulative_filled_size, Some(10.0));
+        assert_eq!(second.remaining_size, Some(0.0));
+        assert!(tracker.get("order-1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn duplicate_trade_id_does_not_double_count_fill() {
+        let tracker = tracker().await;
+        let store = store();
+        let payload = r#"{
+            "asset_id": "asset-1",
+            "event_type": "trade",
+            "id": "trade-1",
+            "maker_orders": [],
+            "market": "0xmarket",
+            "price": "0.57",
+            "side": "BUY",
+            "size": "4",
+            "status": "MATCHED",
+            "taker_order_id": "order-1",
+            "timestamp": "1672290701",
+            "type": "TRADE"
+        }"#;
+        let first = reconcile_user_message(payload, &tracker, &store)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        let second = reconcile_user_message(payload, &tracker, &store)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(first.cumulative_filled_size, Some(4.0));
+        assert_eq!(second.cumulative_filled_size, Some(4.0));
+        assert_eq!(second.remaining_size, Some(6.0));
     }
 
     #[tokio::test]
