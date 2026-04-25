@@ -5,6 +5,7 @@ target/
 .mypy_cache/
 .pytest_cache/
 .playwright-mcp/
+.tmp/
 data_lake/
 *.duckdb
 *.duckdb.wal

@@ -13,6 +13,8 @@ pub struct StoredOrder {
     pub signal_id: String,
     pub market_id: String,
     pub asset_id: String,
+    pub side: Option<String>,
+    pub limit_price: Option<f64>,
     pub requested_size: Option<f64>,
     pub filled_size: f64,
     pub remaining_size: Option<f64>,
@@ -142,7 +144,15 @@ impl StateStore {
         };
         let Some(row) = client
             .query_opt(
-                "select signal_id, market_id, asset_id, requested_size, filled_size, remaining_size
+                "select
+                    signal_id,
+                    market_id,
+                    asset_id,
+                    payload->>'side' as side,
+                    (payload->>'price')::double precision as limit_price,
+                    requested_size,
+                    filled_size,
+                    remaining_size
                  from orders where order_id = $1",
                 &[&order_id],
             )
@@ -156,6 +166,8 @@ impl StateStore {
             signal_id: row.get("signal_id"),
             market_id: row.get("market_id"),
             asset_id: row.get("asset_id"),
+            side: row.get("side"),
+            limit_price: row.get("limit_price"),
             requested_size: row.get("requested_size"),
             filled_size: row.get("filled_size"),
             remaining_size: row.get("remaining_size"),
@@ -168,7 +180,16 @@ impl StateStore {
         };
         let rows = client
             .query(
-                "select order_id, signal_id, market_id, asset_id, requested_size, filled_size, remaining_size
+                "select
+                    order_id,
+                    signal_id,
+                    market_id,
+                    asset_id,
+                    payload->>'side' as side,
+                    (payload->>'price')::double precision as limit_price,
+                    requested_size,
+                    filled_size,
+                    remaining_size
                  from orders
                  where status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'PARTIAL', 'Delayed', 'Unmatched', 'Partial')
                     or coalesce(remaining_size, 0) > 0
@@ -183,6 +204,8 @@ impl StateStore {
                 signal_id: row.get("signal_id"),
                 market_id: row.get("market_id"),
                 asset_id: row.get("asset_id"),
+                side: row.get("side"),
+                limit_price: row.get("limit_price"),
                 requested_size: row.get("requested_size"),
                 filled_size: row.get("filled_size"),
                 remaining_size: row.get("remaining_size"),
@@ -352,6 +375,10 @@ impl StateStore {
         let Some(client) = &self.client else {
             return Ok(());
         };
+        let migration_lock_id = 724_834_072_344_i64;
+        client
+            .execute("select pg_advisory_lock($1)", &[&migration_lock_id])
+            .await?;
         client
             .batch_execute(
                 "create table if not exists schema_migrations (
@@ -379,6 +406,9 @@ impl StateStore {
                 )
                 .await?;
         }
+        client
+            .execute("select pg_advisory_unlock($1)", &[&migration_lock_id])
+            .await?;
         Ok(())
     }
 

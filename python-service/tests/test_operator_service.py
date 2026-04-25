@@ -18,6 +18,7 @@ from src.api.operator_service import (
     stream_summary,
     prometheus_metrics,
 )
+from src.api.state_store import jsonb_payload_to_dict
 from src.config import settings
 
 
@@ -329,6 +330,50 @@ def test_control_results_reads_operator_results_stream() -> None:
     results = asyncio.run(control_results(redis))
 
     assert results[0]["command_id"] == "command-1"
+
+
+def test_jsonb_payload_to_dict_accepts_asyncpg_string_payload() -> None:
+    payload = jsonb_payload_to_dict('{"order_id": "order-1", "status": "DELAYED"}')
+
+    assert payload == {"order_id": "order-1", "status": "DELAYED"}
+
+
+def test_execution_reports_use_postgres_when_pool_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    async def fake_require_pool() -> object:
+        return object()
+
+    async def fake_execution_reports_from_postgres(
+        pool: object, count: int
+    ) -> list[dict[str, object]]:
+        assert count == 25
+        return [
+            {
+                "signal_id": "signal-1",
+                "order_id": "order-1",
+                "status": "PARTIAL",
+                "timestamp_ms": 1,
+            }
+        ]
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
+    monkeypatch.setattr(
+        api_app, "execution_reports_from_postgres", fake_execution_reports_from_postgres
+    )
+    client = TestClient(api_app.app)
+
+    response = client.get("/execution-reports?limit=25")
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "postgres"
+    assert response.json()["reports"][0]["status"] == "PARTIAL"
 
 
 def test_api_prefix_aliases_operator_routes(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -47,25 +47,43 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    tokio::try_join!(
-        ws_client::run(
-            ws_publisher,
-            config.polymarket_ws_url.clone(),
-            config.market_asset_ids.clone()
-        ),
-        executor::run(exec_publisher, exec_consumer, config, order_tracker.clone()),
-        control::run(
-            control_publisher,
-            control_consumer,
-            reconciliation_config.clone(),
-            order_tracker.clone()
-        ),
-        reconciliation::run(
-            reconciliation_publisher,
-            reconciliation_config,
-            order_tracker.clone()
-        ),
-    )?;
+    if config.disable_market_ws {
+        info!("Market WebSocket disabled by DISABLE_MARKET_WS=true");
+        tokio::try_join!(
+            executor::run(exec_publisher, exec_consumer, config, order_tracker.clone()),
+            control::run(
+                control_publisher,
+                control_consumer,
+                reconciliation_config.clone(),
+                order_tracker.clone()
+            ),
+            reconciliation::run(
+                reconciliation_publisher,
+                reconciliation_config,
+                order_tracker.clone()
+            ),
+        )?;
+    } else {
+        tokio::try_join!(
+            ws_client::run(
+                ws_publisher,
+                config.polymarket_ws_url.clone(),
+                config.market_asset_ids.clone()
+            ),
+            executor::run(exec_publisher, exec_consumer, config, order_tracker.clone()),
+            control::run(
+                control_publisher,
+                control_consumer,
+                reconciliation_config.clone(),
+                order_tracker.clone()
+            ),
+            reconciliation::run(
+                reconciliation_publisher,
+                reconciliation_config,
+                order_tracker.clone()
+            ),
+        )?;
+    }
 
     Ok(())
 }

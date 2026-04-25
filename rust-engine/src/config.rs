@@ -24,6 +24,7 @@ pub struct Config {
     pub operator_kill_switch_key: String,
     pub order_reconciliation_timeout_ms: u64,
     pub cancel_confirmation_timeout_ms: u64,
+    pub disable_market_ws: bool,
     pub signals_stream: String,
     pub execution_reports_stream: String,
     pub operator_commands_stream: String,
@@ -77,6 +78,7 @@ impl Config {
                 "CANCEL_CONFIRMATION_TIMEOUT_MS",
                 10_000,
             )?,
+            disable_market_ws: parse_env_bool("DISABLE_MARKET_WS", false),
             signals_stream: std::env::var("SIGNALS_STREAM").unwrap_or("signals:stream".into()),
             execution_reports_stream: std::env::var("EXECUTION_REPORTS_STREAM")
                 .unwrap_or("execution:reports:stream".into()),

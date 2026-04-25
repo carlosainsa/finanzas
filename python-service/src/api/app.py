@@ -39,7 +39,7 @@ from src.api.operator_service import (
     stream_summary,
     RedisLike,
 )
-from src.api.state_store import require_pool
+from src.api.state_store import execution_reports_from_postgres, require_pool
 from src.data.redis_client import get_redis
 from src.discovery.markets import discover_markets
 
@@ -173,8 +173,15 @@ async def get_positions(_: ReadAuthDependency) -> dict[str, object]:
 @router.get("/execution-reports", response_model=ExecutionReportsResponse)
 async def execution_reports(_: ReadAuthDependency, limit: int = 100) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
+    postgres_pool = await require_pool()
+    bounded_limit = max(1, min(limit, 500))
+    if postgres_pool is not None:
+        return {
+            "reports": await execution_reports_from_postgres(postgres_pool, bounded_limit),
+            "source": "postgres",
+        }
     return {
-        "reports": await recent_execution_reports(redis, count=max(1, min(limit, 500))),
+        "reports": await recent_execution_reports(redis, count=bounded_limit),
         "source": settings.execution_reports_stream,
     }
 

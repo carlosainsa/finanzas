@@ -65,6 +65,14 @@ PYTHONPATH=python-service python scripts/integration_smoke.py
 
 The smoke test publishes a valid orderbook, waits for a signal, waits for a dry-run execution report, and verifies the Operator API status endpoint.
 
+For a fully managed local smoke run, use:
+
+```bash
+scripts/run_integration_smoke.sh
+```
+
+The managed smoke starts Redis, Postgres, Rust, the API, and the Python consumer locally with `DISABLE_MARKET_WS=true`, so it does not depend on external Polymarket market data.
+
 ## Startup
 
 Run Redis and Postgres first, then start services:

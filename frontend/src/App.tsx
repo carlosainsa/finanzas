@@ -256,8 +256,10 @@ export function App() {
                 order.order_id || 'pending',
                 order.status,
                 order.filled_size ?? '-',
+                order.cumulative_filled_size ?? order.filled_size ?? '-',
+                order.remaining_size ?? '-',
               ])}
-              headers={['Order', 'Status', 'Filled']}
+              headers={['Order', 'Status', 'Last fill', 'Cum filled', 'Remaining']}
             />
           </Panel>
 

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from pathlib import Path
 
@@ -72,7 +73,35 @@ async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
         order by er.created_at desc
         """
     )
-    return [dict(row["payload"]) for row in rows if isinstance(row["payload"], dict)]
+    return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
+
+
+async def execution_reports_from_postgres(
+    pool: asyncpg.Pool, count: int
+) -> list[dict[str, Any]]:
+    rows = await pool.fetch(
+        """
+        select payload
+        from execution_reports
+        order by created_at desc
+        limit $1
+        """,
+        count,
+    )
+    return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
+
+
+def jsonb_payload_to_dict(value: object) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 async def positions_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:

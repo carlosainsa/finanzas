@@ -100,6 +100,7 @@ mod tests {
             operator_kill_switch_key: "operator:kill_switch".into(),
             order_reconciliation_timeout_ms: 10_000,
             cancel_confirmation_timeout_ms: 10_000,
+            disable_market_ws: false,
             signals_stream: "signals:stream".into(),
             execution_reports_stream: "execution:reports:stream".into(),
             operator_commands_stream: "operator:commands:stream".into(),

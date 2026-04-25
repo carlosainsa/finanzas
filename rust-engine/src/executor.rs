@@ -30,7 +30,7 @@ pub struct TradeSignal {
     pub strategy: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Side {
     Buy,

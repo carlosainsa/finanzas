@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -11,8 +12,9 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
 
+use crate::clob_client::AuthenticatedClob;
 use crate::config::{Config, ExecutionMode};
-use crate::executor::{ExecutionReport, ExecutionStatus, TradeSignal};
+use crate::executor::{ExecutionReport, ExecutionStatus, Side, TradeSignal};
 use crate::redis_client::StreamProducer;
 use crate::state_store::{StateStore, StoredOrder, TradeLifecycleUpdate};
 
@@ -27,6 +29,8 @@ pub(crate) struct TrackedOrder {
     pub(crate) order_id: String,
     market_id: String,
     asset_id: String,
+    side: Option<Side>,
+    limit_price: Option<f64>,
     requested_size: f64,
     filled_size: f64,
     remaining_size: f64,
@@ -48,6 +52,8 @@ impl TrackedOrder {
             order_id: order.order_id,
             market_id: order.market_id,
             asset_id: order.asset_id,
+            side: order.side.as_deref().and_then(parse_signal_side),
+            limit_price: order.limit_price,
             requested_size,
             filled_size: order.filled_size,
             remaining_size,
@@ -89,6 +95,8 @@ impl OrderTracker {
             order_id: order_id.to_owned(),
             market_id: signal.market_id.clone(),
             asset_id: signal.asset_id.clone(),
+            side: Some(signal.side),
+            limit_price: Some(signal.price),
             requested_size: signal.size,
             filled_size: 0.0,
             remaining_size: signal.size,
@@ -194,8 +202,19 @@ pub async fn run(
         anyhow::bail!("USER_MARKET_IDS is required for live user WebSocket reconciliation");
     }
 
+    let clob = AuthenticatedClob::from_config(&config).await?;
+
     loop {
-        match run_live_session(&mut publisher, &store, &config, &auth, &order_tracker).await {
+        match run_live_session(
+            &mut publisher,
+            &store,
+            &config,
+            &auth,
+            &order_tracker,
+            &clob,
+        )
+        .await
+        {
             Ok(()) => warn!("Polymarket user WebSocket session ended; reconnecting"),
             Err(err) => {
                 error!(error = %err, "Polymarket user WebSocket session failed; reconnecting")
@@ -238,6 +257,7 @@ async fn run_live_session(
     config: &Config,
     auth: &UserWsAuth,
     order_tracker: &OrderTracker,
+    clob: &AuthenticatedClob,
 ) -> Result<()> {
     info!(
         "Connecting to Polymarket user WebSocket: {}",
@@ -271,7 +291,7 @@ async fn run_live_session(
                 match message {
                     Ok(message) if message.is_text() => {
                         let text = message.to_text()?;
-                        match reconcile_user_message(text, order_tracker, store).await {
+                        match reconcile_user_message(text, order_tracker, store, Some(clob)).await {
                             Ok(reports) => {
                                 for report in reports {
                                     publish_execution_report(
@@ -358,19 +378,21 @@ async fn reconcile_user_message(
     raw: &str,
     order_tracker: &OrderTracker,
     store: &StateStore,
+    clob: Option<&AuthenticatedClob>,
 ) -> Result<Vec<ExecutionReport>> {
     let value: serde_json::Value = serde_json::from_str(raw)?;
     match value {
         serde_json::Value::Array(items) => {
             let mut reports = Vec::new();
             for item in items {
-                if let Some(report) = reconcile_user_value(item, order_tracker, store).await? {
+                if let Some(report) = reconcile_user_value(item, order_tracker, store, clob).await?
+                {
                     reports.push(report);
                 }
             }
             Ok(reports)
         }
-        value => Ok(reconcile_user_value(value, order_tracker, store)
+        value => Ok(reconcile_user_value(value, order_tracker, store, clob)
             .await?
             .into_iter()
             .collect()),
@@ -381,6 +403,7 @@ async fn reconcile_user_value(
     value: serde_json::Value,
     order_tracker: &OrderTracker,
     store: &StateStore,
+    clob: Option<&AuthenticatedClob>,
 ) -> Result<Option<ExecutionReport>> {
     match value.get("event_type").and_then(|event| event.as_str()) {
         Some("order") => {
@@ -389,7 +412,7 @@ async fn reconcile_user_value(
         }
         Some("trade") => {
             let event: UserTradeEvent = serde_json::from_value(value.clone())?;
-            reconcile_trade_event(event, value, order_tracker, store).await
+            reconcile_trade_event(event, value, order_tracker, store, clob).await
         }
         _ => Ok(None),
     }
@@ -461,6 +484,7 @@ async fn reconcile_trade_event(
     payload: serde_json::Value,
     order_tracker: &OrderTracker,
     store: &StateStore,
+    clob: Option<&AuthenticatedClob>,
 ) -> Result<Option<ExecutionReport>> {
     if event.event_type != "trade" {
         return Ok(None);
@@ -476,11 +500,16 @@ async fn reconcile_trade_event(
     };
     let fill_price = parse_decimal(&event.price)?;
     let fill_size = parse_trade_size(&event, &order.order_id)?;
+    let divergence = fill_divergence(&order, fill_price, fill_size);
     let fill_state = order_tracker
         .apply_trade_fill(&order_id, &event.id, fill_size)
         .await
         .unwrap_or_else(|| order.fill_state_after(fill_size));
     let status = map_trade_status(&event.status, fill_state.remaining_size);
+    let poll_divergence = match clob {
+        Some(clob) => poll_order_fill_divergence(clob, &order_id, fill_state.filled_size).await,
+        None => None,
+    };
     store
         .record_trade_lifecycle(TradeLifecycleUpdate {
             trade_id: &event.id,
@@ -501,9 +530,52 @@ async fn reconcile_trade_event(
         filled_size: Some(fill_size),
         cumulative_filled_size: Some(fill_state.filled_size),
         remaining_size: Some(fill_state.remaining_size),
-        error: trade_error(&event.status),
+        error: divergence
+            .or(poll_divergence)
+            .or_else(|| trade_error(&event.status)),
         timestamp_ms: seconds_to_ms(&event.timestamp)?,
     }))
+}
+
+async fn poll_order_fill_divergence(
+    clob: &AuthenticatedClob,
+    order_id: &str,
+    expected_filled_size: f64,
+) -> Option<String> {
+    match clob.client.order(order_id).await {
+        Ok(order) => {
+            let Some(size_matched) = display_to_f64(order.size_matched) else {
+                return Some("fill divergence: CLOB size_matched is not numeric".to_owned());
+            };
+            polled_fill_divergence(size_matched, expected_filled_size)
+        }
+        Err(err) => {
+            warn!(
+                order_id = %order_id,
+                error = %err,
+                "Could not poll CLOB order after user trade event"
+            );
+            None
+        }
+    }
+}
+
+fn polled_fill_divergence(polled_size_matched: f64, expected_filled_size: f64) -> Option<String> {
+    const EPSILON: f64 = 1e-9;
+    if (polled_size_matched - expected_filled_size).abs() > EPSILON {
+        return Some(format!(
+            "fill divergence: CLOB size_matched {polled_size_matched} differs from user_ws cumulative_filled_size {expected_filled_size}"
+        ));
+    }
+    None
+}
+
+fn display_to_f64(value: impl Display) -> Option<f64> {
+    value
+        .to_string()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
 }
 
 async fn select_tracked_trade_order_id(
@@ -571,6 +643,37 @@ fn map_trade_status(status: &str, remaining_size: f64) -> ExecutionStatus {
 
 fn trade_error(status: &str) -> Option<String> {
     (status == "FAILED").then(|| "trade failed".to_owned())
+}
+
+fn fill_divergence(order: &TrackedOrder, fill_price: f64, fill_size: f64) -> Option<String> {
+    const EPSILON: f64 = 1e-9;
+    if fill_size - order.remaining_size > EPSILON {
+        return Some(format!(
+            "fill divergence: fill_size {fill_size} exceeds remaining_size {}",
+            order.remaining_size
+        ));
+    }
+    match (order.side, order.limit_price) {
+        (Some(Side::Buy), Some(limit_price)) if fill_price - limit_price > EPSILON => {
+            Some(format!(
+                "fill divergence: buy fill_price {fill_price} exceeds limit_price {limit_price}"
+            ))
+        }
+        (Some(Side::Sell), Some(limit_price)) if limit_price - fill_price > EPSILON => {
+            Some(format!(
+                "fill divergence: sell fill_price {fill_price} is below limit_price {limit_price}"
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn parse_signal_side(value: &str) -> Option<Side> {
+    match value {
+        "BUY" | "Buy" | "buy" => Some(Side::Buy),
+        "SELL" | "Sell" | "sell" => Some(Side::Sell),
+        _ => None,
+    }
 }
 
 fn execution_status_name(status: ExecutionStatus) -> &'static str {
@@ -657,6 +760,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -685,6 +789,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -716,6 +821,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -755,6 +861,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -788,6 +895,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -811,6 +919,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -844,12 +953,12 @@ mod tests {
             "timestamp": "1672290701",
             "type": "TRADE"
         }"#;
-        let first = reconcile_user_message(payload, &tracker, &store)
+        let first = reconcile_user_message(payload, &tracker, &store, None)
             .await
             .unwrap()
             .pop()
             .unwrap();
-        let second = reconcile_user_message(payload, &tracker, &store)
+        let second = reconcile_user_message(payload, &tracker, &store, None)
             .await
             .unwrap()
             .pop()
@@ -858,6 +967,88 @@ mod tests {
         assert_eq!(first.cumulative_filled_size, Some(4.0));
         assert_eq!(second.cumulative_filled_size, Some(4.0));
         assert_eq!(second.remaining_size, Some(6.0));
+    }
+
+    #[tokio::test]
+    async fn trade_price_above_buy_limit_marks_divergence() {
+        let tracker = tracker().await;
+        let store = store();
+        let report = reconcile_user_message(
+            r#"{
+                "asset_id": "asset-1",
+                "event_type": "trade",
+                "id": "trade-1",
+                "maker_orders": [],
+                "market": "0xmarket",
+                "price": "0.58",
+                "side": "BUY",
+                "size": "2",
+                "status": "MATCHED",
+                "taker_order_id": "order-1",
+                "timestamp": "1672290701",
+                "type": "TRADE"
+            }"#,
+            &tracker,
+            &store,
+            None,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        assert_eq!(report.status, ExecutionStatus::Partial);
+        assert!(report
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("fill_price"));
+    }
+
+    #[tokio::test]
+    async fn trade_size_above_remaining_marks_divergence() {
+        let tracker = tracker().await;
+        let store = store();
+        let report = reconcile_user_message(
+            r#"{
+                "asset_id": "asset-1",
+                "event_type": "trade",
+                "id": "trade-1",
+                "maker_orders": [],
+                "market": "0xmarket",
+                "price": "0.57",
+                "side": "BUY",
+                "size": "11",
+                "status": "MATCHED",
+                "taker_order_id": "order-1",
+                "timestamp": "1672290701",
+                "type": "TRADE"
+            }"#,
+            &tracker,
+            &store,
+            None,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+        assert_eq!(report.status, ExecutionStatus::Matched);
+        assert!(report
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("remaining_size"));
+    }
+
+    #[test]
+    fn polled_fill_size_mismatch_marks_divergence() {
+        let divergence = polled_fill_divergence(3.0, 4.0);
+
+        assert!(divergence
+            .as_deref()
+            .unwrap_or_default()
+            .contains("size_matched"));
     }
 
     #[tokio::test]
@@ -877,6 +1068,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .unwrap()
@@ -900,6 +1092,7 @@ mod tests {
             }"#,
             &tracker,
             &store,
+            None,
         )
         .await
         .is_err());

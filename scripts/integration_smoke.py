@@ -31,6 +31,8 @@ TIMEOUT_SECONDS = float(os.getenv("INTEGRATION_TIMEOUT_SECONDS", "15"))
 
 async def main() -> int:
     client = redis.from_url(REDIS_URL, decode_responses=True)
+    signal_start_id = await stream_last_id(client, SIGNALS_STREAM)
+    report_start_id = await stream_last_id(client, REPORTS_STREAM)
     now_ms = int(time.time() * 1000)
     orderbook = {
         "market_id": "integration-market",
@@ -38,15 +40,14 @@ async def main() -> int:
         "bids": [{"price": 0.48, "size": 25.0}],
         "asks": [{"price": 0.52, "size": 25.0}],
         "timestamp_ms": now_ms,
-        "source_timestamp_ms": now_ms,
     }
     await client.xadd(ORDERBOOK_STREAM, {"payload": json.dumps(orderbook)})
 
-    signal = await wait_for_stream_payload(client, SIGNALS_STREAM)
+    signal = await wait_for_stream_payload(client, SIGNALS_STREAM, signal_start_id)
     if signal.get("market_id") != orderbook["market_id"]:
         raise RuntimeError(f"unexpected signal payload: {signal}")
 
-    report = await wait_for_stream_payload(client, REPORTS_STREAM)
+    report = await wait_for_stream_payload(client, REPORTS_STREAM, report_start_id)
     if not report.get("order_id") or report.get("status") not in {
         "DELAYED",
         "UNMATCHED",
@@ -61,6 +62,8 @@ async def main() -> int:
         response.raise_for_status()
         if response.json().get("status") != "ok":
             raise RuntimeError(f"operator API unhealthy: {response.text}")
+        wait_for_api_item(api, "/orders/open", "orders", str(report.get("order_id")))
+        wait_for_api_item(api, "/execution-reports", "reports", str(report.get("order_id")))
 
     print(
         json.dumps(
@@ -76,11 +79,26 @@ async def main() -> int:
     return 0
 
 
+def wait_for_api_item(
+    api: httpx.Client, path: str, collection_key: str, order_id: str
+) -> None:
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    last_response = ""
+    while time.monotonic() < deadline:
+        response = api.get(path)
+        response.raise_for_status()
+        last_response = response.text
+        items = response.json().get(collection_key, [])
+        if any(item.get("order_id") == order_id for item in items):
+            return
+        time.sleep(0.5)
+    raise RuntimeError(f"{order_id} not visible through {path}: {last_response}")
+
+
 async def wait_for_stream_payload(
-    client: redis.Redis, stream: str
+    client: redis.Redis, stream: str, last_id: str
 ) -> dict[str, Any]:
     deadline = time.monotonic() + TIMEOUT_SECONDS
-    last_id = "$"
     while time.monotonic() < deadline:
         messages = await client.xread({stream: last_id}, count=1, block=1000)
         for _, entries in messages:
@@ -92,6 +110,14 @@ async def wait_for_stream_payload(
                     if isinstance(parsed, dict):
                         return parsed
     raise TimeoutError(f"timed out waiting for {stream}")
+
+
+async def stream_last_id(client: redis.Redis, stream: str) -> str:
+    entries = await client.xrevrange(stream, count=1)
+    if not entries:
+        return "0-0"
+    stream_id, _ = entries[0]
+    return str(stream_id)
 
 
 if __name__ == "__main__":

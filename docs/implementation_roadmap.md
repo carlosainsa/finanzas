@@ -58,6 +58,7 @@ This roadmap converts [repo_ideas.md](repo_ideas.md) and [architecture_plan.md](
 - Frontend API types and the typed OpenAPI client are generated from OpenAPI with `npm run generate:types`.
 - Local verification is consolidated in `scripts/check_all.sh`.
 - Local integration smoke testing uses `docker-compose.test.yml` plus `scripts/integration_smoke.py`.
+- Managed local integration testing uses `scripts/run_integration_smoke.sh` and disables the market WebSocket with `DISABLE_MARKET_WS=true`.
 - GitHub Actions runs `scripts/check_all.sh` on push and pull request, with Cargo, pip, and npm caches.
 - CI rejects stale generated OpenAPI/TypeScript artifacts.
 - The dashboard separates read/control tokens and shows recent `/control/results`.
