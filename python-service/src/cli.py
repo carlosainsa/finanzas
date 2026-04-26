@@ -50,10 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     cancel_all.add_argument("--reason", required=True)
     cancel_all.add_argument("--operator")
     cancel_all.add_argument("--confirm", action="store_true")
-    cancel_all.add_argument("--confirmation-phrase", required=True)
+    cancel_all.add_argument("--confirmation-phrase")
+    cancel_all.add_argument("--preview", action="store_true")
     cancel_bot_open = subparsers.add_parser("cancel-bot-open")
     cancel_bot_open.add_argument("--reason", required=True)
     cancel_bot_open.add_argument("--operator")
+    cancel_bot_open.add_argument("--preview", action="store_true")
     discover = subparsers.add_parser("discover-markets")
     discover.add_argument("--limit", type=int)
     discover.add_argument("--query")
@@ -93,8 +95,17 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                 token=read_token(args),
             )
         if args.command == "cancel-all":
+            if args.preview:
+                return request_json(
+                    client,
+                    "POST",
+                    "/control/preview/cancel-all",
+                    token=control_token(args),
+                )
             if not args.confirm:
                 raise SystemExit("cancel-all requires --confirm")
+            if args.confirmation_phrase is None:
+                raise SystemExit("cancel-all requires --confirmation-phrase")
             return request_json(
                 client,
                 "POST",
@@ -108,6 +119,13 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                 token=control_token(args),
             )
         if args.command == "cancel-bot-open":
+            if args.preview:
+                return request_json(
+                    client,
+                    "POST",
+                    "/control/preview/cancel-bot-open",
+                    token=control_token(args),
+                )
             return request_json(
                 client,
                 "POST",
@@ -196,9 +214,32 @@ def print_command_table(command: str, value: object) -> None:
     if command == "control-results" and isinstance(value, dict):
         print_rows(
             value.get("results"),
-            ["command_id", "command_type", "status", "canceled_count", "timestamp_ms"],
+            [
+                "command_id",
+                "command_type",
+                "status",
+                "operator",
+                "reason",
+                "completed_at_ms",
+                "error",
+            ],
         )
         return
+    if command in {"cancel-all", "cancel-bot-open"} and isinstance(value, dict):
+        if "affected_orders" in value:
+            print_rows(
+                [
+                    {
+                        "command_type": value.get("command_type"),
+                        "scope": value.get("scope"),
+                        "affected_count": value.get("affected_count"),
+                        "source": value.get("source"),
+                        "warnings": value.get("warnings"),
+                    }
+                ],
+                ["command_type", "scope", "affected_count", "source", "warnings"],
+            )
+            return
     if command == "metrics" and isinstance(value, dict):
         print_metrics(value)
         return

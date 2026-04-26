@@ -21,6 +21,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/control/preview/cancel-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Control Cancel All */
+        post: operations["preview_control_cancel_all_api_control_preview_cancel_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/control/preview/cancel-bot-open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Control Cancel Bot Open */
+        post: operations["preview_control_cancel_bot_open_api_control_preview_cancel_bot_open_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/control/results": {
         parameters: {
             query?: never;
@@ -287,6 +321,40 @@ export interface paths {
         put?: never;
         /** Enable Kill Switch */
         post: operations["enable_kill_switch_control_kill_switch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/control/preview/cancel-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Control Cancel All */
+        post: operations["preview_control_cancel_all_control_preview_cancel_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/control/preview/cancel-bot-open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Control Cancel Bot Open */
+        post: operations["preview_control_cancel_bot_open_control_preview_cancel_bot_open_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -594,6 +662,30 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** ControlPreviewResponse */
+        ControlPreviewResponse: {
+            /** Affected Count */
+            affected_count: number;
+            /** Affected Orders */
+            affected_orders: components["schemas"]["ExecutionReport"][];
+            /** Command Type */
+            command_type: string;
+            /** Confirmation Phrase */
+            confirmation_phrase?: string | null;
+            /** Requires Confirmation */
+            requires_confirmation: boolean;
+            /** Scope */
+            scope: string;
+            /** Source */
+            source: string;
+            /** Warnings */
+            warnings: string[];
+            /**
+             * Would Publish
+             * @default false
+             */
+            would_publish: boolean;
+        };
         /** ControlResponse */
         ControlResponse: {
             /** Accepted */
@@ -608,10 +700,14 @@ export interface components {
             canceled?: string[] | null;
             /** Canceled Count */
             canceled_count?: number | null;
+            /** Command Created At Ms */
+            command_created_at_ms?: number | null;
             /** Command Id */
             command_id: string;
             /** Command Type */
             command_type?: string | null;
+            /** Completed At Ms */
+            completed_at_ms?: number | null;
             /** Divergences */
             divergences?: string[] | null;
             /** Error */
@@ -620,6 +716,10 @@ export interface components {
             not_canceled?: {
                 [key: string]: string;
             } | null;
+            /** Operator */
+            operator?: string | null;
+            /** Reason */
+            reason?: string | null;
             /** Status */
             status: string;
             /** Timestamp Ms */
@@ -948,6 +1048,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_control_cancel_all_api_control_preview_cancel_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlPreviewResponse"];
+                };
+            };
+        };
+    };
+    preview_control_cancel_bot_open_api_control_preview_cancel_bot_open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlPreviewResponse"];
                 };
             };
         };
@@ -1389,6 +1529,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_control_cancel_all_control_preview_cancel_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlPreviewResponse"];
+                };
+            };
+        };
+    };
+    preview_control_cancel_bot_open_control_preview_cancel_bot_open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlPreviewResponse"];
                 };
             };
         };

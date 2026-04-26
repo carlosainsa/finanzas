@@ -38,6 +38,17 @@ def test_cli_supports_metrics_and_control_results() -> None:
     assert args.limit == 5
 
 
+def test_cli_supports_cancel_previews_without_confirmation_phrase() -> None:
+    parser = cli.build_parser()
+
+    cancel_all = parser.parse_args(["cancel-all", "--reason", "audit", "--preview"])
+    cancel_bot = parser.parse_args(["cancel-bot-open", "--reason", "audit", "--preview"])
+
+    assert cancel_all.preview is True
+    assert cancel_all.confirmation_phrase is None
+    assert cancel_bot.preview is True
+
+
 def test_cli_prefers_control_token_for_writes() -> None:
     args = cli.build_parser().parse_args(
         [
@@ -91,3 +102,26 @@ def test_cli_prints_metrics_labels(capsys: pytest.CaptureFixture[str]) -> None:
     assert "signals_received: 3" in output
     assert "execution_reports_by_status:" in output
     assert "PARTIAL" in output
+
+
+def test_cli_prints_control_result_audit_columns(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "control-results",
+        {
+            "results": [
+                {
+                    "command_id": "command-1",
+                    "command_type": "cancel_bot_open",
+                    "status": "CONFIRMED",
+                    "operator": "operator-1",
+                    "reason": "rebalance",
+                    "completed_at_ms": 2,
+                }
+            ]
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "operator" in output
+    assert "operator-1" in output
+    assert "rebalance" in output

@@ -277,16 +277,43 @@ impl StateStore {
             .get("status")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("UNKNOWN");
+        let operator = result.get("operator").and_then(serde_json::Value::as_str);
+        let reason = result.get("reason").and_then(serde_json::Value::as_str);
+        let error = result.get("error").and_then(serde_json::Value::as_str);
+        let command_created_at_ms = result
+            .get("command_created_at_ms")
+            .and_then(serde_json::Value::as_i64);
+        let completed_at_ms = result
+            .get("completed_at_ms")
+            .and_then(serde_json::Value::as_i64);
         client
             .execute(
-                "insert into control_results (command_id, command_type, status, payload)
-                 values ($1, $2, $3, $4)
+                "insert into control_results (
+                    command_id, command_type, status, payload, operator, reason,
+                    error, command_created_at_ms, completed_at_ms
+                 )
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                  on conflict (command_id) do update set
                     command_type = excluded.command_type,
                     status = excluded.status,
                     payload = excluded.payload,
+                    operator = excluded.operator,
+                    reason = excluded.reason,
+                    error = excluded.error,
+                    command_created_at_ms = excluded.command_created_at_ms,
+                    completed_at_ms = excluded.completed_at_ms,
                     updated_at = now()",
-                &[&command_id, &command_type, &status, &result],
+                &[
+                    &command_id,
+                    &command_type,
+                    &status,
+                    &result,
+                    &operator,
+                    &reason,
+                    &error,
+                    &command_created_at_ms,
+                    &completed_at_ms,
+                ],
             )
             .await?;
         Ok(())
@@ -517,6 +544,10 @@ fn migrations() -> Vec<(&'static str, &'static str)> {
         (
             "0005_control_results",
             include_str!("../../shared/migrations/0005_control_results.sql"),
+        ),
+        (
+            "0006_control_result_audit_fields",
+            include_str!("../../shared/migrations/0006_control_result_audit_fields.sql"),
         ),
     ]
 }

@@ -11,6 +11,7 @@ from src.api.auth import require_control_auth, require_read_auth
 from src.api.models import (
     CancelBotOpenRequest,
     CancelAllRequest,
+    ControlPreviewResponse,
     ControlResultsResponse,
     ControlResponse,
     ExecutionReportsResponse,
@@ -27,6 +28,8 @@ from src.api.operator_service import (
     open_orders,
     positions,
     control_results,
+    preview_cancel_all,
+    preview_cancel_bot_open,
     recent_execution_reports,
     request_cancel_bot_open,
     request_cancel_all,
@@ -109,6 +112,26 @@ async def resume(request: ResumeRequest, _: ControlAuthDependency) -> dict[str, 
     return await set_kill_switch(
         redis, enabled=False, reason=request.reason, operator=request.operator
     )
+
+
+@router.post(
+    "/control/preview/cancel-all",
+    response_model=ControlPreviewResponse,
+)
+async def preview_control_cancel_all(_: ControlAuthDependency) -> dict[str, object]:
+    redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
+    return await preview_cancel_all(redis, postgres_pool=postgres_pool)
+
+
+@router.post(
+    "/control/preview/cancel-bot-open",
+    response_model=ControlPreviewResponse,
+)
+async def preview_control_cancel_bot_open(_: ControlAuthDependency) -> dict[str, object]:
+    redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
+    return await preview_cancel_bot_open(redis, postgres_pool=postgres_pool)
 
 
 @router.post(

@@ -87,6 +87,51 @@ async def request_cancel_bot_open(
     return await publish_control_command(redis, "cancel_bot_open", reason, operator)
 
 
+async def preview_cancel_bot_open(
+    redis: RedisLike, postgres_pool: asyncpg.Pool | None = None
+) -> dict[str, object]:
+    orders = await open_orders(redis, postgres_pool=postgres_pool)
+    source = "postgres" if postgres_pool is not None else settings.execution_reports_stream
+    warnings = []
+    if postgres_pool is None:
+        warnings.append("preview is derived from Redis fallback, not canonical Postgres state")
+    return {
+        "command_type": "cancel_bot_open",
+        "scope": "bot_known_open_orders",
+        "affected_count": len(orders),
+        "affected_orders": orders,
+        "source": source,
+        "warnings": warnings,
+        "requires_confirmation": False,
+        "confirmation_phrase": None,
+        "would_publish": False,
+    }
+
+
+async def preview_cancel_all(
+    redis: RedisLike, postgres_pool: asyncpg.Pool | None = None
+) -> dict[str, object]:
+    orders = await open_orders(redis, postgres_pool=postgres_pool)
+    source = "postgres" if postgres_pool is not None else settings.execution_reports_stream
+    warnings = [
+        "cancel-all targets the authenticated CLOB account and may affect orders not tracked by this bot",
+        "use cancel-bot-open unless this is an emergency",
+    ]
+    if postgres_pool is None:
+        warnings.append("known bot order count is derived from Redis fallback")
+    return {
+        "command_type": "cancel_all",
+        "scope": "account",
+        "affected_count": len(orders),
+        "affected_orders": orders,
+        "source": source,
+        "warnings": warnings,
+        "requires_confirmation": True,
+        "confirmation_phrase": "CANCEL ALL OPEN ORDERS",
+        "would_publish": False,
+    }
+
+
 async def publish_control_command(
     redis: RedisLike,
     command_type: str,

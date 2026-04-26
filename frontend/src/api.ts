@@ -11,6 +11,7 @@ export type MarketDiscovery = components['schemas']['ScoredMarket'];
 export type StrategyMetrics = components['schemas']['StrategyMetricsResponse'];
 export type ControlResult = components['schemas']['ControlResult'];
 export type ControlResponse = components['schemas']['ControlResponse'];
+export type ControlPreview = components['schemas']['ControlPreviewResponse'];
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 
 export type DashboardData = {
@@ -144,6 +145,16 @@ export async function cancelBotOpenOrders(): Promise<ControlResponse> {
     throw new Error('/api/orders/cancel-bot-open failed');
   }
   return unwrap(data, error, '/api/orders/cancel-bot-open');
+}
+
+export async function previewCancelBotOpenOrders(): Promise<ControlPreview> {
+  const { data, error } = await client.POST('/api/control/preview/cancel-bot-open');
+  return unwrap(data, error, '/api/control/preview/cancel-bot-open');
+}
+
+export async function previewCancelAllOrders(): Promise<ControlPreview> {
+  const { data, error } = await client.POST('/api/control/preview/cancel-all');
+  return unwrap(data, error, '/api/control/preview/cancel-all');
 }
 
 export async function cancelAllOrders(confirmationPhrase: string): Promise<ControlResponse> {

@@ -11,6 +11,8 @@ from src.api.operator_service import (
     kill_switch_enabled,
     open_orders,
     positions,
+    preview_cancel_all,
+    preview_cancel_bot_open,
     request_cancel_all,
     request_cancel_bot_open,
     set_kill_switch,
@@ -97,6 +99,45 @@ def test_cancel_bot_open_command_is_published() -> None:
     assert result["accepted"] is True
     command = json.loads(redis.streams[settings.operator_commands_stream][0][1]["payload"])
     assert command["type"] == "cancel_bot_open"
+
+
+def test_cancel_bot_open_preview_has_no_side_effects() -> None:
+    redis = FakeRedis()
+    asyncio.run(redis.xadd(
+        settings.execution_reports_stream,
+        {
+            "payload": json.dumps(
+                {
+                    "signal_id": "signal-1",
+                    "order_id": "order-1",
+                    "status": "UNMATCHED",
+                    "timestamp_ms": 1,
+                }
+            )
+        },
+    ))
+
+    preview = asyncio.run(preview_cancel_bot_open(redis))
+
+    assert preview["command_type"] == "cancel_bot_open"
+    assert preview["affected_count"] == 1
+    assert preview["would_publish"] is False
+    assert settings.operator_commands_stream not in redis.streams
+
+
+def test_cancel_all_preview_warns_about_account_scope() -> None:
+    redis = FakeRedis()
+
+    preview = asyncio.run(preview_cancel_all(redis))
+
+    assert preview["command_type"] == "cancel_all"
+    assert preview["scope"] == "account"
+    assert preview["requires_confirmation"] is True
+    assert preview["confirmation_phrase"] == "CANCEL ALL OPEN ORDERS"
+    warnings = preview["warnings"]
+    assert isinstance(warnings, list)
+    assert any("may affect orders not tracked" in str(warning) for warning in warnings)
+    assert settings.operator_commands_stream not in redis.streams
 
 
 def test_stream_summary_handles_missing_streams() -> None:
@@ -399,6 +440,10 @@ def test_control_results_use_postgres_when_pool_exists(
                 "command_type": "cancel_bot_open",
                 "status": "CONFIRMED",
                 "timestamp_ms": 1,
+                "operator": "operator-1",
+                "reason": "risk off",
+                "command_created_at_ms": 1,
+                "completed_at_ms": 2,
             }
         ]
 
@@ -414,6 +459,43 @@ def test_control_results_use_postgres_when_pool_exists(
     assert response.status_code == 200
     assert response.json()["source"] == "postgres"
     assert response.json()["results"][0]["command_id"] == "command-1"
+    assert response.json()["results"][0]["operator"] == "operator-1"
+
+
+def test_preview_endpoints_return_affected_orders_without_publishing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+    asyncio.run(redis.xadd(
+        settings.execution_reports_stream,
+        {
+            "payload": json.dumps(
+                {
+                    "signal_id": "signal-1",
+                    "order_id": "order-1",
+                    "status": "UNMATCHED",
+                    "timestamp_ms": 1,
+                }
+            )
+        },
+    ))
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    async def fake_require_pool() -> None:
+        return None
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
+    client = TestClient(api_app.app)
+
+    response = client.post("/control/preview/cancel-bot-open")
+
+    assert response.status_code == 200
+    assert response.json()["affected_count"] == 1
+    assert response.json()["would_publish"] is False
+    assert settings.operator_commands_stream not in redis.streams
 
 
 def test_required_postgres_state_returns_503_instead_of_redis_fallback(

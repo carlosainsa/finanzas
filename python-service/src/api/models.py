@@ -94,11 +94,27 @@ class ControlResult(BaseModel):
     canceled_count: int | None = None
     not_canceled: dict[str, str] | None = None
     divergences: list[str] | None = None
+    operator: str | None = None
+    reason: str | None = None
+    command_created_at_ms: int | None = None
+    completed_at_ms: int | None = None
 
 
 class ControlResultsResponse(BaseModel):
     results: list[ControlResult]
     source: str
+
+
+class ControlPreviewResponse(BaseModel):
+    command_type: str
+    scope: str
+    affected_count: int
+    affected_orders: list[ExecutionReport]
+    source: str
+    warnings: list[str]
+    requires_confirmation: bool
+    confirmation_phrase: str | None = None
+    would_publish: bool = False
 
 
 class OrdersOpenResponse(BaseModel):

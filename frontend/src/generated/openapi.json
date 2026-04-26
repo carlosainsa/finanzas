@@ -118,6 +118,71 @@
         "title": "ControlCommand",
         "type": "object"
       },
+      "ControlPreviewResponse": {
+        "properties": {
+          "affected_count": {
+            "title": "Affected Count",
+            "type": "integer"
+          },
+          "affected_orders": {
+            "items": {
+              "$ref": "#/components/schemas/ExecutionReport"
+            },
+            "title": "Affected Orders",
+            "type": "array"
+          },
+          "command_type": {
+            "title": "Command Type",
+            "type": "string"
+          },
+          "confirmation_phrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Phrase"
+          },
+          "requires_confirmation": {
+            "title": "Requires Confirmation",
+            "type": "boolean"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "would_publish": {
+            "default": false,
+            "title": "Would Publish",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command_type",
+          "scope",
+          "affected_count",
+          "affected_orders",
+          "source",
+          "warnings",
+          "requires_confirmation"
+        ],
+        "title": "ControlPreviewResponse",
+        "type": "object"
+      },
       "ControlResponse": {
         "properties": {
           "accepted": {
@@ -179,6 +244,17 @@
             ],
             "title": "Canceled Count"
           },
+          "command_created_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Created At Ms"
+          },
           "command_id": {
             "title": "Command Id",
             "type": "string"
@@ -193,6 +269,17 @@
               }
             ],
             "title": "Command Type"
+          },
+          "completed_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At Ms"
           },
           "divergences": {
             "anyOf": [
@@ -232,6 +319,28 @@
               }
             ],
             "title": "Not Canceled"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "status": {
             "title": "Status",
@@ -1235,6 +1344,52 @@
         "summary": "Enable Kill Switch"
       }
     },
+    "/api/control/preview/cancel-all": {
+      "post": {
+        "operationId": "preview_control_cancel_all_api_control_preview_cancel_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Control Cancel All"
+      }
+    },
+    "/api/control/preview/cancel-bot-open": {
+      "post": {
+        "operationId": "preview_control_cancel_bot_open_api_control_preview_cancel_bot_open_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Control Cancel Bot Open"
+      }
+    },
     "/api/control/results": {
       "get": {
         "operationId": "get_control_results_api_control_results_get",
@@ -1859,6 +2014,52 @@
           }
         ],
         "summary": "Enable Kill Switch"
+      }
+    },
+    "/control/preview/cancel-all": {
+      "post": {
+        "operationId": "preview_control_cancel_all_control_preview_cancel_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Control Cancel All"
+      }
+    },
+    "/control/preview/cancel-bot-open": {
+      "post": {
+        "operationId": "preview_control_cancel_bot_open_control_preview_cancel_bot_open_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Control Cancel Bot Open"
       }
     },
     "/control/results": {

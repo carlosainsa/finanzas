@@ -21,6 +21,8 @@ import {
   getReadToken,
   hasControlToken,
   loadDashboard,
+  previewCancelAllOrders,
+  previewCancelBotOpenOrders,
   setKillSwitch,
   setControlToken,
   setReadToken,
@@ -70,12 +72,16 @@ export function App() {
   }
 
   async function submitCancelAll() {
-    const phrase = window.prompt('Type CANCEL ALL OPEN ORDERS to cancel every open CLOB order for the authenticated account.');
-    if (phrase !== 'CANCEL ALL OPEN ORDERS') {
-      return;
-    }
     setActionBusy(true);
     try {
+      const preview = await previewCancelAllOrders();
+      const warnings = preview.warnings.length > 0 ? `\n\n${preview.warnings.join('\n')}` : '';
+      const phrase = window.prompt(
+        `Emergency account-wide cancel. Known bot open orders: ${preview.affected_count}.${warnings}\n\nType CANCEL ALL OPEN ORDERS to continue.`,
+      );
+      if (phrase !== 'CANCEL ALL OPEN ORDERS') {
+        return;
+      }
       const response = await cancelAllOrders(phrase);
       setLastCommandId(response.command.command_id ?? null);
       await refresh();
@@ -87,12 +93,16 @@ export function App() {
   }
 
   async function submitCancelBotOpen() {
-    const confirmed = window.confirm('Cancel only bot-tracked open orders? This does not cancel unrelated account orders.');
-    if (!confirmed) {
-      return;
-    }
     setActionBusy(true);
     try {
+      const preview = await previewCancelBotOpenOrders();
+      const warnings = preview.warnings.length > 0 ? `\n\n${preview.warnings.join('\n')}` : '';
+      const confirmed = window.confirm(
+        `Cancel ${preview.affected_count} bot-tracked open orders?${warnings}`,
+      );
+      if (!confirmed) {
+        return;
+      }
       const response = await cancelBotOpenOrders();
       setLastCommandId(response.command.command_id ?? null);
       await refresh();
@@ -330,10 +340,12 @@ export function App() {
                 result.command_id,
                 result.command_type ?? result.type,
                 result.status,
+                result.operator ?? '-',
+                result.reason ?? '-',
                 result.canceled_count ?? result.canceled?.length ?? '-',
                 result.error ?? '-',
               ])}
-              headers={['Command', 'Type', 'Status', 'Canceled', 'Error']}
+              headers={['Command', 'Type', 'Status', 'Operator', 'Reason', 'Canceled', 'Error']}
             />
           </Panel>
 

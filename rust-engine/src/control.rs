@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use polymarket_client_sdk::clob::types::request::OrdersRequest;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 
@@ -590,18 +590,52 @@ async fn publish_control_result(
     result: &serde_json::Value,
     store: &StateStore,
 ) -> Result<()> {
+    let enriched = enriched_control_result(command, result);
     info!(
         command_id = ?command.command_id,
         command_type = %command.command_type,
         reason = ?command.reason,
         operator = ?command.operator,
         timestamp_ms = ?command.timestamp_ms,
-        result = %result,
+        result = %enriched,
         "Operator command result"
     );
-    publisher.add_json(stream, &result.to_string()).await?;
-    store.record_control_result(result).await?;
+    publisher.add_json(stream, &enriched.to_string()).await?;
+    store.record_control_result(&enriched).await?;
     Ok(())
+}
+
+fn enriched_control_result(command: &OperatorCommand, result: &serde_json::Value) -> Value {
+    let mut enriched = result.as_object().cloned().unwrap_or_default();
+    enriched
+        .entry("command_type")
+        .or_insert_with(|| Value::String(command.command_type.clone()));
+    if let Some(command_id) = &command.command_id {
+        enriched
+            .entry("command_id")
+            .or_insert_with(|| Value::String(command_id.clone()));
+    }
+    if let Some(reason) = &command.reason {
+        enriched.insert("reason".to_owned(), Value::String(reason.clone()));
+    }
+    if let Some(operator) = &command.operator {
+        enriched.insert("operator".to_owned(), Value::String(operator.clone()));
+    }
+    if let Some(timestamp_ms) = command.timestamp_ms {
+        enriched.insert(
+            "command_created_at_ms".to_owned(),
+            Value::Number(serde_json::Number::from(timestamp_ms)),
+        );
+    }
+    let completed_at_ms = enriched
+        .get("timestamp_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(now_ms);
+    enriched.insert(
+        "completed_at_ms".to_owned(),
+        Value::Number(serde_json::Number::from(completed_at_ms)),
+    );
+    Value::Object(enriched)
 }
 
 fn now_ms() -> u64 {
@@ -672,5 +706,33 @@ mod tests {
             cancel_result_status(&["order-2".to_string()], &failed),
             "DIVERGED"
         );
+    }
+
+    #[test]
+    fn enriched_control_result_adds_audit_fields() {
+        let command: OperatorCommand = serde_json::from_str(
+            r#"{
+                "type": "cancel_bot_open",
+                "command_id": "command-1",
+                "reason": "rebalance",
+                "operator": "operator-1",
+                "timestamp_ms": 100
+            }"#,
+        )
+        .unwrap();
+        let result = json!({
+            "type": "cancel_bot_open_result",
+            "command_id": "command-1",
+            "status": "CONFIRMED",
+            "timestamp_ms": 250
+        });
+
+        let enriched = enriched_control_result(&command, &result);
+
+        assert_eq!(enriched["operator"], "operator-1");
+        assert_eq!(enriched["reason"], "rebalance");
+        assert_eq!(enriched["command_created_at_ms"], 100);
+        assert_eq!(enriched["completed_at_ms"], 250);
+        assert_eq!(enriched["command_type"], "cancel_bot_open");
     }
 }

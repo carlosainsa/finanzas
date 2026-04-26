@@ -96,14 +96,36 @@ async def control_results_from_postgres(
 ) -> list[dict[str, Any]]:
     rows = await pool.fetch(
         """
-        select payload
+        select
+            payload,
+            operator,
+            reason,
+            error,
+            command_created_at_ms,
+            completed_at_ms
         from control_results
         order by updated_at desc
         limit $1
         """,
         count,
     )
-    return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        payload = jsonb_payload_to_dict(row["payload"])
+        if payload is None:
+            continue
+        merge_optional(payload, "operator", row["operator"])
+        merge_optional(payload, "reason", row["reason"])
+        merge_optional(payload, "error", row["error"])
+        merge_optional(payload, "command_created_at_ms", row["command_created_at_ms"])
+        merge_optional(payload, "completed_at_ms", row["completed_at_ms"])
+        results.append(payload)
+    return results
+
+
+def merge_optional(payload: dict[str, Any], key: str, value: Any) -> None:
+    if value is not None and payload.get(key) is None:
+        payload[key] = value
 
 
 def jsonb_payload_to_dict(value: object) -> dict[str, Any] | None:
