@@ -8,6 +8,8 @@ EXPORT_COUNT="${DATA_LAKE_EXPORT_COUNT:-1000}"
 TRAIN_FRACTION="${RESEARCH_TRAIN_FRACTION:-0.70}"
 REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 REPORT_ROOT="${RESEARCH_REPORT_ROOT:-$DATA_LAKE_ROOT/reports/$REPORT_TIMESTAMP}"
+MANIFEST_ROOT="${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}"
+ALLOW_GATE_FAILURE="${ALLOW_RESEARCH_GATE_FAILURE:-0}"
 INCLUDE_MARKET_METADATA="${INCLUDE_MARKET_METADATA:-1}"
 
 mkdir -p "$REPORT_ROOT"
@@ -87,6 +89,21 @@ summary["passed"] = bool(
     json.dumps(summary, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
 )
+(root / "research_exit_code.txt").write_text(
+    "0\n" if summary["passed"] else "2\n",
+    encoding="utf-8",
+)
 print(json.dumps(summary, indent=2, sort_keys=True))
-raise SystemExit(0 if summary["passed"] else 2)
 PY
+
+PYTHONPATH=python-service python3 -m src.research.run_manifest \
+  --report-root "$REPORT_ROOT" \
+  --manifest-root "$MANIFEST_ROOT" \
+  --run-id "$REPORT_TIMESTAMP" \
+  --source "${RESEARCH_RUN_SOURCE:-research_loop}" \
+  > "$REPORT_ROOT/research_manifest.json"
+
+RESEARCH_EXIT_CODE="$(tr -d '[:space:]' < "$REPORT_ROOT/research_exit_code.txt")"
+if [[ "$RESEARCH_EXIT_CODE" != "0" && "$ALLOW_GATE_FAILURE" != "1" && "$ALLOW_GATE_FAILURE" != "true" ]]; then
+  exit "$RESEARCH_EXIT_CODE"
+fi

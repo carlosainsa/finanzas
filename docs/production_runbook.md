@@ -73,6 +73,19 @@ scripts/run_integration_smoke.sh
 
 The managed smoke starts Redis, Postgres, Rust, the API, and the Python consumer locally with `DISABLE_MARKET_WS=true`, so it does not depend on external Polymarket market data.
 
+For real public market data while still preventing live execution, run:
+
+```bash
+REAL_DRY_RUN_SECONDS=300 scripts/run_real_dry_run_research.sh
+```
+
+This managed dry-run refuses `EXECUTION_MODE=live`, discovers market token IDs
+through Gamma when `MARKET_ASSET_IDS` is unset, enables the public market
+WebSocket, waits for real orderbooks/signals/dry-run execution reports, and then
+runs the research loop. Promotion gate failures are expected for short samples;
+the infrastructure success criteria are populated Redis Streams, Parquet/DuckDB
+exports, `research_summary.json`, and `research_manifest.json`.
+
 ## Startup
 
 Run Redis and Postgres first, then start services:

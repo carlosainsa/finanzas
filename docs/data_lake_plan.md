@@ -28,6 +28,11 @@ data_lake/
   orderbook_deadletter/date=YYYY-MM-DD/part-000.parquet
   signals_deadletter/date=YYYY-MM-DD/part-000.parquet
   operator_commands/date=YYYY-MM-DD/part-000.parquet
+  research_runs/research_runs.jsonl
+  research_runs/research_runs.parquet
+  research_runs/runs/<run_id>.json
+  reports/<timestamp>/research_manifest.json
+  reports/<timestamp>/research_summary.json
   research.duckdb
 ```
 
@@ -56,8 +61,10 @@ scripts/run_research_loop.sh
 
 It exports the data lake, deterministic baseline, backtest, game-theory report,
 calibration report, pre-live promotion report, agent advisory report, and
-`research_summary.json` under `data_lake/reports/<timestamp>/`. The script exits
-non-zero when promotion, advisory, pre-live, or calibration gates fail.
+`research_summary.json` under `data_lake/reports/<timestamp>/`. It also writes
+`research_manifest.json` and a persistent run index under
+`data_lake/research_runs/`. The script exits non-zero when promotion, advisory,
+pre-live, or calibration gates fail unless `ALLOW_RESEARCH_GATE_FAILURE=1`.
 
 ```bash
 PYTHONPATH=python-service python -m src.research.data_lake \
@@ -138,6 +145,42 @@ auditable: edge quality, execution quality, calibration quality, data quality,
 reconciliation quality, and adverse-selection checks. They do not publish to
 Redis, do not create live signals, and do not decide trades. Their output is
 advisory evidence for comparing model versions against realized offline metrics.
+
+## Research Run Manifest
+
+`research_summary.json` is the gate summary for one run. `research_manifest.json`
+is the audit and lineage record. It captures `run_id`, source, gate outcomes,
+version fields, metrics, dataset counts, artifact paths, artifact byte sizes,
+and SHA-256 hashes.
+
+The manifest writer also rebuilds:
+
+- `data_lake/research_runs/runs/<run_id>.json`;
+- `data_lake/research_runs/research_runs.jsonl`;
+- `data_lake/research_runs/research_runs.parquet`.
+
+Use the Parquet index to compare runs by `run_id`, report version, model
+version, data version, feature version, realized edge, fill-rate,
+stale-data rate, reconciliation-divergence rate, and advisory failures.
+
+## Real Market Dry-Run Research
+
+To collect real public market data without live trading:
+
+```bash
+REAL_DRY_RUN_SECONDS=300 \
+DISCOVERY_LIMIT=25 \
+PREDICTOR_MIN_SPREAD=0.001 \
+scripts/run_real_dry_run_research.sh
+```
+
+The script refuses to run unless `EXECUTION_MODE=dry_run` and
+`DISABLE_MARKET_WS=false`. It starts Redis, Postgres, Rust, the API, and the
+Python consumer; discovers `MARKET_ASSET_IDS` through Gamma when they are not
+provided; waits for real orderbooks, signals, and dry-run execution reports;
+then runs the research loop. A short dry-run may fail promotion or calibration
+gates; that means the research data was collected but is not yet sufficient for
+live promotion.
 
 ## Notes
 

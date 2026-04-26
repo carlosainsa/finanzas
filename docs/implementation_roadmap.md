@@ -115,6 +115,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Market metadata snapshots now export asset/outcome mapping; next work is richer grouping by category, end date, market type, and liquidity regime.
    - Generate time-windowed datasets for orderbook, signals, execution reports, fills, and control events.
    - Add explicit model/data version fields to signal and research outputs, even before ML models exist.
+   - Research run manifests are implemented as persistent, versioned run indexes under `data_lake/research_runs/`.
 
 9. Research and model readiness
    - Offline deterministic baseline `deterministic_microstructure_baseline_v1` is implemented with spread, depth, orderbook imbalance, short-horizon momentum, stale-market, and adverse-selection filters.
@@ -128,7 +129,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
 10. Live promotion gates
-   - Feed the pre-live promotion report and advisory report with real dry-run/live-like data, not only unit-test fixtures.
+   - Feed the pre-live promotion report and advisory report with `scripts/run_real_dry_run_research.sh`, not only unit-test fixtures.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.
