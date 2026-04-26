@@ -54,7 +54,10 @@ The complete research loop can be run with:
 scripts/run_research_loop.sh
 ```
 
-It exports the data lake, backtest, game-theory report, calibration report, and `research_summary.json` under `data_lake/reports/<timestamp>/`. The script exits non-zero when pre-live or calibration gates fail.
+It exports the data lake, deterministic baseline, backtest, game-theory report,
+calibration report, pre-live promotion report, agent advisory report, and
+`research_summary.json` under `data_lake/reports/<timestamp>/`. The script exits
+non-zero when promotion, advisory, pre-live, or calibration gates fail.
 
 ```bash
 PYTHONPATH=python-service python -m src.research.data_lake \
@@ -107,6 +110,34 @@ PYTHONPATH=python-service python -m src.research.calibration \
 ```
 
 This writes walk-forward splits, Brier score, log loss, reliability buckets, realized edge by confidence bucket, and `calibration_summary.json`.
+
+The combined pre-live promotion report can be generated from the same DuckDB database:
+
+```bash
+PYTHONPATH=python-service python -m src.research.pre_live_promotion \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/pre_live_promotion
+```
+
+This writes `pre_live_promotion.json` plus Parquet tables for metrics, checks,
+drawdown, stale-data gaps, and reconciliation divergence. It combines realized
+edge, fill-rate, slippage, adverse selection, drawdown, stale-data rate,
+reconciliation divergence rate, and calibration quality into one offline gate.
+
+Agent advisory diagnostics can be generated offline from the same DuckDB database:
+
+```bash
+PYTHONPATH=python-service python -m src.research.agent_advisory \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/agent_advisory
+```
+
+This writes `agent_advisory.json`, `agent_advisory_evaluations.parquet`, and
+`agent_advisory_summary.parquet`. The evaluators are deterministic and
+auditable: edge quality, execution quality, calibration quality, data quality,
+reconciliation quality, and adverse-selection checks. They do not publish to
+Redis, do not create live signals, and do not decide trades. Their output is
+advisory evidence for comparing model versions against realized offline metrics.
 
 ## Notes
 

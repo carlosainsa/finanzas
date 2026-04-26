@@ -91,6 +91,15 @@ This baseline is implemented offline as `deterministic_microstructure_baseline_v
 
 Live decision policy must remain deterministic. A committee of agents can be useful for offline research review, feature proposals, and model diagnostics, but it should not place orders by conversational consensus. Any agent score must become a versioned, testable input that passes deterministic policy and Rust risk gates.
 
+The offline agent advisory module implements this boundary in
+`python-service/src/research/agent_advisory.py`. It runs deterministic
+evaluators over the research DuckDB views and emits versioned diagnostics as
+auditable artifacts. These diagnostics compare model versions against realized
+metrics such as fill rate, realized edge after slippage, error rate,
+calibration scores, and adverse selection. The advisory module is not imported
+by the live predictor or Rust executor and must remain outside the live signal
+path.
+
 ### Supervised Fair Probability Model
 
 Candidate target variables:
@@ -164,6 +173,8 @@ Before live promotion, run:
 - game-theory report from [game_theory_plan.md](game_theory_plan.md);
 - walk-forward split by date;
 - calibration report;
+- pre-live promotion report;
+- offline agent advisory report;
 - comparison against deterministic baseline.
 
 Minimum promotion gates:
@@ -173,6 +184,17 @@ Minimum promotion gates:
 - no persistent adverse selection;
 - stable calibration;
 - bounded drawdown in dry-run.
+
+The pre-live promotion report is implemented as `src.research.pre_live_promotion`.
+It combines backtest, game-theory, calibration, stale-data, drawdown, and
+reconciliation-divergence metrics into a single versioned offline gate.
+
+The offline agent advisory report is implemented as `src.research.agent_advisory`.
+It runs deterministic reviewers for edge, execution quality, adverse selection,
+calibration, data quality, and reconciliation. These reviewers can flag model
+risks and produce auditable artifacts, but `can_execute_trades` is always false.
+Any useful reviewer output must become a versioned, testable feature before it
+can influence the deterministic live policy.
 
 ## Versioning
 

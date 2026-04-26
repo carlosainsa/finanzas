@@ -38,6 +38,12 @@ PYTHONPATH=python-service python3 -m src.research.calibration \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/calibration" \
   --train-fraction "$TRAIN_FRACTION" > "$REPORT_ROOT/calibration.json"
+PYTHONPATH=python-service python3 -m src.research.pre_live_promotion \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/pre_live_promotion" > "$REPORT_ROOT/pre_live_promotion.json"
+PYTHONPATH=python-service python3 -m src.research.agent_advisory \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"
 
 python3 - "$REPORT_ROOT" <<'PY'
 import json
@@ -54,7 +60,10 @@ def read_json(name: str) -> dict[str, object]:
 
 backtest = read_json("backtest.json")
 calibration = read_json("calibration.json")
+promotion = read_json("pre_live_promotion.json")
+advisory = read_json("agent_advisory.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
+advisory_summary = advisory.get("summary") if isinstance(advisory.get("summary"), dict) else {}
 summary = {
     "report_root": str(root),
     "data_lake": read_json("data_lake_export.json"),
@@ -63,8 +72,17 @@ summary = {
     "game_theory_exports": read_json("game_theory.json"),
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
     "calibration_passed": calibration.get("passed", False),
+    "pre_live_promotion_passed": promotion.get("passed", False),
+    "agent_advisory_acceptable": advisory_summary.get("advisory_acceptable", False),
+    "pre_live_promotion": promotion,
+    "agent_advisory": advisory,
 }
-summary["passed"] = bool(summary["pre_live_gate_passed"] and summary["calibration_passed"])
+summary["passed"] = bool(
+    summary["pre_live_gate_passed"]
+    and summary["calibration_passed"]
+    and summary["pre_live_promotion_passed"]
+    and summary["agent_advisory_acceptable"]
+)
 (root / "research_summary.json").write_text(
     json.dumps(summary, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",

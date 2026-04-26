@@ -118,12 +118,17 @@ These steps improve the trading platform before introducing heavier models. The 
 
 9. Research and model readiness
    - Offline deterministic baseline `deterministic_microstructure_baseline_v1` is implemented with spread, depth, orderbook imbalance, short-horizon momentum, stale-market, and adverse-selection filters.
+   - A committee of agents is acceptable only as an offline/advisory layer for model review, bias detection, feature proposals, and signal audits.
+   - Live trading decisions must not depend on free-form agent consensus; they must remain deterministic, versioned, reproducible, and gated by Rust risk controls.
+   - Agent outputs can become scores or diagnostics only after they are converted into versioned, testable inputs with clear promotion metrics.
    - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data before promoting any strategy.
    - Use the pre-live gate and calibration reports as promotion checks; walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by confidence bucket are now generated offline.
+   - Pre-live promotion report `pre_live_promotion_v1` is implemented offline and combines realized edge, fill-rate, slippage, adverse selection, drawdown, stale-data rate, reconciliation divergence rate, and calibration quality.
+   - Agent advisory report `agent_advisory_offline_v1` is implemented as auditable offline reviewers; it does not authorize live trades.
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
 10. Live promotion gates
-   - Add a pre-live report that combines realized edge, fill-rate, adverse-selection rate, slippage, drawdown, stale-data rate, and reconciliation divergence rate.
+   - Feed the pre-live promotion report and advisory report with real dry-run/live-like data, not only unit-test fixtures.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.
