@@ -20,6 +20,9 @@ def create_backtest_views(db_path: Path) -> None:
                 s.size as signal_size,
                 s.confidence,
                 s.strategy,
+                s.model_version::varchar as model_version,
+                s.data_version::varchar as data_version,
+                s.feature_version::varchar as feature_version,
                 s.event_timestamp_ms as signal_timestamp_ms,
                 er.order_id,
                 er.status,
@@ -41,6 +44,9 @@ def create_backtest_views(db_path: Path) -> None:
                 asset_id,
                 side,
                 coalesce(strategy, 'unknown') as strategy,
+                model_version::varchar as model_version,
+                data_version::varchar as data_version,
+                feature_version::varchar as feature_version,
                 signal_timestamp_ms,
                 signal_price,
                 signal_size,
@@ -80,6 +86,9 @@ def create_backtest_views(db_path: Path) -> None:
             create or replace view backtest_summary as
             select
                 strategy,
+                coalesce(model_version, 'unknown') as model_version,
+                coalesce(data_version, 'unknown') as data_version,
+                coalesce(feature_version, 'unknown') as feature_version,
                 market_id,
                 side,
                 count(distinct signal_id) as signals,
@@ -93,7 +102,7 @@ def create_backtest_views(db_path: Path) -> None:
                 sum(filled_size) as total_filled_size,
                 sum(case when error is not null then 1 else 0 end) as error_count
             from backtest_trades
-            group by strategy, market_id, side
+            group by strategy, model_version, data_version, feature_version, market_id, side
             """
         )
 
@@ -236,6 +245,9 @@ def ensure_optional_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> N
             cast(null as varchar) as signal_id,
             cast(null as varchar) as order_id,
             cast(null as varchar) as status,
+            cast(null as varchar) as model_version,
+            cast(null as varchar) as data_version,
+            cast(null as varchar) as feature_version,
             cast(null as double) as filled_price,
             cast(null as double) as filled_size,
             cast(null as double) as cumulative_filled_size,

@@ -26,6 +26,9 @@ def test_predictor_returns_valid_signal_for_wide_spread() -> None:
     assert signal.price == 0.45
     assert signal.source_timestamp_ms == 1760000000000
     assert signal.strategy == "passive_spread_capture_v1"
+    assert signal.model_version == "passive_spread_capture_v1"
+    assert signal.data_version == "redis_orderbook_v1"
+    assert signal.feature_version == "orderbook_top_of_book_v1"
 
 
 def test_predictor_returns_none_without_liquidity() -> None:

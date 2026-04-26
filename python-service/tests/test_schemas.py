@@ -48,6 +48,29 @@ def test_trade_signal_contract() -> None:
 
     assert signal.side == "BUY"
     assert signal.source_timestamp_ms == 1759999999990
+    assert signal.model_version is None
+
+
+def test_trade_signal_accepts_optional_versions() -> None:
+    signal = TradeSignal.model_validate(
+        {
+            "signal_id": "signal-1",
+            "market_id": "0xabc",
+            "asset_id": "123",
+            "side": "BUY",
+            "price": 0.45,
+            "size": 1.0,
+            "confidence": 0.8,
+            "timestamp_ms": 1760000000000,
+            "model_version": "model-v1",
+            "data_version": "data-v1",
+            "feature_version": "features-v1",
+        }
+    )
+
+    assert signal.model_version == "model-v1"
+    assert signal.data_version == "data-v1"
+    assert signal.feature_version == "features-v1"
 
 
 def test_execution_report_contract() -> None:

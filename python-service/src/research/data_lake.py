@@ -246,6 +246,9 @@ def normalize_row(
             "size": payload.get("size"),
             "confidence": payload.get("confidence"),
             "strategy": payload.get("strategy"),
+            "model_version": payload.get("model_version"),
+            "data_version": payload.get("data_version"),
+            "feature_version": payload.get("feature_version"),
         }
     if dataset.schema_name == "execution_report":
         return {

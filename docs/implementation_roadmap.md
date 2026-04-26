@@ -117,7 +117,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Add explicit model/data version fields to signal and research outputs, even before ML models exist.
 
 9. Research and model readiness
-   - Implement an offline deterministic baseline using spread, depth, orderbook imbalance, short-horizon momentum, and stale-market filters.
+   - Offline deterministic baseline `deterministic_microstructure_baseline_v1` is implemented with spread, depth, orderbook imbalance, short-horizon momentum, stale-market, and adverse-selection filters.
    - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data before promoting any strategy.
    - Use the pre-live gate and calibration reports as promotion checks; walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by confidence bucket are now generated offline.
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.

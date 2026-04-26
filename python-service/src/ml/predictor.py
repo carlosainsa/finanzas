@@ -4,6 +4,10 @@ import uuid
 from src.config import settings
 from src.schemas import OrderBook, TradeSignal
 
+MODEL_VERSION = "passive_spread_capture_v1"
+FEATURE_VERSION = "orderbook_top_of_book_v1"
+DATA_VERSION = "redis_orderbook_v1"
+
 
 class Predictor:
     """
@@ -38,5 +42,8 @@ class Predictor:
             confidence=confidence,
             timestamp_ms=int(time.time() * 1000),
             source_timestamp_ms=orderbook.timestamp_ms,
-            strategy="passive_spread_capture_v1",
+            strategy=MODEL_VERSION,
+            model_version=MODEL_VERSION,
+            data_version=DATA_VERSION,
+            feature_version=FEATURE_VERSION,
         )

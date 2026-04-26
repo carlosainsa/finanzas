@@ -55,6 +55,9 @@ class TradeSignal(BaseModel):
     timestamp_ms: int
     source_timestamp_ms: int | None = None
     strategy: str | None = None
+    model_version: str | None = None
+    data_version: str | None = None
+    feature_version: str | None = None
 
 
 class ExecutionReport(BaseModel):

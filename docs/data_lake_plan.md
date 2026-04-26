@@ -44,6 +44,8 @@ Known streams are also flattened into useful analytical columns. For example, `o
 
 `market_metadata` is a snapshot dataset sourced from Gamma metadata. It stores one row per market asset/outcome and includes `market_id`, `asset_id`, `outcome`, `outcome_index`, `liquidity`, `volume`, `end_date`, `tags_json`, and `outcome_price`. Research views use this mapping for YES/NO analysis instead of relying on lexicographic `asset_id` ordering.
 
+`signals` preserves optional `model_version`, `data_version`, and `feature_version` fields. New predictors and offline baselines should populate them so backtests, calibration, and pre-live reports are traceable.
+
 ## Run
 
 The complete research loop can be run with:
@@ -74,6 +76,16 @@ PYTHONPATH=python-service python -m src.research.backtest \
 ```
 
 The report writes `backtest_trades.parquet`, `backtest_summary.parquet`, and optionally `pre_live_gate.json` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, adverse-selection status when available, and error counts. `backtest_trades` is order-level, while `backtest_summary` counts unique signals separately from orders to avoid double-counting `PARTIAL -> MATCHED` report lifecycles. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
+
+The deterministic baseline can be generated offline:
+
+```bash
+PYTHONPATH=python-service python -m src.research.deterministic_baseline \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/baseline
+```
+
+It writes baseline features, filter decisions, synthetic baseline signals, and a summary for `deterministic_microstructure_baseline_v1`.
 
 Game-theory reports can also be generated from the same DuckDB database:
 

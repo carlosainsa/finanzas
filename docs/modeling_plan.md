@@ -87,7 +87,9 @@ First production-grade baseline:
 - stale-market filter;
 - adverse-selection filter.
 
-This baseline is interpretable and should be the benchmark for any ML model.
+This baseline is implemented offline as `deterministic_microstructure_baseline_v1`. It is interpretable and should be the benchmark for any ML model.
+
+Live decision policy must remain deterministic. A committee of agents can be useful for offline research review, feature proposals, and model diagnostics, but it should not place orders by conversational consensus. Any agent score must become a versioned, testable input that passes deterministic policy and Rust risk gates.
 
 ### Supervised Fair Probability Model
 
@@ -171,3 +173,13 @@ Minimum promotion gates:
 - no persistent adverse selection;
 - stable calibration;
 - bounded drawdown in dry-run.
+
+## Versioning
+
+Every promoted signal or research output should carry:
+
+- `model_version`: model or policy identity;
+- `data_version`: source/contract version;
+- `feature_version`: feature set version.
+
+The fields are optional in runtime signal contracts for backward compatibility, but new predictors and offline baselines should populate them.

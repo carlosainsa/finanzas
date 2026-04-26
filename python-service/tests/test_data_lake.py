@@ -80,12 +80,25 @@ def test_export_validates_known_payload_schemas(tmp_path: Path) -> None:
             "size": 1,
             "confidence": 0.8,
             "timestamp_ms": 1760000000000,
+            "model_version": "model-v1",
+            "data_version": "data-v1",
+            "feature_version": "features-v1",
         },
     )
 
     exported = asyncio.run(export_data_lake(redis, tmp_path, count=100, datasets=STREAM_DATASETS))
 
     assert exported["signals"] == 1
+    db_path = tmp_path / "research.duckdb"
+    create_duckdb_views(tmp_path, db_path)
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select model_version, data_version, feature_version
+            from signals
+            """
+        ).fetchone()
+    assert row == ("model-v1", "data-v1", "features-v1")
 
 
 def test_incremental_export_tracks_last_stream_id(tmp_path: Path) -> None:

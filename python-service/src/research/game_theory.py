@@ -43,6 +43,9 @@ def create_game_theory_views(db_path: Path) -> None:
                 s.size,
                 s.confidence,
                 coalesce(s.strategy, 'unknown') as strategy,
+                s.model_version::varchar as model_version,
+                s.data_version::varchar as data_version,
+                s.feature_version::varchar as feature_version,
                 s.event_timestamp_ms as signal_timestamp_ms,
                 (
                     select m.mid_price
@@ -77,6 +80,9 @@ def create_game_theory_views(db_path: Path) -> None:
                 s.size as signal_size,
                 s.confidence,
                 s.strategy,
+                s.model_version::varchar as model_version,
+                s.data_version::varchar as data_version,
+                s.feature_version::varchar as feature_version,
                 s.signal_timestamp_ms,
                 s.signal_mid_price,
                 abs(s.price - s.signal_mid_price) as distance_to_mid,
@@ -313,6 +319,9 @@ def ensure_base_views(conn: duckdb.DuckDBPyConnection) -> None:
                 cast(null as double) as size,
                 cast(null as double) as confidence,
                 cast(null as varchar) as strategy,
+                cast(null as varchar) as model_version,
+                cast(null as varchar) as data_version,
+                cast(null as varchar) as feature_version,
                 cast(null as bigint) as event_timestamp_ms
             where false
             """

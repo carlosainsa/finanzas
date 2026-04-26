@@ -28,6 +28,9 @@ pub struct TradeSignal {
     pub timestamp_ms: u64,
     pub source_timestamp_ms: Option<u64>,
     pub strategy: Option<String>,
+    pub model_version: Option<String>,
+    pub data_version: Option<String>,
+    pub feature_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Serialize)]

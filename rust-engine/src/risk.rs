@@ -124,6 +124,9 @@ mod tests {
             timestamp_ms: now_ms(),
             source_timestamp_ms: None,
             strategy: Some("test".into()),
+            model_version: Some("test-model".into()),
+            data_version: Some("test-data".into()),
+            feature_version: Some("test-features".into()),
         }
     }
 

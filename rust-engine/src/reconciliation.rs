@@ -823,6 +823,9 @@ mod tests {
             timestamp_ms: now_ms(),
             source_timestamp_ms: None,
             strategy: Some("test".to_owned()),
+            model_version: Some("test-model".to_owned()),
+            data_version: Some("test-data".to_owned()),
+            feature_version: Some("test-features".to_owned()),
         }
     }
 

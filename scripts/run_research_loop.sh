@@ -24,6 +24,9 @@ fi
 
 cd "$ROOT_DIR"
 PYTHONPATH=python-service python3 "${DATA_LAKE_ARGS[@]}" > "$REPORT_ROOT/data_lake_export.json"
+PYTHONPATH=python-service python3 -m src.research.deterministic_baseline \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/baseline" > "$REPORT_ROOT/baseline.json"
 PYTHONPATH=python-service python3 -m src.research.backtest \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/backtest" \
@@ -55,6 +58,7 @@ pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_ga
 summary = {
     "report_root": str(root),
     "data_lake": read_json("data_lake_export.json"),
+    "baseline": read_json("baseline.json"),
     "backtest_exports": backtest.get("exports", {}),
     "game_theory_exports": read_json("game_theory.json"),
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
