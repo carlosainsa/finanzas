@@ -46,6 +46,14 @@ Known streams are also flattened into useful analytical columns. For example, `o
 
 ## Run
 
+The complete research loop can be run with:
+
+```bash
+scripts/run_research_loop.sh
+```
+
+It exports the data lake, backtest, game-theory report, calibration report, and `research_summary.json` under `data_lake/reports/<timestamp>/`. The script exits non-zero when pre-live or calibration gates fail.
+
 ```bash
 PYTHONPATH=python-service python -m src.research.data_lake \
   --root data_lake \
@@ -76,6 +84,17 @@ PYTHONPATH=python-service python -m src.research.game_theory \
 ```
 
 This writes post-fill PnL horizons, fill-rate by distance to mid, adverse-selection summaries, quote competition, and binary no-arbitrage gaps. The model intent is documented in [game_theory_plan.md](game_theory_plan.md) and [modeling_plan.md](modeling_plan.md).
+
+Calibration and walk-forward reports can be generated from the same DuckDB database:
+
+```bash
+PYTHONPATH=python-service python -m src.research.calibration \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/calibration \
+  --train-fraction 0.70
+```
+
+This writes walk-forward splits, Brier score, log loss, reliability buckets, realized edge by confidence bucket, and `calibration_summary.json`.
 
 ## Notes
 

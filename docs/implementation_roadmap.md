@@ -119,7 +119,7 @@ These steps improve the trading platform before introducing heavier models. The 
 9. Research and model readiness
    - Implement an offline deterministic baseline using spread, depth, orderbook imbalance, short-horizon momentum, and stale-market filters.
    - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data before promoting any strategy.
-   - Use the pre-live gate report as the first promotion check, then add walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by probability bucket.
+   - Use the pre-live gate and calibration reports as promotion checks; walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by confidence bucket are now generated offline.
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
 10. Live promotion gates

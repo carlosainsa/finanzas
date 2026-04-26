@@ -44,6 +44,15 @@ Existing backtest outputs already measure:
 - `realized_edge_after_slippage`;
 - `fill_rate`.
 
+Calibration outputs measure:
+
+- walk-forward train/test splits ordered by `signal_timestamp_ms`;
+- Brier score and log loss;
+- reliability buckets by confidence range;
+- realized edge by confidence bucket.
+
+Until market-resolution labels exist, calibration uses an offline trading proxy: `realized_edge_after_slippage > 0`. This is useful for promotion discipline, but it is not a substitute for final outcome calibration.
+
 ### Binary No-Arbitrage
 
 For paired outcomes:
