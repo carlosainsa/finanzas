@@ -163,6 +163,21 @@ Use the Parquet index to compare runs by `run_id`, report version, model
 version, data version, feature version, realized edge, fill-rate,
 stale-data rate, reconciliation-divergence rate, and advisory failures.
 
+Recent runs can be listed with:
+
+```bash
+PYTHONPATH=python-service python -m src.research.compare_runs --summary
+```
+
+The latest two runs can be compared with:
+
+```bash
+PYTHONPATH=python-service python -m src.research.compare_runs
+```
+
+For automation, add `--json`. To compare specific runs, pass
+`--baseline-run-id` and `--candidate-run-id`.
+
 ## Real Market Dry-Run Research
 
 To collect real public market data without live trading:

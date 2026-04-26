@@ -181,6 +181,8 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "git_commit": manifest.get("git_commit"),
         "report_root": manifest.get("report_root"),
         "passed": manifest.get("passed"),
+        "pre_live_gate_passed": manifest.get("pre_live_gate_passed"),
+        "calibration_passed": manifest.get("calibration_passed"),
         "pre_live_promotion_passed": manifest.get("pre_live_promotion_passed"),
         "agent_advisory_acceptable": manifest.get("agent_advisory_acceptable"),
         "realized_edge": metrics.get("realized_edge"),
@@ -191,16 +193,44 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "stale_data_rate": metrics.get("stale_data_rate"),
         "reconciliation_divergence_rate": metrics.get("reconciliation_divergence_rate"),
         "test_brier_score": metrics.get("test_brier_score"),
+        "test_log_loss": metrics.get("test_log_loss"),
+        "legacy_pre_live_fill_rate": metrics.get("legacy_pre_live_fill_rate"),
         "advisory_failed": metrics.get("advisory_failed"),
         "advisory_warned": metrics.get("advisory_warned"),
         "orderbook_snapshots": counts.get("orderbook_snapshots"),
         "signals": counts.get("signals"),
         "execution_reports": counts.get("execution_reports"),
         "baseline_signals": counts.get("baseline_signals"),
+        "backtest_trades": counts.get("backtest_trades"),
+        "backtest_summary": counts.get("backtest_summary"),
+        "pre_live_gate_signals": counts.get("pre_live_gate_signals"),
         "promotion_report_version": versions.get("promotion_report"),
         "advisory_report_version": versions.get("advisory_report"),
+        "advisory_model_version": versions.get("advisory_model"),
+        "advisory_data_version": versions.get("advisory_data"),
+        "advisory_feature_version": versions.get("advisory_feature"),
         "baseline_model_version": versions.get("baseline_model"),
+        "baseline_data_version": versions.get("baseline_data"),
+        "baseline_feature_version": versions.get("baseline_feature"),
+        "artifact_count": artifact_count(manifest),
+        "artifact_bytes_total": artifact_bytes_total(manifest),
     }
+
+
+def artifact_count(manifest: dict[str, object]) -> int:
+    artifacts = manifest.get("artifacts")
+    return len(artifacts) if isinstance(artifacts, list) else 0
+
+
+def artifact_bytes_total(manifest: dict[str, object]) -> int:
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return 0
+    total = 0
+    for artifact in artifacts:
+        if isinstance(artifact, dict) and isinstance(artifact.get("bytes"), (int, float)):
+            total += int(artifact["bytes"])
+    return total
 
 
 def read_json(path: Path) -> dict[str, object]:

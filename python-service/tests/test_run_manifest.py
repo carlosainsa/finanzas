@@ -84,7 +84,16 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["run_id"] == "run-1"
     assert flat["realized_edge"] == 0.04
     assert flat["baseline_model_version"] == "deterministic_microstructure_baseline_v1"
+    assert flat["baseline_data_version"] == "research_orderbook_snapshots_v1"
     assert flat["promotion_report_version"] == "pre_live_promotion_v1"
+    assert flat["pre_live_gate_passed"] is True
+    assert flat["calibration_passed"] is True
+    assert flat["backtest_trades"] == 4
+    assert flat["pre_live_gate_signals"] == 4
+    assert isinstance(flat["artifact_count"], int)
+    assert isinstance(flat["artifact_bytes_total"], int)
+    assert flat["artifact_count"] >= 6
+    assert flat["artifact_bytes_total"] > 0
 
 
 def seed_report_root(report_root: Path) -> Path:
