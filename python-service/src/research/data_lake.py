@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from src.config import settings
 from src.data.redis_client import get_redis
+from src.discovery.markets import MarketCandidate, fetch_gamma_markets, normalize_gamma_market
 from src.schemas import ExecutionReport, OrderBook, TradeSignal
 
 
@@ -47,7 +48,7 @@ STREAM_DATASETS: tuple[StreamDataset, ...] = (
     StreamDataset(settings.signals_deadletter_stream, "signals_deadletter", "deadletter"),
     StreamDataset(settings.operator_commands_stream, "operator_commands", "operator_command"),
 )
-DERIVED_DATASETS = ("orderbook_levels",)
+DERIVED_DATASETS = ("orderbook_levels", "market_metadata")
 DATASET_NAMES = tuple(dataset.dataset for dataset in STREAM_DATASETS) + DERIVED_DATASETS
 
 
@@ -75,6 +76,38 @@ async def export_data_lake(
     if incremental:
         save_export_state(root, next_state)
     return exported
+
+
+def export_market_metadata(root: Path, markets: list[MarketCandidate]) -> int:
+    return write_named_dataset(root, "market_metadata", market_metadata_rows(markets))
+
+
+def market_metadata_rows(markets: list[MarketCandidate]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    ingested_at_ms = now_ms()
+    for market in markets:
+        for index, asset_id in enumerate(market.clob_token_ids):
+            rows.append(
+                {
+                    "market_id": market.market_id,
+                    "asset_id": asset_id,
+                    "outcome": value_at(market.outcomes, index),
+                    "outcome_index": index,
+                    "question": market.question,
+                    "slug": market.slug,
+                    "active": market.active,
+                    "closed": market.closed,
+                    "archived": market.archived,
+                    "enable_order_book": market.enable_order_book,
+                    "liquidity": market.liquidity,
+                    "volume": market.volume,
+                    "outcome_price": numeric_value_at(market.outcome_prices, index),
+                    "end_date": market.end_date,
+                    "tags_json": json.dumps(market.tags, sort_keys=True),
+                    "ingested_at_ms": ingested_at_ms,
+                }
+            )
+    return rows
 
 
 async def read_stream_rows(
@@ -287,6 +320,14 @@ def depth(levels: object) -> float:
     return total
 
 
+def value_at(values: list[str], index: int) -> str | None:
+    return values[index] if len(values) > index else None
+
+
+def numeric_value_at(values: list[float], index: int) -> float | None:
+    return values[index] if len(values) > index else None
+
+
 def event_timestamp_ms(payload: dict[str, object]) -> int | None:
     value = payload.get("timestamp_ms")
     if isinstance(value, int):
@@ -301,10 +342,20 @@ def now_ms() -> int:
 
 
 async def run_export(
-    root: Path, db_path: Path, count: int, incremental: bool = True
+    root: Path,
+    db_path: Path,
+    count: int,
+    incremental: bool = True,
+    include_market_metadata: bool = False,
+    metadata_limit: int | None = None,
 ) -> dict[str, int]:
     redis = cast(RedisRangeReader, await get_redis())
     exported = await export_data_lake(redis, root=root, count=count, incremental=incremental)
+    if include_market_metadata:
+        raw_markets = await fetch_gamma_markets(limit=metadata_limit or settings.discovery_limit)
+        exported["market_metadata"] = export_market_metadata(
+            root, [normalize_gamma_market(item) for item in raw_markets]
+        )
     create_duckdb_views(root=root, db_path=db_path)
     return exported
 
@@ -321,6 +372,12 @@ def main() -> int:
         action="store_true",
         help="ignore saved Redis Stream IDs and export from the beginning",
     )
+    parser.add_argument(
+        "--include-market-metadata",
+        action="store_true",
+        help="fetch Gamma market metadata and export asset/outcome mapping snapshots",
+    )
+    parser.add_argument("--metadata-limit", type=int, default=settings.discovery_limit)
     args = parser.parse_args()
 
     try:
@@ -330,6 +387,8 @@ def main() -> int:
                 db_path=Path(args.duckdb),
                 count=args.count,
                 incremental=not args.full_refresh,
+                include_market_metadata=args.include_market_metadata,
+                metadata_limit=args.metadata_limit,
             )
         )
     except ValidationError as exc:

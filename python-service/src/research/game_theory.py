@@ -10,6 +10,7 @@ HORIZONS_MS = (5_000, 30_000, 300_000)
 def create_game_theory_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_base_views(conn)
+        create_canonical_execution_reports_view(conn)
         conn.execute(
             """
             create or replace view market_marks as
@@ -83,12 +84,12 @@ def create_game_theory_views(db_path: Path) -> None:
                 er.status,
                 er.event_timestamp_ms as fill_timestamp_ms,
                 er.filled_price,
-                coalesce(er.filled_size, 0) as filled_size,
+                coalesce(er.cumulative_filled_size, er.filled_size, 0) as filled_size,
                 er.error
             from signal_market_context s
-            join execution_reports er on er.signal_id = s.signal_id
+            join canonical_execution_reports er on er.signal_id = s.signal_id
             where er.filled_price is not null
-              and coalesce(er.filled_size, 0) > 0
+              and coalesce(er.cumulative_filled_size, er.filled_size, 0) > 0
               and er.event_timestamp_ms is not null
             """
         )
@@ -171,9 +172,9 @@ def create_game_theory_views(db_path: Path) -> None:
                     smc.side,
                     smc.size as signal_size,
                     abs(smc.price - smc.signal_mid_price) as distance_to_mid,
-                    coalesce(er.filled_size, 0) as filled_size
+                    coalesce(er.cumulative_filled_size, er.filled_size, 0) as filled_size
                 from signal_market_context smc
-                left join execution_reports er on er.signal_id = smc.signal_id
+                left join canonical_execution_reports er on er.signal_id = smc.signal_id
             )
             group by strategy, market_id, side, distance_bucket
             """
@@ -226,23 +227,52 @@ def create_game_theory_views(db_path: Path) -> None:
         )
         conn.execute(
             """
+            create or replace view latest_market_metadata as
+            select *
+            from (
+                select
+                    *,
+                    row_number() over (
+                        partition by market_id, asset_id
+                        order by ingested_at_ms desc nulls last
+                    ) as metadata_rank
+                from market_metadata
+            )
+            where metadata_rank = 1
+            """
+        )
+        conn.execute(
+            """
             create or replace view binary_no_arbitrage as
             select
-                left_book.market_id,
-                left_book.event_timestamp_ms,
-                left_book.asset_id as asset_a_id,
-                right_book.asset_id as asset_b_id,
-                left_book.mid_price as asset_a_mid,
-                right_book.mid_price as asset_b_mid,
-                left_book.mid_price + right_book.mid_price as probability_sum,
-                left_book.mid_price + right_book.mid_price - 1 as no_arbitrage_gap
-            from market_marks left_book
-            join market_marks right_book
-              on right_book.market_id = left_book.market_id
-             and right_book.event_timestamp_ms = left_book.event_timestamp_ms
-             and right_book.asset_id > left_book.asset_id
-            where left_book.mid_price is not null
-              and right_book.mid_price is not null
+                yes_book.market_id,
+                yes_book.event_timestamp_ms,
+                yes_book.asset_id as yes_asset_id,
+                no_book.asset_id as no_asset_id,
+                yes_meta.outcome as yes_outcome,
+                no_meta.outcome as no_outcome,
+                yes_book.mid_price as yes_mid,
+                no_book.mid_price as no_mid,
+                yes_book.asset_id as asset_a_id,
+                no_book.asset_id as asset_b_id,
+                yes_book.mid_price as asset_a_mid,
+                no_book.mid_price as asset_b_mid,
+                yes_book.mid_price + no_book.mid_price as probability_sum,
+                yes_book.mid_price + no_book.mid_price - 1 as no_arbitrage_gap
+            from market_marks yes_book
+            join latest_market_metadata yes_meta
+              on yes_meta.market_id = yes_book.market_id
+             and yes_meta.asset_id = yes_book.asset_id
+             and lower(yes_meta.outcome) = 'yes'
+            join latest_market_metadata no_meta
+              on no_meta.market_id = yes_meta.market_id
+             and lower(no_meta.outcome) = 'no'
+            join market_marks no_book
+              on no_book.market_id = yes_book.market_id
+             and no_book.asset_id = no_meta.asset_id
+             and no_book.event_timestamp_ms = yes_book.event_timestamp_ms
+            where yes_book.mid_price is not null
+              and no_book.mid_price is not null
             """
         )
 
@@ -297,8 +327,34 @@ def ensure_base_views(conn: duckdb.DuckDBPyConnection) -> None:
                 cast(null as varchar) as status,
                 cast(null as double) as filled_price,
                 cast(null as double) as filled_size,
+                cast(null as double) as cumulative_filled_size,
+                cast(null as double) as remaining_size,
                 cast(null as varchar) as error,
                 cast(null as bigint) as event_timestamp_ms
+            where false
+            """
+        )
+    if not relation_exists(conn, "market_metadata"):
+        conn.execute(
+            """
+            create or replace view market_metadata as
+            select
+                cast(null as varchar) as market_id,
+                cast(null as varchar) as asset_id,
+                cast(null as varchar) as outcome,
+                cast(null as integer) as outcome_index,
+                cast(null as varchar) as question,
+                cast(null as varchar) as slug,
+                cast(null as boolean) as active,
+                cast(null as boolean) as closed,
+                cast(null as boolean) as archived,
+                cast(null as boolean) as enable_order_book,
+                cast(null as double) as liquidity,
+                cast(null as double) as volume,
+                cast(null as double) as outcome_price,
+                cast(null as varchar) as end_date,
+                cast(null as varchar) as tags_json,
+                cast(null as bigint) as ingested_at_ms
             where false
             """
         )
@@ -318,6 +374,45 @@ def ensure_base_views(conn: duckdb.DuckDBPyConnection) -> None:
             where false
             """
         )
+
+
+def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        create or replace view canonical_execution_reports as
+        select
+            signal_id,
+            order_id,
+            status,
+            filled_price,
+            filled_size,
+            cumulative_filled_size,
+            remaining_size,
+            error,
+            event_timestamp_ms
+        from (
+            select
+                *,
+                row_number() over (
+                    partition by signal_id, coalesce(order_id, signal_id)
+                    order by
+                        case status
+                            when 'MATCHED' then 6
+                            when 'CANCELLED' then 5
+                            when 'ERROR' then 4
+                            when 'PARTIAL' then 3
+                            when 'UNMATCHED' then 2
+                            when 'DELAYED' then 1
+                            else 0
+                        end desc,
+                        event_timestamp_ms desc nulls last,
+                        coalesce(cumulative_filled_size, filled_size, 0) desc
+                ) as report_rank
+            from execution_reports
+        )
+        where report_rank = 1
+        """
+    )
 
 
 def relation_exists(conn: duckdb.DuckDBPyConnection, name: str) -> bool:

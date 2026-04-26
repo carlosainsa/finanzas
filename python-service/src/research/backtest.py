@@ -7,6 +7,7 @@ import duckdb
 def create_backtest_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_optional_execution_reports_view(conn)
+        create_canonical_execution_reports_view(conn)
         conn.execute(
             """
             create or replace view signal_fills as
@@ -23,9 +24,11 @@ def create_backtest_views(db_path: Path) -> None:
                 er.status,
                 er.filled_price,
                 er.filled_size,
+                er.cumulative_filled_size,
+                er.remaining_size,
                 er.error
             from signals s
-            left join execution_reports er on er.signal_id = s.signal_id
+            left join canonical_execution_reports er on er.signal_id = s.signal_id
             """
         )
         conn.execute(
@@ -43,9 +46,9 @@ def create_backtest_views(db_path: Path) -> None:
                 order_id,
                 status,
                 filled_price,
-                coalesce(filled_size, 0) as filled_size,
+                coalesce(cumulative_filled_size, filled_size, 0) as filled_size,
                 case
-                    when signal_size > 0 then coalesce(filled_size, 0) / signal_size
+                    when signal_size > 0 then coalesce(cumulative_filled_size, filled_size, 0) / signal_size
                     else 0
                 end as fill_rate,
                 case
@@ -54,7 +57,7 @@ def create_backtest_views(db_path: Path) -> None:
                     when side = 'SELL' then signal_price - filled_price
                     else null
                 end as slippage,
-                coalesce(filled_price, 0) * coalesce(filled_size, 0) as filled_notional,
+                coalesce(filled_price, 0) * coalesce(cumulative_filled_size, filled_size, 0) as filled_notional,
                 case
                     when side = 'BUY' then confidence - signal_price
                     when side = 'SELL' then signal_price - (1 - confidence)
@@ -77,8 +80,10 @@ def create_backtest_views(db_path: Path) -> None:
                 strategy,
                 market_id,
                 side,
-                count(*) as signals,
-                sum(case when filled_size > 0 then 1 else 0 end) as filled_signals,
+                count(distinct signal_id) as signals,
+                count(*) as orders,
+                count(distinct case when filled_size > 0 then signal_id else null end) as filled_signals,
+                sum(case when filled_size > 0 then 1 else 0 end) as filled_orders,
                 avg(fill_rate) as fill_rate,
                 avg(slippage) as avg_slippage,
                 avg(model_edge) as avg_edge,
@@ -173,6 +178,45 @@ def duckdb_literal(value: str) -> str:
     return value.replace("'", "''")
 
 
+def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        create or replace view canonical_execution_reports as
+        select
+            signal_id,
+            order_id,
+            status,
+            filled_price,
+            filled_size,
+            cumulative_filled_size,
+            remaining_size,
+            error,
+            event_timestamp_ms
+        from (
+            select
+                *,
+                row_number() over (
+                    partition by signal_id, coalesce(order_id, signal_id)
+                    order by
+                        case status
+                            when 'MATCHED' then 6
+                            when 'CANCELLED' then 5
+                            when 'ERROR' then 4
+                            when 'PARTIAL' then 3
+                            when 'UNMATCHED' then 2
+                            when 'DELAYED' then 1
+                            else 0
+                        end desc,
+                        event_timestamp_ms desc nulls last,
+                        coalesce(cumulative_filled_size, filled_size, 0) desc
+                ) as report_rank
+            from execution_reports
+        )
+        where report_rank = 1
+        """
+    )
+
+
 def ensure_optional_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> None:
     exists = conn.execute(
         """
@@ -192,7 +236,10 @@ def ensure_optional_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> N
             cast(null as varchar) as status,
             cast(null as double) as filled_price,
             cast(null as double) as filled_size,
-            cast(null as varchar) as error
+            cast(null as double) as cumulative_filled_size,
+            cast(null as double) as remaining_size,
+            cast(null as varchar) as error,
+            cast(null as bigint) as event_timestamp_ms
         where false
         """
     )

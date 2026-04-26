@@ -63,12 +63,118 @@ def test_backtest_counts_unfilled_signals(tmp_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         row = conn.execute(
             """
-            select signals, filled_signals, fill_rate, total_filled_size
+            select signals, orders, filled_signals, filled_orders, fill_rate, total_filled_size
             from backtest_summary
             """
         ).fetchone()
 
-    assert row == (1, 0, 0.0, 0.0)
+    assert row == (1, 1, 0, 0, 0.0, 0.0)
+
+
+def test_backtest_uses_canonical_execution_report_without_double_counting(tmp_path: Path) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=False)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table execution_reports as
+            select
+                'execution:reports:stream' as stream,
+                '10-0' as stream_id,
+                'execution_report' as schema_name,
+                1760000000010 as event_timestamp_ms,
+                1760000000010 as ingested_at_ms,
+                '{}' as payload_json,
+                'signal-1' as signal_id,
+                'order-1' as order_id,
+                'PARTIAL' as status,
+                0.47 as filled_price,
+                1.0 as filled_size,
+                1.0 as cumulative_filled_size,
+                1.0 as remaining_size,
+                null as error
+            union all
+            select
+                'execution:reports:stream',
+                '11-0',
+                'execution_report',
+                1760000000020,
+                1760000000020,
+                '{}',
+                'signal-1',
+                'order-1',
+                'MATCHED',
+                0.47,
+                1.0,
+                2.0,
+                0.0,
+                null
+            """
+        )
+
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select count(*), sum(filled_size), avg(fill_rate)
+            from backtest_trades
+            """
+        ).fetchone()
+
+    assert row == (1, pytest.approx(2.0), pytest.approx(1.0))
+
+
+def test_backtest_summary_counts_unique_signals_separately_from_orders(tmp_path: Path) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=False)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table execution_reports as
+            select
+                'execution:reports:stream' as stream,
+                '10-0' as stream_id,
+                'execution_report' as schema_name,
+                1760000000010 as event_timestamp_ms,
+                1760000000010 as ingested_at_ms,
+                '{}' as payload_json,
+                'signal-1' as signal_id,
+                'order-1' as order_id,
+                'PARTIAL' as status,
+                0.47 as filled_price,
+                1.0 as filled_size,
+                1.0 as cumulative_filled_size,
+                1.0 as remaining_size,
+                null as error
+            union all
+            select
+                'execution:reports:stream',
+                '11-0',
+                'execution_report',
+                1760000000020,
+                1760000000020,
+                '{}',
+                'signal-1',
+                'order-2',
+                'PARTIAL',
+                0.46,
+                0.5,
+                0.5,
+                1.5,
+                null
+            """
+        )
+
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select signals, orders, filled_signals, filled_orders, total_filled_size
+            from backtest_summary
+            """
+        ).fetchone()
+
+    assert row == (1, 2, 1, 2, pytest.approx(1.5))
 
 
 def test_export_backtest_report_writes_outputs(tmp_path: Path) -> None:

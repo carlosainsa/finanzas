@@ -63,9 +63,8 @@ def test_game_theory_views_measure_post_fill_pnl_and_competition(tmp_path: Path)
         ).fetchone()
         no_arb = conn.execute(
             """
-            select probability_sum, no_arbitrage_gap
+            select yes_asset_id, no_asset_id, probability_sum, no_arbitrage_gap
             from binary_no_arbitrage
-            where asset_a_id = 'asset-no' and asset_b_id = 'asset-yes'
             order by event_timestamp_ms
             limit 1
             """
@@ -82,7 +81,7 @@ def test_game_theory_views_measure_post_fill_pnl_and_competition(tmp_path: Path)
     assert adverse == (1, 1, pytest.approx(1.0))
     assert fill_rate == (1, pytest.approx(0.5))
     assert competition == (5, 5, pytest.approx(1.0))
-    assert no_arb == (pytest.approx(1.01), pytest.approx(0.01))
+    assert no_arb == ("asset-yes", "asset-no", pytest.approx(1.01), pytest.approx(0.01))
 
 
 def test_export_game_theory_report_writes_parquet_outputs(tmp_path: Path) -> None:
@@ -98,6 +97,48 @@ def test_export_game_theory_report_writes_parquet_outputs(tmp_path: Path) -> Non
     assert counts["binary_no_arbitrage"] >= 1
     assert (output_dir / "post_fill_pnl_horizons.parquet").exists()
     assert (output_dir / "binary_no_arbitrage.parquet").exists()
+
+
+def test_binary_no_arbitrage_uses_metadata_not_asset_lexicographic_order(tmp_path: Path) -> None:
+    redis = FakeRedis()
+    add_orderbook(redis, "z-yes", 1_000, 0.44, 0.46)
+    add_orderbook(redis, "a-no", 1_000, 0.55, 0.57)
+    asyncio.run(export_data_lake(redis, tmp_path, count=100))
+    from src.discovery.markets import MarketCandidate
+    from src.research.data_lake import export_market_metadata
+
+    export_market_metadata(
+        tmp_path,
+        [
+            MarketCandidate(
+                market_id="market-1",
+                question="Will mapping win?",
+                active=True,
+                closed=False,
+                archived=False,
+                enable_order_book=True,
+                liquidity=1_000,
+                volume=2_000,
+                outcomes=["Yes", "No"],
+                outcome_prices=[0.46, 0.56],
+                clob_token_ids=["z-yes", "a-no"],
+            )
+        ],
+    )
+    db_path = tmp_path / "research.duckdb"
+    create_duckdb_views(tmp_path, db_path)
+
+    create_game_theory_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select yes_asset_id, no_asset_id, probability_sum
+            from binary_no_arbitrage
+            """
+        ).fetchone()
+
+    assert row == ("z-yes", "a-no", pytest.approx(1.01))
 
 
 def seed_game_theory_db(tmp_path: Path) -> Path:
@@ -130,11 +171,34 @@ def seed_game_theory_db(tmp_path: Path) -> Path:
             "status": "PARTIAL",
             "filled_price": 0.47,
             "filled_size": 1.0,
+            "cumulative_filled_size": 1.0,
+            "remaining_size": 1.0,
             "timestamp_ms": 1_010,
         },
     )
 
     asyncio.run(export_data_lake(redis, tmp_path, count=100))
+    from src.discovery.markets import MarketCandidate
+    from src.research.data_lake import export_market_metadata
+
+    export_market_metadata(
+        tmp_path,
+        [
+            MarketCandidate(
+                market_id="market-1",
+                question="Will the binary market resolve?",
+                active=True,
+                closed=False,
+                archived=False,
+                enable_order_book=True,
+                liquidity=1_000,
+                volume=2_000,
+                outcomes=["Yes", "No"],
+                outcome_prices=[0.46, 0.55],
+                clob_token_ids=["asset-yes", "asset-no"],
+            )
+        ],
+    )
     db_path = tmp_path / "research.duckdb"
     create_duckdb_views(tmp_path, db_path)
     return db_path

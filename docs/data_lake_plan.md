@@ -24,6 +24,7 @@ data_lake/
   orderbook_levels/date=YYYY-MM-DD/part-000.parquet
   signals/date=YYYY-MM-DD/part-000.parquet
   execution_reports/date=YYYY-MM-DD/part-000.parquet
+  market_metadata/date=YYYY-MM-DD/part-000.parquet
   orderbook_deadletter/date=YYYY-MM-DD/part-000.parquet
   signals_deadletter/date=YYYY-MM-DD/part-000.parquet
   operator_commands/date=YYYY-MM-DD/part-000.parquet
@@ -41,13 +42,16 @@ Each Parquet row has:
 
 Known streams are also flattened into useful analytical columns. For example, `orderbook_snapshots` includes `best_bid`, `best_ask`, `spread`, `bid_depth`, and `ask_depth`; `orderbook_levels` contains one row per bid/ask level.
 
+`market_metadata` is a snapshot dataset sourced from Gamma metadata. It stores one row per market asset/outcome and includes `market_id`, `asset_id`, `outcome`, `outcome_index`, `liquidity`, `volume`, `end_date`, `tags_json`, and `outcome_price`. Research views use this mapping for YES/NO analysis instead of relying on lexicographic `asset_id` ordering.
+
 ## Run
 
 ```bash
 PYTHONPATH=python-service python -m src.research.data_lake \
   --root data_lake \
   --duckdb data_lake/research.duckdb \
-  --count 1000
+  --count 1000 \
+  --include-market-metadata
 ```
 
 The exporter runs incrementally by default and stores offsets in `_export_state.json`. Use `--full-refresh` only for a deliberate rebuild from the beginning of the Redis Streams. The exporter creates DuckDB views for datasets with Parquet files.
@@ -61,7 +65,7 @@ PYTHONPATH=python-service python -m src.research.backtest \
   --pre-live-gate
 ```
 
-The report writes `backtest_trades.parquet`, `backtest_summary.parquet`, and optionally `pre_live_gate.json` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, adverse-selection status when available, and error counts. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
+The report writes `backtest_trades.parquet`, `backtest_summary.parquet`, and optionally `pre_live_gate.json` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, adverse-selection status when available, and error counts. `backtest_trades` is order-level, while `backtest_summary` counts unique signals separately from orders to avoid double-counting `PARTIAL -> MATCHED` report lifecycles. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
 
 Game-theory reports can also be generated from the same DuckDB database:
 

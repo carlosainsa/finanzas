@@ -5,7 +5,14 @@ from pathlib import Path
 import duckdb
 
 from src.config import settings
-from src.research.data_lake import STREAM_DATASETS, create_duckdb_views, export_data_lake
+from src.discovery.markets import MarketCandidate
+from src.research.data_lake import (
+    STREAM_DATASETS,
+    create_duckdb_views,
+    export_data_lake,
+    export_market_metadata,
+    market_metadata_rows,
+)
 
 
 class FakeRedis:
@@ -119,3 +126,40 @@ def test_incremental_export_tracks_last_stream_id(tmp_path: Path) -> None:
     assert third["signals"] == 1
     state = json.loads((tmp_path / "_export_state.json").read_text(encoding="utf-8"))
     assert state["signals"] == "2-0"
+
+
+def test_market_metadata_exports_asset_outcome_mapping(tmp_path: Path) -> None:
+    market = MarketCandidate(
+        market_id="market-1",
+        question="Will metadata map correctly?",
+        active=True,
+        closed=False,
+        archived=False,
+        enable_order_book=True,
+        liquidity=1_000,
+        volume=2_000,
+        outcomes=["Yes", "No"],
+        outcome_prices=[0.48, 0.52],
+        clob_token_ids=["asset-z-yes", "asset-a-no"],
+        tags=["Politics"],
+    )
+
+    rows = market_metadata_rows([market])
+    exported = export_market_metadata(tmp_path, [market])
+    db_path = tmp_path / "research.duckdb"
+    create_duckdb_views(tmp_path, db_path)
+
+    assert exported == 2
+    assert rows[0]["asset_id"] == "asset-z-yes"
+    assert rows[0]["outcome"] == "Yes"
+    assert rows[1]["asset_id"] == "asset-a-no"
+    assert rows[1]["outcome"] == "No"
+    with duckdb.connect(str(db_path)) as conn:
+        db_rows = conn.execute(
+            """
+            select asset_id, outcome, outcome_price
+            from market_metadata
+            order by outcome_index
+            """
+        ).fetchall()
+    assert db_rows == [("asset-z-yes", "Yes", 0.48), ("asset-a-no", "No", 0.52)]

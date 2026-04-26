@@ -53,6 +53,7 @@ Research data lake:
 | --- | --- |
 | `orderbook_snapshots` | `orderbook:stream` |
 | `orderbook_levels` | derived from `orderbook:stream` |
+| `market_metadata` | Gamma market metadata snapshots, one row per asset/outcome |
 | `signals` | `signals:stream` |
 | `execution_reports` | `execution:reports:stream` |
 | `orderbook_deadletter` | `orderbook:deadletter` |

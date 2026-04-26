@@ -112,7 +112,7 @@ These steps improve the trading platform before introducing heavier models. The 
 
 8. Data quality foundations
    - Incremental data lake export state is implemented with `_export_state.json`; next work is operational monitoring for exporter lag.
-   - Add market metadata snapshots to the data lake so results can be grouped by liquidity, category, end date, and market type.
+   - Market metadata snapshots now export asset/outcome mapping; next work is richer grouping by category, end date, market type, and liquidity regime.
    - Generate time-windowed datasets for orderbook, signals, execution reports, fills, and control events.
    - Add explicit model/data version fields to signal and research outputs, even before ML models exist.
 
