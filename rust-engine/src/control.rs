@@ -102,6 +102,7 @@ pub async fn run(
                     "error": err.to_string(),
                     "timestamp_ms": now_ms()
                 }),
+                &store,
             )
             .await?;
         }
@@ -137,6 +138,7 @@ async fn handle_cancel_all(
                 "error": "cancel_all requires confirm=true, scope=account, and confirmation_phrase",
                 "timestamp_ms": now_ms()
             }),
+            store,
         )
         .await?;
         return Ok(());
@@ -178,6 +180,7 @@ async fn handle_cancel_all(
                     "not_canceled": {},
                     "timestamp_ms": now_ms()
                 }),
+                store,
             )
             .await?;
         }
@@ -251,6 +254,7 @@ async fn handle_cancel_all(
                     "divergences": divergences,
                     "timestamp_ms": now_ms()
                 }),
+                store,
             )
             .await?;
         }
@@ -285,6 +289,7 @@ async fn handle_cancel_bot_open(
                 "not_canceled": {},
                 "timestamp_ms": now_ms()
             }),
+            store,
         )
         .await?;
         return Ok(());
@@ -316,6 +321,7 @@ async fn handle_cancel_bot_open(
                     "not_canceled": {},
                     "timestamp_ms": now_ms()
                 }),
+                store,
             )
             .await?;
         }
@@ -391,6 +397,7 @@ async fn handle_cancel_bot_open(
                     "divergences": divergences,
                     "timestamp_ms": now_ms()
                 }),
+                store,
             )
             .await?;
         }
@@ -581,6 +588,7 @@ async fn publish_control_result(
     stream: &str,
     command: &OperatorCommand,
     result: &serde_json::Value,
+    store: &StateStore,
 ) -> Result<()> {
     info!(
         command_id = ?command.command_id,
@@ -592,6 +600,7 @@ async fn publish_control_result(
         "Operator command result"
     );
     publisher.add_json(stream, &result.to_string()).await?;
+    store.record_control_result(result).await?;
     Ok(())
 }
 

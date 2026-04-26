@@ -20,6 +20,7 @@ from src.api.operator_service import (
 )
 from src.api.state_store import jsonb_payload_to_dict
 from src.config import settings
+from src.config import validate_production_settings
 
 
 class FakeRedis:
@@ -374,6 +375,79 @@ def test_execution_reports_use_postgres_when_pool_exists(
     assert response.status_code == 200
     assert response.json()["source"] == "postgres"
     assert response.json()["reports"][0]["status"] == "PARTIAL"
+
+
+def test_control_results_use_postgres_when_pool_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    async def fake_require_pool() -> object:
+        return object()
+
+    async def fake_control_results_from_postgres(
+        pool: object, count: int
+    ) -> list[dict[str, object]]:
+        assert count == 25
+        return [
+            {
+                "type": "cancel_bot_open_result",
+                "command_id": "command-1",
+                "command_type": "cancel_bot_open",
+                "status": "CONFIRMED",
+                "timestamp_ms": 1,
+            }
+        ]
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
+    monkeypatch.setattr(
+        api_app, "control_results_from_postgres", fake_control_results_from_postgres
+    )
+    client = TestClient(api_app.app)
+
+    response = client.get("/control/results?limit=25")
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "postgres"
+    assert response.json()["results"][0]["command_id"] == "command-1"
+
+
+def test_required_postgres_state_returns_503_instead_of_redis_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    async def fake_require_pool() -> object:
+        raise RuntimeError(
+            "DATABASE_URL is required when REQUIRE_POSTGRES_STATE=true or APP_ENV=production"
+        )
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
+    client = TestClient(api_app.app)
+
+    for path in ("/orders/open", "/positions", "/execution-reports", "/control/results", "/risk"):
+        response = client.get(path)
+        assert response.status_code == 503
+        assert "DATABASE_URL is required" in response.json()["detail"]
+
+
+def test_require_postgres_state_fails_startup_without_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "require_postgres_state", True)
+    monkeypatch.setattr(settings, "database_url", None)
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        validate_production_settings()
 
 
 def test_api_prefix_aliases_operator_routes(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -39,7 +39,11 @@ from src.api.operator_service import (
     stream_summary,
     RedisLike,
 )
-from src.api.state_store import execution_reports_from_postgres, require_pool
+from src.api.state_store import (
+    control_results_from_postgres,
+    execution_reports_from_postgres,
+    require_pool,
+)
 from src.data.redis_client import get_redis
 from src.discovery.markets import discover_markets
 
@@ -77,6 +81,7 @@ async def get_status(_: ReadAuthDependency) -> dict[str, object]:
 @router.get("/risk", response_model=RiskResponse)
 async def risk(_: ReadAuthDependency) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
+    await postgres_pool_or_503()
     return await risk_summary(redis)
 
 
@@ -148,7 +153,7 @@ async def cancel_bot_open(
 @router.get("/orders/open", response_model=OrdersOpenResponse)
 async def orders_open(_: ReadAuthDependency) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
-    postgres_pool = await require_pool()
+    postgres_pool = await postgres_pool_or_503()
     return {
         "orders": await open_orders(redis, postgres_pool=postgres_pool),
         "source": "postgres" if postgres_pool is not None else settings.execution_reports_stream,
@@ -158,7 +163,7 @@ async def orders_open(_: ReadAuthDependency) -> dict[str, object]:
 @router.get("/positions", response_model=PositionsResponse)
 async def get_positions(_: ReadAuthDependency) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
-    postgres_pool = await require_pool()
+    postgres_pool = await postgres_pool_or_503()
     return {
         "positions": await positions(redis, postgres_pool=postgres_pool),
         "source": "postgres"
@@ -173,7 +178,7 @@ async def get_positions(_: ReadAuthDependency) -> dict[str, object]:
 @router.get("/execution-reports", response_model=ExecutionReportsResponse)
 async def execution_reports(_: ReadAuthDependency, limit: int = 100) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
-    postgres_pool = await require_pool()
+    postgres_pool = await postgres_pool_or_503()
     bounded_limit = max(1, min(limit, 500))
     if postgres_pool is not None:
         return {
@@ -199,8 +204,15 @@ async def get_control_results(
     _: ReadAuthDependency, limit: int = 100
 ) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
+    bounded_limit = max(1, min(limit, 500))
+    if postgres_pool is not None:
+        return {
+            "results": await control_results_from_postgres(postgres_pool, bounded_limit),
+            "source": "postgres",
+        }
     return {
-        "results": await control_results(redis, count=max(1, min(limit, 500))),
+        "results": await control_results(redis, count=bounded_limit),
         "source": settings.operator_results_stream,
     }
 
@@ -240,6 +252,16 @@ async def markets_discover(
 
 def frontend_dist_path() -> Path:
     return Path(__file__).resolve().parents[3] / "frontend" / "dist"
+
+
+async def postgres_pool_or_503() -> object | None:
+    try:
+        return await require_pool()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
 
 dist_path = frontend_dist_path()

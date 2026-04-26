@@ -48,11 +48,18 @@ settings = Settings()
 
 
 def validate_production_settings() -> None:
-    if settings.app_env.lower() != "production":
-        return
     missing = []
-    if settings.database_url is None:
+    postgres_required = (
+        settings.app_env.lower() == "production" or settings.require_postgres_state
+    )
+    if postgres_required and settings.database_url is None:
         missing.append("DATABASE_URL")
+    if settings.app_env.lower() != "production":
+        if missing:
+            raise RuntimeError(
+                "configuration missing required settings: " + ", ".join(missing)
+            )
+        return
     if settings.operator_read_token is None:
         missing.append("OPERATOR_READ_TOKEN")
     if settings.operator_control_token is None:

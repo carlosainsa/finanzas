@@ -91,6 +91,21 @@ async def execution_reports_from_postgres(
     return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
 
 
+async def control_results_from_postgres(
+    pool: asyncpg.Pool, count: int
+) -> list[dict[str, Any]]:
+    rows = await pool.fetch(
+        """
+        select payload
+        from control_results
+        order by updated_at desc
+        limit $1
+        """,
+        count,
+    )
+    return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
+
+
 def jsonb_payload_to_dict(value: object) -> dict[str, Any] | None:
     if isinstance(value, dict):
         return dict(value)

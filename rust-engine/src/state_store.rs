@@ -260,6 +260,38 @@ impl StateStore {
         Ok(())
     }
 
+    pub async fn record_control_result(&self, result: &serde_json::Value) -> Result<()> {
+        let Some(client) = &self.client else {
+            return Ok(());
+        };
+        let command_id = result
+            .get("command_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let command_type = result
+            .get("command_type")
+            .or_else(|| result.get("type"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let status = result
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("UNKNOWN");
+        client
+            .execute(
+                "insert into control_results (command_id, command_type, status, payload)
+                 values ($1, $2, $3, $4)
+                 on conflict (command_id) do update set
+                    command_type = excluded.command_type,
+                    status = excluded.status,
+                    payload = excluded.payload,
+                    updated_at = now()",
+                &[&command_id, &command_type, &status, &result],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn confirm_cancel_requests_for_order(
         &self,
         order_id: &str,
@@ -481,6 +513,10 @@ fn migrations() -> Vec<(&'static str, &'static str)> {
         (
             "0004_order_fill_state",
             include_str!("../../shared/migrations/0004_order_fill_state.sql"),
+        ),
+        (
+            "0005_control_results",
+            include_str!("../../shared/migrations/0005_control_results.sql"),
         ),
     ]
 }
