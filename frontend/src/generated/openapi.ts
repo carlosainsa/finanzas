@@ -904,7 +904,7 @@ export interface components {
             created_at: string;
             /** Details */
             details: {
-                [key: string]: unknown;
+                [key: string]: string | number | boolean | null;
             };
             /** Event Id */
             event_id: string;

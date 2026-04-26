@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from src.discovery.markets import ScoredMarket
 from src.schemas import ExecutionReport
 
+JsonScalar = str | int | float | bool | None
+
 
 class PendingSummary(BaseModel):
     pending: int | None = None
@@ -173,7 +175,7 @@ class ReconciliationEvent(BaseModel):
     signal_id: str | None = None
     event_type: str
     severity: str
-    details: dict[str, Any]
+    details: dict[str, JsonScalar]
     created_at: str
 
 
