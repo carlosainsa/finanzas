@@ -215,6 +215,12 @@ export function App() {
             tone={data.status.kill_switch ? 'danger' : 'good'}
           />
           <Metric title="Stream events" value={streamTotal.toLocaleString()} icon={<Database size={18} />} tone="neutral" />
+          <Metric
+            title="Reconciliation"
+            value={data.reconciliation.status}
+            icon={<ShieldCheck size={18} />}
+            tone={data.reconciliation.status === 'healthy' ? 'good' : data.reconciliation.status === 'diverged' ? 'danger' : 'neutral'}
+          />
           <Metric title="Match rate" value={`${Math.round(data.metrics.match_rate * 100)}%`} icon={<BarChart3 size={18} />} tone="neutral" />
         </section>
 
@@ -346,6 +352,25 @@ export function App() {
                 result.error ?? '-',
               ])}
               headers={['Command', 'Type', 'Status', 'Operator', 'Reason', 'Canceled', 'Error']}
+            />
+          </Panel>
+
+          <Panel title="Reconciliation" subtitle={data.reconciliation.source}>
+            <div className="counterGrid">
+              <Counter label="Open local" value={data.reconciliation.open_local_orders} />
+              <Counter label="Pending cancels" value={data.reconciliation.pending_cancel_requests} />
+              <Counter label="Diverged" value={data.reconciliation.diverged_cancel_requests} />
+              <Counter label="Stale orders" value={data.reconciliation.stale_orders} />
+            </div>
+            <Table
+              empty="No reconciliation events"
+              rows={data.reconciliation.recent_events.slice(0, 5).map((event) => [
+                event.event_type,
+                event.severity,
+                event.order_id ?? '-',
+                event.created_at,
+              ])}
+              headers={['Type', 'Severity', 'Order', 'Created']}
             />
           </Panel>
 

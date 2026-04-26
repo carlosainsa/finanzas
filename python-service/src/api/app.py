@@ -18,6 +18,7 @@ from src.api.models import (
     MarketsDiscoverResponse,
     OrdersOpenResponse,
     PositionsResponse,
+    ReconciliationStatusResponse,
     RiskResponse,
     RuntimeMetricsResponse,
     StatusResponse,
@@ -31,6 +32,7 @@ from src.api.operator_service import (
     preview_cancel_all,
     preview_cancel_bot_open,
     recent_execution_reports,
+    reconciliation_status_fallback,
     request_cancel_bot_open,
     request_cancel_all,
     risk_summary,
@@ -45,6 +47,7 @@ from src.api.operator_service import (
 from src.api.state_store import (
     control_results_from_postgres,
     execution_reports_from_postgres,
+    reconciliation_status_from_postgres,
     require_pool,
 )
 from src.data.redis_client import get_redis
@@ -251,6 +254,18 @@ async def get_prometheus_metrics(_: ReadAuthDependency, limit: int = 500) -> Res
     redis = cast(RedisLike, await get_redis())
     metrics = await runtime_metrics(redis, count=max(1, min(limit, 1000)))
     return Response(content=prometheus_metrics(metrics), media_type="text/plain")
+
+
+@router.get("/reconciliation/status", response_model=ReconciliationStatusResponse)
+async def reconciliation_status(
+    _: ReadAuthDependency, limit: int = 100
+) -> dict[str, object]:
+    redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
+    bounded_limit = max(1, min(limit, 500))
+    if postgres_pool is not None:
+        return await reconciliation_status_from_postgres(postgres_pool, bounded_limit)
+    return await reconciliation_status_fallback(redis, count=bounded_limit)
 
 
 @router.get("/markets/discover", response_model=MarketsDiscoverResponse)

@@ -12,6 +12,7 @@ export type StrategyMetrics = components['schemas']['StrategyMetricsResponse'];
 export type ControlResult = components['schemas']['ControlResult'];
 export type ControlResponse = components['schemas']['ControlResponse'];
 export type ControlPreview = components['schemas']['ControlPreviewResponse'];
+export type ReconciliationStatus = components['schemas']['ReconciliationStatusResponse'];
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 
 export type DashboardData = {
@@ -24,6 +25,7 @@ export type DashboardData = {
   markets: MarketDiscovery[];
   metrics: StrategyMetrics;
   controlResults: ControlResult[];
+  reconciliation: ReconciliationStatus;
   runtime: RuntimeMetrics;
 };
 
@@ -97,7 +99,7 @@ async function getJson<T>(path: keyof paths): Promise<T> {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const status = await getJson<StatusResponse>('/api/status');
-  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, runtime] = await Promise.all([
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime] = await Promise.all([
     getJson<RiskResponse>('/api/risk'),
     getJson<{ streams: StreamSummary[] }>('/api/streams'),
     getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
@@ -106,6 +108,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     client.GET('/api/markets/discover', { params: { query: { limit: 12 } } }),
     client.GET('/api/strategy/metrics', { params: { query: { limit: 500 } } }),
     client.GET('/api/control/results', { params: { query: { limit: 20 } } }),
+    client.GET('/api/reconciliation/status', { params: { query: { limit: 20 } } }),
     client.GET('/api/metrics', { params: { query: { limit: 500 } } }),
   ]);
 
@@ -119,6 +122,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     markets: unwrap(markets.data, markets.error, '/api/markets/discover').markets,
     metrics: unwrap(metrics.data, metrics.error, '/api/strategy/metrics'),
     controlResults: unwrap(controlResults.data, controlResults.error, '/api/control/results').results,
+    reconciliation: unwrap(reconciliation.data, reconciliation.error, '/api/reconciliation/status'),
     runtime: unwrap(runtime.data, runtime.error, '/api/metrics'),
   };
 }
@@ -204,6 +208,19 @@ export const fallbackData: DashboardData = {
   reports: [],
   markets: [],
   controlResults: [],
+  reconciliation: {
+    status: 'healthy',
+    source: 'postgres',
+    open_local_orders: 0,
+    pending_cancel_requests: 0,
+    diverged_cancel_requests: 0,
+    stale_orders: 0,
+    recent_event_count: 0,
+    events_by_severity: {},
+    events_by_type: {},
+    recent_events: [],
+    last_reconciled_at_ms: null,
+  },
   metrics: {
     sample_size: 0,
     matched: 0,

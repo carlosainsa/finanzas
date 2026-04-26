@@ -242,6 +242,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reconciliation/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reconciliation Status */
+        get: operations["reconciliation_status_api_reconciliation_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/risk": {
         parameters: {
             query?: never;
@@ -540,6 +557,23 @@ export interface paths {
         };
         /** Get Positions */
         get: operations["get_positions_positions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reconciliation/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reconciliation Status */
+        get: operations["reconciliation_status_reconciliation_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -863,6 +897,54 @@ export interface components {
             min_spread: number;
             /** Order Size */
             order_size: number;
+        };
+        /** ReconciliationEvent */
+        ReconciliationEvent: {
+            /** Created At */
+            created_at: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Event Id */
+            event_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Order Id */
+            order_id?: string | null;
+            /** Severity */
+            severity: string;
+            /** Signal Id */
+            signal_id?: string | null;
+        };
+        /** ReconciliationStatusResponse */
+        ReconciliationStatusResponse: {
+            /** Diverged Cancel Requests */
+            diverged_cancel_requests: number;
+            /** Events By Severity */
+            events_by_severity: {
+                [key: string]: number;
+            };
+            /** Events By Type */
+            events_by_type: {
+                [key: string]: number;
+            };
+            /** Last Reconciled At Ms */
+            last_reconciled_at_ms?: number | null;
+            /** Open Local Orders */
+            open_local_orders: number;
+            /** Pending Cancel Requests */
+            pending_cancel_requests: number;
+            /** Recent Event Count */
+            recent_event_count: number;
+            /** Recent Events */
+            recent_events: components["schemas"]["ReconciliationEvent"][];
+            /** Source */
+            source: string;
+            /** Stale Orders */
+            stale_orders: number;
+            /** Status */
+            status: string;
         };
         /** ResumeRequest */
         ResumeRequest: {
@@ -1409,6 +1491,37 @@ export interface operations {
             };
         };
     };
+    reconciliation_status_api_reconciliation_status_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     risk_api_risk_get: {
         parameters: {
             query?: never;
@@ -1886,6 +1999,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PositionsResponse"];
+                };
+            };
+        };
+    };
+    reconciliation_status_reconciliation_status_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

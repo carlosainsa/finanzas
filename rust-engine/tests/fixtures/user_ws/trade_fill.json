@@ -1,0 +1,14 @@
+{
+  "asset_id": "asset-1",
+  "event_type": "trade",
+  "id": "trade-1",
+  "maker_orders": [],
+  "market": "0xmarket",
+  "price": "0.57",
+  "side": "BUY",
+  "size": "10",
+  "status": "MATCHED",
+  "taker_order_id": "order-1",
+  "timestamp": "1672290701",
+  "type": "TRADE"
+}

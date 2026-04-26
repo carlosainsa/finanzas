@@ -167,6 +167,30 @@ class RuntimeMetricsResponse(BaseModel):
     source: list[str]
 
 
+class ReconciliationEvent(BaseModel):
+    event_id: str
+    order_id: str | None = None
+    signal_id: str | None = None
+    event_type: str
+    severity: str
+    details: dict[str, Any]
+    created_at: str
+
+
+class ReconciliationStatusResponse(BaseModel):
+    status: str
+    source: str
+    open_local_orders: int
+    pending_cancel_requests: int
+    diverged_cancel_requests: int
+    stale_orders: int
+    recent_event_count: int
+    events_by_severity: dict[str, int]
+    events_by_type: dict[str, int]
+    recent_events: list[ReconciliationEvent]
+    last_reconciled_at_ms: int | None = None
+
+
 class MarketsDiscoverResponse(BaseModel):
     markets: list[ScoredMarket]
     source: str

@@ -1,0 +1,10 @@
+{
+  "event_type": "order",
+  "id": "order-1",
+  "market": "0xmarket",
+  "asset_id": "asset-1",
+  "price": "not-a-number",
+  "size_matched": "0",
+  "timestamp": "1672290687",
+  "type": "UPDATE"
+}

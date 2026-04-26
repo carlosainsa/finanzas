@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from typing import Any
 from pathlib import Path
 
@@ -121,6 +122,108 @@ async def control_results_from_postgres(
         merge_optional(payload, "completed_at_ms", row["completed_at_ms"])
         results.append(payload)
     return results
+
+
+async def reconciliation_status_from_postgres(
+    pool: asyncpg.Pool, limit: int
+) -> dict[str, Any]:
+    open_local_orders = await pool.fetchval(
+        """
+        select count(*)
+        from orders
+        where status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'PARTIAL', 'Delayed', 'Unmatched', 'Partial')
+           or coalesce(remaining_size, 0) > 0
+        """
+    )
+    pending_cancel_requests = await pool.fetchval(
+        "select count(*) from cancel_requests where status = 'SENT'"
+    )
+    diverged_cancel_requests = await pool.fetchval(
+        "select count(*) from cancel_requests where status = 'DIVERGED'"
+    )
+    stale_orders = await pool.fetchval(
+        """
+        select count(*)
+        from orders
+        where (
+            status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'PARTIAL', 'Delayed', 'Unmatched', 'Partial')
+            or coalesce(remaining_size, 0) > 0
+        )
+          and updated_at < now() - interval '5 minutes'
+        """
+    )
+    event_rows = await pool.fetch(
+        """
+        select event_id, order_id, signal_id, event_type, severity, details, created_at
+        from reconciliation_events
+        order by created_at desc
+        limit $1
+        """,
+        limit,
+    )
+    recent_events = [
+        {
+            "event_id": row["event_id"],
+            "order_id": row["order_id"],
+            "signal_id": row["signal_id"],
+            "event_type": row["event_type"],
+            "severity": row["severity"],
+            "details": jsonb_payload_to_dict(row["details"]) or {},
+            "created_at": row["created_at"].isoformat(),
+        }
+        for row in event_rows
+    ]
+    events_by_severity = count_by_key(event["severity"] for event in recent_events)
+    events_by_type = count_by_key(event["event_type"] for event in recent_events)
+    last_reconciled_at_ms = await pool.fetchval(
+        """
+        select floor(extract(epoch from max(created_at)) * 1000)::bigint
+        from reconciliation_events
+        """
+    )
+    return {
+        "status": reconciliation_health(
+            int(open_local_orders or 0),
+            int(pending_cancel_requests or 0),
+            int(diverged_cancel_requests or 0),
+            int(stale_orders or 0),
+            events_by_severity,
+        ),
+        "source": "postgres",
+        "open_local_orders": int(open_local_orders or 0),
+        "pending_cancel_requests": int(pending_cancel_requests or 0),
+        "diverged_cancel_requests": int(diverged_cancel_requests or 0),
+        "stale_orders": int(stale_orders or 0),
+        "recent_event_count": len(recent_events),
+        "events_by_severity": events_by_severity,
+        "events_by_type": events_by_type,
+        "recent_events": recent_events,
+        "last_reconciled_at_ms": int(last_reconciled_at_ms) if last_reconciled_at_ms else None,
+    }
+
+
+def reconciliation_health(
+    open_local_orders: int,
+    pending_cancel_requests: int,
+    diverged_cancel_requests: int,
+    stale_orders: int,
+    events_by_severity: dict[str, int],
+) -> str:
+    if diverged_cancel_requests > 0 or events_by_severity.get("error", 0) > 0:
+        return "diverged"
+    if pending_cancel_requests > 0 or stale_orders > 0 or events_by_severity.get("warning", 0) > 0:
+        return "warning"
+    if open_local_orders > 0:
+        return "watching"
+    return "healthy"
+
+
+def count_by_key(values: Iterable[object]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 def merge_optional(payload: dict[str, Any], key: str, value: Any) -> None:

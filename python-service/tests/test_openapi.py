@@ -10,6 +10,7 @@ def test_openapi_includes_control_results_and_metrics() -> None:
     assert "/api/orders/cancel-bot-open" in schema["paths"]
     assert "/api/control/preview/cancel-bot-open" in schema["paths"]
     assert "/api/control/preview/cancel-all" in schema["paths"]
+    assert "/api/reconciliation/status" in schema["paths"]
 
 
 def test_openapi_marks_operator_routes_with_bearer_security() -> None:

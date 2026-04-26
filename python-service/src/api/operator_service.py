@@ -317,6 +317,40 @@ async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, objec
     }
 
 
+async def reconciliation_status_fallback(redis: RedisLike, count: int = 200) -> dict[str, object]:
+    reports = await recent_execution_reports(redis, count=count)
+    results = await control_results(redis, count=count)
+    open_local_orders = sum(
+        1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED", "PARTIAL"}
+    )
+    diverged_results = [
+        result for result in results if str(result.get("status") or "").upper() == "DIVERGED"
+    ]
+    failed_results = [
+        result for result in results if str(result.get("status") or "").upper() == "FAILED"
+    ]
+    status = "diverged" if diverged_results else "warning" if failed_results else "watching" if open_local_orders else "healthy"
+    return {
+        "status": status,
+        "source": settings.operator_results_stream,
+        "open_local_orders": open_local_orders,
+        "pending_cancel_requests": 0,
+        "diverged_cancel_requests": len(diverged_results),
+        "stale_orders": 0,
+        "recent_event_count": len(diverged_results) + len(failed_results),
+        "events_by_severity": {
+            "error": len(diverged_results),
+            "warning": len(failed_results),
+        },
+        "events_by_type": {
+            "control_result_diverged": len(diverged_results),
+            "control_result_failed": len(failed_results),
+        },
+        "recent_events": [],
+        "last_reconciled_at_ms": None,
+    }
+
+
 def report_latencies(
     reports: list[dict[str, object]], signals: dict[str, dict[str, object]]
 ) -> list[float]:

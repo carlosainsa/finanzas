@@ -44,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("orders")
     subparsers.add_parser("positions")
     subparsers.add_parser("metrics")
+    reconciliation = subparsers.add_parser("reconciliation")
+    reconciliation.add_argument("--limit", type=int)
     control_results = subparsers.add_parser("control-results")
     control_results.add_argument("--limit", type=int)
     cancel_all = subparsers.add_parser("cancel-all")
@@ -86,6 +88,14 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
             return request_json(client, "GET", "/positions", token=read_token(args))
         if args.command == "metrics":
             return request_json(client, "GET", "/metrics", token=read_token(args))
+        if args.command == "reconciliation":
+            return request_json(
+                client,
+                "GET",
+                "/reconciliation/status",
+                params=optional_params({"limit": args.limit}),
+                token=read_token(args),
+            )
         if args.command == "control-results":
             return request_json(
                 client,
@@ -242,6 +252,28 @@ def print_command_table(command: str, value: object) -> None:
             return
     if command == "metrics" and isinstance(value, dict):
         print_metrics(value)
+        return
+    if command == "reconciliation" and isinstance(value, dict):
+        print_rows(
+            [
+                {
+                    "status": value.get("status"),
+                    "open_local_orders": value.get("open_local_orders"),
+                    "pending_cancel_requests": value.get("pending_cancel_requests"),
+                    "diverged_cancel_requests": value.get("diverged_cancel_requests"),
+                    "stale_orders": value.get("stale_orders"),
+                    "source": value.get("source"),
+                }
+            ],
+            [
+                "status",
+                "open_local_orders",
+                "pending_cancel_requests",
+                "diverged_cancel_requests",
+                "stale_orders",
+                "source",
+            ],
+        )
         return
     print_table(value)
 

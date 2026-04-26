@@ -846,6 +846,140 @@
         "title": "PredictorSummary",
         "type": "object"
       },
+      "ReconciliationEvent": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "signal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Id"
+          }
+        },
+        "required": [
+          "event_id",
+          "event_type",
+          "severity",
+          "details",
+          "created_at"
+        ],
+        "title": "ReconciliationEvent",
+        "type": "object"
+      },
+      "ReconciliationStatusResponse": {
+        "properties": {
+          "diverged_cancel_requests": {
+            "title": "Diverged Cancel Requests",
+            "type": "integer"
+          },
+          "events_by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Events By Severity",
+            "type": "object"
+          },
+          "events_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Events By Type",
+            "type": "object"
+          },
+          "last_reconciled_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reconciled At Ms"
+          },
+          "open_local_orders": {
+            "title": "Open Local Orders",
+            "type": "integer"
+          },
+          "pending_cancel_requests": {
+            "title": "Pending Cancel Requests",
+            "type": "integer"
+          },
+          "recent_event_count": {
+            "title": "Recent Event Count",
+            "type": "integer"
+          },
+          "recent_events": {
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationEvent"
+            },
+            "title": "Recent Events",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "stale_orders": {
+            "title": "Stale Orders",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "open_local_orders",
+          "pending_cancel_requests",
+          "diverged_cancel_requests",
+          "stale_orders",
+          "recent_event_count",
+          "events_by_severity",
+          "events_by_type",
+          "recent_events"
+        ],
+        "title": "ReconciliationStatusResponse",
+        "type": "object"
+      },
       "ResumeRequest": {
         "properties": {
           "confirm": {
@@ -1859,6 +1993,51 @@
         "summary": "Get Positions"
       }
     },
+    "/api/reconciliation/status": {
+      "get": {
+        "operationId": "reconciliation_status_api_reconciliation_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reconciliation Status"
+      }
+    },
     "/api/risk": {
       "get": {
         "operationId": "risk_api_risk_get",
@@ -2529,6 +2708,51 @@
           }
         ],
         "summary": "Get Positions"
+      }
+    },
+    "/reconciliation/status": {
+      "get": {
+        "operationId": "reconciliation_status_reconciliation_status_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reconciliation Status"
       }
     },
     "/risk": {

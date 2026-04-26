@@ -515,10 +515,109 @@ def test_required_postgres_state_returns_503_instead_of_redis_fallback(
     monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
     client = TestClient(api_app.app)
 
-    for path in ("/orders/open", "/positions", "/execution-reports", "/control/results", "/risk"):
+    for path in (
+        "/orders/open",
+        "/positions",
+        "/execution-reports",
+        "/control/results",
+        "/reconciliation/status",
+        "/risk",
+    ):
         response = client.get(path)
         assert response.status_code == 503
         assert "DATABASE_URL is required" in response.json()["detail"]
+
+
+def test_reconciliation_status_uses_postgres_when_pool_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    async def fake_require_pool() -> object:
+        return object()
+
+    async def fake_reconciliation_status_from_postgres(
+        pool: object, limit: int
+    ) -> dict[str, object]:
+        assert limit == 25
+        return {
+            "status": "warning",
+            "source": "postgres",
+            "open_local_orders": 1,
+            "pending_cancel_requests": 1,
+            "diverged_cancel_requests": 0,
+            "stale_orders": 0,
+            "recent_event_count": 1,
+            "events_by_severity": {"warning": 1},
+            "events_by_type": {"duplicate_trade": 1},
+            "recent_events": [
+                {
+                    "event_id": "event-1",
+                    "order_id": "order-1",
+                    "signal_id": "signal-1",
+                    "event_type": "duplicate_trade",
+                    "severity": "warning",
+                    "details": {"trade_id": "trade-1"},
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                }
+            ],
+            "last_reconciled_at_ms": 1,
+        }
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
+    monkeypatch.setattr(
+        api_app,
+        "reconciliation_status_from_postgres",
+        fake_reconciliation_status_from_postgres,
+    )
+    client = TestClient(api_app.app)
+
+    response = client.get("/reconciliation/status?limit=25")
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "postgres"
+    assert response.json()["status"] == "warning"
+
+
+def test_reconciliation_status_fallback_reports_control_divergence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redis = FakeRedis()
+    asyncio.run(
+        redis.xadd(
+            settings.operator_results_stream,
+            {
+                "payload": json.dumps(
+                    {
+                        "type": "cancel_bot_open_result",
+                        "command_id": "command-1",
+                        "command_type": "cancel_bot_open",
+                        "status": "DIVERGED",
+                        "timestamp_ms": 1,
+                    }
+                )
+            },
+        )
+    )
+
+    async def fake_get_redis() -> FakeRedis:
+        return redis
+
+    async def fake_require_pool() -> None:
+        return None
+
+    monkeypatch.setattr(api_app, "get_redis", fake_get_redis)
+    monkeypatch.setattr(api_app, "require_pool", fake_require_pool)
+    client = TestClient(api_app.app)
+
+    response = client.get("/reconciliation/status")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "diverged"
 
 
 def test_require_postgres_state_fails_startup_without_database_url(

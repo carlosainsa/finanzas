@@ -69,6 +69,7 @@ impl TrackedOrder {
         OrderFillState {
             filled_size,
             remaining_size,
+            duplicate_trade: false,
         }
     }
 }
@@ -77,6 +78,7 @@ impl TrackedOrder {
 struct OrderFillState {
     filled_size: f64,
     remaining_size: f64,
+    duplicate_trade: bool,
 }
 
 impl OrderTracker {
@@ -147,13 +149,15 @@ impl OrderTracker {
     ) -> Option<OrderFillState> {
         let mut inner = self.inner.lock().await;
         let order = inner.get_mut(order_id)?;
-        if order.seen_trade_ids.insert(trade_id.to_owned()) {
+        let duplicate_trade = !order.seen_trade_ids.insert(trade_id.to_owned());
+        if !duplicate_trade {
             order.filled_size = (order.filled_size + fill_size).min(order.requested_size);
             order.remaining_size = (order.requested_size - order.filled_size).max(0.0);
         }
         let state = OrderFillState {
             filled_size: order.filled_size,
             remaining_size: order.remaining_size,
+            duplicate_trade,
         };
         if state.remaining_size <= f64::EPSILON {
             inner.remove(order_id);
@@ -510,6 +514,49 @@ async fn reconcile_trade_event(
         Some(clob) => poll_order_fill_divergence(clob, &order_id, fill_state.filled_size).await,
         None => None,
     };
+    let error = divergence
+        .or(poll_divergence)
+        .or_else(|| trade_error(&event.status));
+    if fill_state.duplicate_trade {
+        if let Err(err) = store
+            .record_reconciliation_event(
+                Some(&order_id),
+                Some(&order.signal_id),
+                "duplicate_trade",
+                "warning",
+                &json!({
+                    "trade_id": event.id,
+                    "fill_price": fill_price,
+                    "fill_size": fill_size,
+                    "reason": "duplicate trade id ignored for cumulative fill accounting"
+                }),
+            )
+            .await
+        {
+            warn!(order_id = %order_id, trade_id = %event.id, error = %err, "Could not persist reconciliation event");
+        }
+    }
+    if let Some(error) = &error {
+        if error.contains("divergence") {
+            if let Err(err) = store
+                .record_reconciliation_event(
+                    Some(&order_id),
+                    Some(&order.signal_id),
+                    "fill_divergence",
+                    "warning",
+                    &json!({
+                        "trade_id": event.id,
+                        "fill_price": fill_price,
+                        "fill_size": fill_size,
+                        "error": error
+                    }),
+                )
+                .await
+            {
+                warn!(order_id = %order_id, trade_id = %event.id, error = %err, "Could not persist reconciliation event");
+            }
+        }
+    }
     store
         .record_trade_lifecycle(TradeLifecycleUpdate {
             trade_id: &event.id,
@@ -530,9 +577,7 @@ async fn reconcile_trade_event(
         filled_size: Some(fill_size),
         cumulative_filled_size: Some(fill_state.filled_size),
         remaining_size: Some(fill_state.remaining_size),
-        error: divergence
-            .or(poll_divergence)
-            .or_else(|| trade_error(&event.status)),
+        error,
         timestamp_ms: seconds_to_ms(&event.timestamp)?,
     }))
 }
@@ -748,16 +793,7 @@ mod tests {
         let tracker = tracker().await;
         let store = store();
         let report = reconcile_user_message(
-            r#"{
-                "event_type": "order",
-                "id": "order-1",
-                "market": "0xmarket",
-                "asset_id": "asset-1",
-                "price": "0.57",
-                "size_matched": "0",
-                "timestamp": "1672290687",
-                "type": "UPDATE"
-            }"#,
+            include_str!("../tests/fixtures/user_ws/order_update.json"),
             &tracker,
             &store,
             None,
@@ -777,16 +813,7 @@ mod tests {
         let tracker = tracker().await;
         let store = store();
         let report = reconcile_user_message(
-            r#"{
-                "event_type": "order",
-                "id": "order-1",
-                "market": "0xmarket",
-                "asset_id": "asset-1",
-                "price": "0.57",
-                "size_matched": "0",
-                "timestamp": "1672290687",
-                "type": "CANCELLATION"
-            }"#,
+            include_str!("../tests/fixtures/user_ws/cancel_confirmed.json"),
             &tracker,
             &store,
             None,
@@ -805,20 +832,7 @@ mod tests {
         let tracker = tracker().await;
         let store = store();
         let report = reconcile_user_message(
-            r#"{
-                "asset_id": "asset-1",
-                "event_type": "trade",
-                "id": "trade-1",
-                "maker_orders": [],
-                "market": "0xmarket",
-                "price": "0.57",
-                "side": "BUY",
-                "size": "10",
-                "status": "MATCHED",
-                "taker_order_id": "order-1",
-                "timestamp": "1672290701",
-                "type": "TRADE"
-            }"#,
+            include_str!("../tests/fixtures/user_ws/trade_fill.json"),
             &tracker,
             &store,
             None,
@@ -1080,16 +1094,7 @@ mod tests {
         let tracker = tracker().await;
         let store = store();
         assert!(reconcile_user_message(
-            r#"{
-                "event_type": "order",
-                "id": "order-1",
-                "market": "0xmarket",
-                "asset_id": "asset-1",
-                "price": "not-a-number",
-                "size_matched": "0",
-                "timestamp": "1672290687",
-                "type": "UPDATE"
-            }"#,
+            include_str!("../tests/fixtures/user_ws/malformed_payload.json"),
             &tracker,
             &store,
             None,

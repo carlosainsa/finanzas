@@ -481,6 +481,23 @@ async fn finalize_cancel_confirmations(ctx: CancelFinalizeContext<'_>) -> Result
                     &json!({"source": ctx.source, "reason": "order still open after cancel confirmation timeout"}),
                 )
                 .await?;
+            if let Err(err) = ctx
+                .store
+                .record_reconciliation_event(
+                    Some(order_id),
+                    None,
+                    "cancel_divergence",
+                    "warning",
+                    &json!({
+                        "command_id": ctx.command_id,
+                        "source": ctx.source,
+                        "reason": "order still open after cancel confirmation timeout"
+                    }),
+                )
+                .await
+            {
+                warn!(command_id = %ctx.command_id, order_id = %order_id, error = %err, "Could not persist reconciliation event");
+            }
             continue;
         }
         if let Some(order) = resolve_bot_order(ctx.store, ctx.order_tracker, order_id).await? {
@@ -516,6 +533,23 @@ async fn finalize_cancel_confirmations(ctx: CancelFinalizeContext<'_>) -> Result
                     &json!({"source": ctx.source, "reason": "unresolvable bot order"}),
                 )
                 .await?;
+            if let Err(err) = ctx
+                .store
+                .record_reconciliation_event(
+                    Some(order_id),
+                    None,
+                    "unresolvable_bot_order",
+                    "error",
+                    &json!({
+                        "command_id": ctx.command_id,
+                        "source": ctx.source,
+                        "reason": "canceled order could not be reconciled to a bot order"
+                    }),
+                )
+                .await
+            {
+                warn!(command_id = %ctx.command_id, order_id = %order_id, error = %err, "Could not persist reconciliation event");
+            }
         }
     }
     Ok(divergences)

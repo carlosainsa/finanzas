@@ -1,6 +1,7 @@
 use anyhow::Result;
 use tokio_postgres::{Client, NoTls};
 use tracing::{error, info};
+use uuid::Uuid;
 
 use crate::executor::{ExecutionReport, TradeSignal};
 
@@ -319,6 +320,37 @@ impl StateStore {
         Ok(())
     }
 
+    pub async fn record_reconciliation_event(
+        &self,
+        order_id: Option<&str>,
+        signal_id: Option<&str>,
+        event_type: &str,
+        severity: &str,
+        details: &serde_json::Value,
+    ) -> Result<()> {
+        let Some(client) = &self.client else {
+            return Ok(());
+        };
+        let event_id = Uuid::new_v4().to_string();
+        client
+            .execute(
+                "insert into reconciliation_events (
+                    event_id, order_id, signal_id, event_type, severity, details
+                 )
+                 values ($1, $2, $3, $4, $5, $6)",
+                &[
+                    &event_id,
+                    &order_id,
+                    &signal_id,
+                    &event_type,
+                    &severity,
+                    &details,
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn confirm_cancel_requests_for_order(
         &self,
         order_id: &str,
@@ -548,6 +580,10 @@ fn migrations() -> Vec<(&'static str, &'static str)> {
         (
             "0006_control_result_audit_fields",
             include_str!("../../shared/migrations/0006_control_result_audit_fields.sql"),
+        ),
+        (
+            "0007_reconciliation_events",
+            include_str!("../../shared/migrations/0007_reconciliation_events.sql"),
         ),
     ]
 }

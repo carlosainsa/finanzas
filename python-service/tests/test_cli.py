@@ -32,6 +32,7 @@ def test_cli_supports_metrics_and_control_results() -> None:
     parser = cli.build_parser()
 
     assert parser.parse_args(["metrics"]).command == "metrics"
+    assert parser.parse_args(["reconciliation"]).command == "reconciliation"
     args = parser.parse_args(["control-results", "--limit", "5"])
 
     assert args.command == "control-results"
@@ -125,3 +126,21 @@ def test_cli_prints_control_result_audit_columns(capsys: pytest.CaptureFixture[s
     assert "operator" in output
     assert "operator-1" in output
     assert "rebalance" in output
+
+
+def test_cli_prints_reconciliation_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "reconciliation",
+        {
+            "status": "warning",
+            "open_local_orders": 2,
+            "pending_cancel_requests": 1,
+            "diverged_cancel_requests": 0,
+            "stale_orders": 1,
+            "source": "postgres",
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "open_local_orders" in output
+    assert "warning" in output
