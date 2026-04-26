@@ -5,6 +5,7 @@ Phase 4 adds an offline research data lake. It is not part of the live trading p
 ## Scope
 
 - Export Redis Stream payloads to partitioned Parquet files.
+- Track the last exported Redis Stream ID per dataset to support incremental exports.
 - Keep the original event as `payload_json` plus stream metadata.
 - Validate known contracts before writing:
   - `orderbook:stream`
@@ -18,6 +19,7 @@ Default root: `data_lake/`
 
 ```text
 data_lake/
+  _export_state.json
   orderbook_snapshots/date=YYYY-MM-DD/part-000.parquet
   orderbook_levels/date=YYYY-MM-DD/part-000.parquet
   signals/date=YYYY-MM-DD/part-000.parquet
@@ -48,17 +50,18 @@ PYTHONPATH=python-service python -m src.research.data_lake \
   --count 1000
 ```
 
-The exporter creates DuckDB views for datasets with Parquet files.
+The exporter runs incrementally by default and stores offsets in `_export_state.json`. Use `--full-refresh` only for a deliberate rebuild from the beginning of the Redis Streams. The exporter creates DuckDB views for datasets with Parquet files.
 
 Backtest reports can be generated from an exported DuckDB database:
 
 ```bash
 PYTHONPATH=python-service python -m src.research.backtest \
   --duckdb data_lake/research.duckdb \
-  --output-dir data_lake/backtest
+  --output-dir data_lake/backtest \
+  --pre-live-gate
 ```
 
-The initial report writes `backtest_trades.parquet` and `backtest_summary.parquet` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, and error counts. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
+The report writes `backtest_trades.parquet`, `backtest_summary.parquet`, and optionally `pre_live_gate.json` with fill-rate, slippage, model edge, realized edge after slippage, total filled size, adverse-selection status when available, and error counts. Treat these metrics as a pre-live gate: `EXECUTION_MODE=live` should not be used until fill-rate and realized edge are acceptable for the target strategy and market class.
 
 Game-theory reports can also be generated from the same DuckDB database:
 
@@ -72,6 +75,6 @@ This writes post-fill PnL horizons, fill-rate by distance to mid, adverse-select
 
 ## Notes
 
-- This exporter is batch-oriented. It reads the latest stream range and overwrites the current day's `part-000.parquet`.
+- This exporter is append-oriented. It writes timestamped Parquet parts for newly observed stream IDs.
 - `data_lake/` and `*.duckdb` are ignored by git.
-- A future incremental exporter should track last exported Redis stream IDs per dataset.
+- Delete `_export_state.json` only when intentionally rebuilding the data lake.

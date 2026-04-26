@@ -111,7 +111,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Keep `scripts/check_all.sh` as the fast required gate and leave heavier end-to-end checks opt-in until runtime is acceptable.
 
 8. Data quality foundations
-   - Add incremental data lake export state so Redis Stream IDs are not re-exported blindly.
+   - Incremental data lake export state is implemented with `_export_state.json`; next work is operational monitoring for exporter lag.
    - Add market metadata snapshots to the data lake so results can be grouped by liquidity, category, end date, and market type.
    - Generate time-windowed datasets for orderbook, signals, execution reports, fills, and control events.
    - Add explicit model/data version fields to signal and research outputs, even before ML models exist.
@@ -119,7 +119,7 @@ These steps improve the trading platform before introducing heavier models. The 
 9. Research and model readiness
    - Implement an offline deterministic baseline using spread, depth, orderbook imbalance, short-horizon momentum, and stale-market filters.
    - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data before promoting any strategy.
-   - Add walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by probability bucket.
+   - Use the pre-live gate report as the first promotion check, then add walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by probability bucket.
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
 10. Live promotion gates

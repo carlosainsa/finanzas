@@ -6,7 +6,12 @@ import duckdb
 import pytest
 
 from src.config import settings
-from src.research.backtest import create_backtest_views, export_backtest_report
+from src.research.backtest import (
+    create_pre_live_gate_report,
+    create_backtest_views,
+    export_backtest_report,
+    export_pre_live_gate_report,
+)
 from src.research.data_lake import create_duckdb_views, export_data_lake
 
 
@@ -75,6 +80,33 @@ def test_export_backtest_report_writes_outputs(tmp_path: Path) -> None:
     assert counts == {"backtest_trades": 1, "backtest_summary": 1}
     assert (output_dir / "backtest_trades.parquet").exists()
     assert (output_dir / "backtest_summary.parquet").exists()
+
+
+def test_pre_live_gate_report_requires_positive_realized_edge(tmp_path: Path) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=True)
+
+    report = create_pre_live_gate_report(db_path)
+
+    assert report["signals"] == 1
+    assert report["filled_signals"] == 1
+    assert report["passed"] is True
+    assert report["checks"] == {
+        "has_signals": True,
+        "has_fills": True,
+        "positive_realized_edge_after_slippage": True,
+        "acceptable_error_rate": True,
+        "no_persistent_adverse_selection": True,
+    }
+
+
+def test_export_pre_live_gate_report_writes_json(tmp_path: Path) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=True)
+    output_dir = tmp_path / "backtest"
+
+    report = export_pre_live_gate_report(db_path, output_dir)
+
+    assert report["passed"] is True
+    assert (output_dir / "pre_live_gate.json").exists()
 
 
 def seed_research_db(tmp_path: Path, with_fill: bool) -> Path:

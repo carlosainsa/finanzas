@@ -226,12 +226,39 @@ impl StateStore {
         client
             .execute(
                 "update orders
-                 set status = $2, payload = $3, updated_at = now()
+                 set
+                    status = $2,
+                    payload = $3,
+                    filled_size = case
+                        when $2 = 'CANCELLED' then coalesce(
+                            nullif($3->>'size_matched', '')::double precision,
+                            filled_size
+                        )
+                        else filled_size
+                    end,
+                    remaining_size = case
+                        when $2 = 'CANCELLED' then 0
+                        else remaining_size
+                    end,
+                    updated_at = now()
                  where order_id = $1",
                 &[&order_id, &status, &payload],
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn trade_exists(&self, trade_id: &str) -> Result<bool> {
+        let Some(client) = &self.client else {
+            return Ok(false);
+        };
+        let row = client
+            .query_one(
+                "select exists(select 1 from trades where trade_id = $1)",
+                &[&trade_id],
+            )
+            .await?;
+        Ok(row.get(0))
     }
 
     pub async fn record_cancel_request(

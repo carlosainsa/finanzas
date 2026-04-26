@@ -20,6 +20,11 @@ class FakeRedis:
         count: int | None = None,
     ) -> list[tuple[str, dict[str, str]]]:
         entries = self.streams.get(name, [])
+        if min.startswith("("):
+            last_id = min[1:]
+            entries = [entry for entry in entries if entry[0] > last_id]
+        elif min != "-":
+            entries = [entry for entry in entries if entry[0] >= min]
         return entries if count is None else entries[:count]
 
     def add_payload(self, stream: str, payload: dict[str, object]) -> None:
@@ -74,3 +79,43 @@ def test_export_validates_known_payload_schemas(tmp_path: Path) -> None:
     exported = asyncio.run(export_data_lake(redis, tmp_path, count=100, datasets=STREAM_DATASETS))
 
     assert exported["signals"] == 1
+
+
+def test_incremental_export_tracks_last_stream_id(tmp_path: Path) -> None:
+    redis = FakeRedis()
+    redis.add_payload(
+        settings.signals_stream,
+        {
+            "signal_id": "signal-1",
+            "market_id": "0xabc",
+            "asset_id": "123",
+            "side": "BUY",
+            "price": 0.45,
+            "size": 1,
+            "confidence": 0.8,
+            "timestamp_ms": 1760000000000,
+        },
+    )
+
+    first = asyncio.run(export_data_lake(redis, tmp_path, count=100, incremental=True))
+    second = asyncio.run(export_data_lake(redis, tmp_path, count=100, incremental=True))
+    redis.add_payload(
+        settings.signals_stream,
+        {
+            "signal_id": "signal-2",
+            "market_id": "0xabc",
+            "asset_id": "123",
+            "side": "SELL",
+            "price": 0.55,
+            "size": 1,
+            "confidence": 0.8,
+            "timestamp_ms": 1760000000100,
+        },
+    )
+    third = asyncio.run(export_data_lake(redis, tmp_path, count=100, incremental=True))
+
+    assert first["signals"] == 1
+    assert second["signals"] == 0
+    assert third["signals"] == 1
+    state = json.loads((tmp_path / "_export_state.json").read_text(encoding="utf-8"))
+    assert state["signals"] == "2-0"

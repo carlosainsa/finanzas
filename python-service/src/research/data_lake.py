@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,13 @@ class StreamDataset:
     schema_name: str
 
 
+@dataclass(frozen=True)
+class StreamExportResult:
+    rows: list[dict[str, object]]
+    derived_rows: dict[str, list[dict[str, object]]]
+    last_stream_id: str | None
+
+
 STREAM_DATASETS: tuple[StreamDataset, ...] = (
     StreamDataset(settings.orderbook_stream, "orderbook_snapshots", "orderbook"),
     StreamDataset(settings.signals_stream, "signals", "trade_signal"),
@@ -48,25 +56,34 @@ async def export_data_lake(
     root: Path,
     count: int,
     datasets: tuple[StreamDataset, ...] = STREAM_DATASETS,
+    incremental: bool = False,
 ) -> dict[str, int]:
     exported: dict[str, int] = {}
     derived_rows: dict[str, list[dict[str, object]]] = {"orderbook_levels": []}
+    state = load_export_state(root) if incremental else {}
+    next_state = dict(state)
     for dataset in datasets:
-        rows, derived = await read_stream_rows(redis, dataset, count=count)
-        exported[dataset.dataset] = write_dataset(root, dataset, rows)
-        for name, dataset_rows in derived.items():
+        min_id = exclusive_min_stream_id(state.get(dataset.dataset)) if incremental else "-"
+        result = await read_stream_rows(redis, dataset, count=count, min_id=min_id)
+        exported[dataset.dataset] = write_dataset(root, dataset, result.rows)
+        if result.last_stream_id is not None:
+            next_state[dataset.dataset] = result.last_stream_id
+        for name, dataset_rows in result.derived_rows.items():
             derived_rows.setdefault(name, []).extend(dataset_rows)
     for name, rows in derived_rows.items():
         exported[name] = write_named_dataset(root, name, rows)
+    if incremental:
+        save_export_state(root, next_state)
     return exported
 
 
 async def read_stream_rows(
-    redis: RedisRangeReader, dataset: StreamDataset, count: int
-) -> tuple[list[dict[str, object]], dict[str, list[dict[str, object]]]]:
-    entries = await redis.xrange(dataset.stream, count=count)
+    redis: RedisRangeReader, dataset: StreamDataset, count: int, min_id: str = "-"
+) -> StreamExportResult:
+    entries = await redis.xrange(dataset.stream, min=min_id, count=count)
     rows: list[dict[str, object]] = []
     derived: dict[str, list[dict[str, object]]] = {"orderbook_levels": []}
+    last_stream_id: str | None = None
     for stream_id, fields in entries:
         payload = parse_payload(fields.get("payload"))
         if payload is None:
@@ -75,7 +92,8 @@ async def read_stream_rows(
         rows.append(normalize_row(dataset, stream_id, normalized))
         if dataset.schema_name == "orderbook":
             derived["orderbook_levels"].extend(orderbook_level_rows(stream_id, normalized))
-    return rows, derived
+        last_stream_id = stream_id
+    return StreamExportResult(rows=rows, derived_rows=derived, last_stream_id=last_stream_id)
 
 
 def write_dataset(root: Path, dataset: StreamDataset, rows: list[dict[str, object]]) -> int:
@@ -89,9 +107,41 @@ def write_named_dataset(root: Path, dataset_name: str, rows: list[dict[str, obje
     partition = datetime.now(timezone.utc).strftime("date=%Y-%m-%d")
     target_dir = root / dataset_name / partition
     target_dir.mkdir(parents=True, exist_ok=True)
-    target_file = target_dir / "part-000.parquet"
+    target_file = target_dir / f"part-{now_ms()}-{uuid.uuid4().hex}.parquet"
     pd.DataFrame(rows).to_parquet(target_file, index=False)
     return len(rows)
+
+
+def export_state_path(root: Path) -> Path:
+    return root / "_export_state.json"
+
+
+def load_export_state(root: Path) -> dict[str, str]:
+    path = export_state_path(root)
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    state: dict[str, str] = {}
+    for key, stream_id in value.items():
+        if isinstance(key, str) and isinstance(stream_id, str):
+            state[key] = stream_id
+    return state
+
+
+def save_export_state(root: Path, state: dict[str, str]) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    export_state_path(root).write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def exclusive_min_stream_id(stream_id: str | None) -> str:
+    return f"({stream_id}" if stream_id else "-"
 
 
 def create_duckdb_views(root: Path, db_path: Path) -> None:
@@ -250,9 +300,11 @@ def now_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
-async def run_export(root: Path, db_path: Path, count: int) -> dict[str, int]:
+async def run_export(
+    root: Path, db_path: Path, count: int, incremental: bool = True
+) -> dict[str, int]:
     redis = cast(RedisRangeReader, await get_redis())
-    exported = await export_data_lake(redis, root=root, count=count)
+    exported = await export_data_lake(redis, root=root, count=count, incremental=incremental)
     create_duckdb_views(root=root, db_path=db_path)
     return exported
 
@@ -264,11 +316,21 @@ def main() -> int:
     parser.add_argument("--root", default=settings.data_lake_root)
     parser.add_argument("--duckdb", default=settings.data_lake_duckdb_path)
     parser.add_argument("--count", type=int, default=settings.data_lake_export_count)
+    parser.add_argument(
+        "--full-refresh",
+        action="store_true",
+        help="ignore saved Redis Stream IDs and export from the beginning",
+    )
     args = parser.parse_args()
 
     try:
         exported = asyncio.run(
-            run_export(root=Path(args.root), db_path=Path(args.duckdb), count=args.count)
+            run_export(
+                root=Path(args.root),
+                db_path=Path(args.duckdb),
+                count=args.count,
+                incremental=not args.full_refresh,
+            )
         )
     except ValidationError as exc:
         print(f"schema validation failed: {exc}")

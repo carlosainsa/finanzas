@@ -109,6 +109,66 @@ def export_backtest_report(db_path: Path, output_dir: Path) -> dict[str, int]:
     return counts
 
 
+def create_pre_live_gate_report(db_path: Path) -> dict[str, object]:
+    create_backtest_views(db_path)
+    with duckdb.connect(str(db_path)) as conn:
+        ensure_optional_game_theory_view(conn, "adverse_selection_by_strategy")
+        summary = conn.execute(
+            """
+            select
+                count(*) as signals,
+                coalesce(sum(case when filled_size > 0 then 1 else 0 end), 0) as filled_signals,
+                coalesce(avg(fill_rate), 0) as fill_rate,
+                avg(slippage) as avg_slippage,
+                avg(realized_edge_after_slippage) as avg_realized_edge_after_slippage,
+                coalesce(sum(case when error is not null then 1 else 0 end), 0) as error_count
+            from backtest_trades
+            """
+        ).fetchone()
+        adverse = conn.execute(
+            """
+            select avg(adverse_30s_rate)
+            from adverse_selection_by_strategy
+            """
+        ).fetchone()
+
+    signals = int(summary[0]) if summary else 0
+    filled_signals = int(summary[1]) if summary else 0
+    fill_rate = float(summary[2]) if summary and summary[2] is not None else 0.0
+    avg_slippage = float(summary[3]) if summary and summary[3] is not None else None
+    realized_edge = float(summary[4]) if summary and summary[4] is not None else None
+    error_count = int(summary[5]) if summary else 0
+    adverse_30s_rate = float(adverse[0]) if adverse and adverse[0] is not None else None
+    checks = {
+        "has_signals": signals > 0,
+        "has_fills": filled_signals > 0,
+        "positive_realized_edge_after_slippage": realized_edge is not None
+        and realized_edge > 0,
+        "acceptable_error_rate": signals > 0 and error_count / signals <= 0.01,
+        "no_persistent_adverse_selection": adverse_30s_rate is None or adverse_30s_rate < 0.50,
+    }
+    return {
+        "signals": signals,
+        "filled_signals": filled_signals,
+        "fill_rate": fill_rate,
+        "avg_slippage": avg_slippage,
+        "avg_realized_edge_after_slippage": realized_edge,
+        "adverse_30s_rate": adverse_30s_rate,
+        "error_count": error_count,
+        "checks": checks,
+        "passed": all(checks.values()),
+    }
+
+
+def export_pre_live_gate_report(db_path: Path, output_dir: Path) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report = create_pre_live_gate_report(db_path)
+    (output_dir / "pre_live_gate.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return report
+
+
 def duckdb_literal(value: str) -> str:
     return value.replace("'", "''")
 
@@ -138,16 +198,51 @@ def ensure_optional_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> N
     )
 
 
+def ensure_optional_game_theory_view(conn: duckdb.DuckDBPyConnection, table_name: str) -> None:
+    exists = conn.execute(
+        """
+        select count(*)
+        from information_schema.tables
+        where table_name = ?
+        """,
+        [table_name],
+    ).fetchone()
+    if exists and int(exists[0]) > 0:
+        return
+    conn.execute(
+        """
+        create or replace view adverse_selection_by_strategy as
+        select
+            cast(null as varchar) as strategy,
+            cast(null as varchar) as market_id,
+            cast(null as varchar) as side,
+            cast(0 as bigint) as filled_events,
+            cast(null as double) as avg_pnl_5s,
+            cast(null as double) as avg_pnl_30s,
+            cast(null as double) as avg_pnl_300s,
+            cast(0 as bigint) as adverse_30s_count,
+            cast(null as double) as adverse_30s_rate
+        where false
+        """
+    )
+
+
 def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(prog="research-backtest")
     parser.add_argument("--duckdb", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--pre-live-gate", action="store_true")
     args = parser.parse_args()
 
     counts = export_backtest_report(Path(args.duckdb), Path(args.output_dir))
-    print(json.dumps(counts, indent=2, sort_keys=True))
+    output: dict[str, object] = {"exports": counts}
+    if args.pre_live_gate:
+        output["pre_live_gate"] = export_pre_live_gate_report(
+            Path(args.duckdb), Path(args.output_dir)
+        )
+    print(json.dumps(output, indent=2, sort_keys=True))
     return 0
 
 

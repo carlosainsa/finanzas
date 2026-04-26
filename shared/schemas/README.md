@@ -51,7 +51,8 @@ Research data lake:
 
 | Dataset | Source |
 | --- | --- |
-| `orderbooks` | `orderbook:stream` |
+| `orderbook_snapshots` | `orderbook:stream` |
+| `orderbook_levels` | derived from `orderbook:stream` |
 | `signals` | `signals:stream` |
 | `execution_reports` | `execution:reports:stream` |
 | `orderbook_deadletter` | `orderbook:deadletter` |

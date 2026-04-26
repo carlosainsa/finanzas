@@ -72,6 +72,14 @@ impl TrackedOrder {
             duplicate_trade: false,
         }
     }
+
+    fn current_fill_state(&self, duplicate_trade: bool) -> OrderFillState {
+        OrderFillState {
+            filled_size: self.filled_size,
+            remaining_size: self.remaining_size,
+            duplicate_trade,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -464,6 +472,23 @@ async fn reconcile_order_event(
                 &json!({"confirmed_by": "user_ws", "event": payload}),
             )
             .await?;
+        if let Err(err) = store
+            .record_reconciliation_event(
+                Some(&event.id),
+                Some(&order.signal_id),
+                "cancel_confirmed_user_ws",
+                "info",
+                &json!({
+                    "confirmed_by": "user_ws",
+                    "market_id": event.market,
+                    "asset_id": event.asset_id,
+                    "size_matched": event.size_matched
+                }),
+            )
+            .await
+        {
+            warn!(order_id = %event.id, error = %err, "Could not persist reconciliation event");
+        }
     }
 
     Ok(Some(ExecutionReport {
@@ -504,11 +529,16 @@ async fn reconcile_trade_event(
     };
     let fill_price = parse_decimal(&event.price)?;
     let fill_size = parse_trade_size(&event, &order.order_id)?;
+    let persisted_duplicate = store.trade_exists(&event.id).await?;
     let divergence = fill_divergence(&order, fill_price, fill_size);
-    let fill_state = order_tracker
-        .apply_trade_fill(&order_id, &event.id, fill_size)
-        .await
-        .unwrap_or_else(|| order.fill_state_after(fill_size));
+    let fill_state = if persisted_duplicate {
+        order.current_fill_state(true)
+    } else {
+        order_tracker
+            .apply_trade_fill(&order_id, &event.id, fill_size)
+            .await
+            .unwrap_or_else(|| order.fill_state_after(fill_size))
+    };
     let status = map_trade_status(&event.status, fill_state.remaining_size);
     let poll_divergence = match clob {
         Some(clob) => poll_order_fill_divergence(clob, &order_id, fill_state.filled_size).await,
@@ -529,6 +559,26 @@ async fn reconcile_trade_event(
                     "fill_price": fill_price,
                     "fill_size": fill_size,
                     "reason": "duplicate trade id ignored for cumulative fill accounting"
+                }),
+            )
+            .await
+        {
+            warn!(order_id = %order_id, trade_id = %event.id, error = %err, "Could not persist reconciliation event");
+        }
+    }
+    if !fill_state.duplicate_trade {
+        if let Err(err) = store
+            .record_reconciliation_event(
+                Some(&order_id),
+                Some(&order.signal_id),
+                "fill_confirmed_user_ws",
+                "info",
+                &json!({
+                    "trade_id": event.id,
+                    "fill_price": fill_price,
+                    "fill_size": fill_size,
+                    "cumulative_filled_size": fill_state.filled_size,
+                    "remaining_size": fill_state.remaining_size
                 }),
             )
             .await
@@ -981,6 +1031,30 @@ mod tests {
         assert_eq!(first.cumulative_filled_size, Some(4.0));
         assert_eq!(second.cumulative_filled_size, Some(4.0));
         assert_eq!(second.remaining_size, Some(6.0));
+    }
+
+    #[test]
+    fn restored_order_duplicate_fill_state_uses_persisted_amounts() {
+        let order = TrackedOrder::from_stored_order(
+            "order-1",
+            StoredOrder {
+                order_id: "order-1".to_owned(),
+                signal_id: "signal-1".to_owned(),
+                market_id: "0xmarket".to_owned(),
+                asset_id: "asset-1".to_owned(),
+                side: Some("BUY".to_owned()),
+                limit_price: Some(0.57),
+                requested_size: Some(10.0),
+                filled_size: 4.0,
+                remaining_size: Some(6.0),
+            },
+        );
+
+        let state = order.current_fill_state(true);
+
+        assert!(state.duplicate_trade);
+        assert_eq!(state.filled_size, 4.0);
+        assert_eq!(state.remaining_size, 6.0);
     }
 
     #[tokio::test]
