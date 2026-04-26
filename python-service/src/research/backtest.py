@@ -8,6 +8,7 @@ def create_backtest_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_optional_execution_reports_view(conn)
         ensure_optional_synthetic_execution_reports_view(conn)
+        create_observed_execution_reports_view(conn)
         create_canonical_execution_reports_view(conn)
         conn.execute(
             """
@@ -106,6 +107,7 @@ def create_backtest_views(db_path: Path) -> None:
             group by strategy, model_version, data_version, feature_version, market_id, side
             """
         )
+        create_observed_vs_synthetic_fill_views(conn)
 
 
 def export_backtest_report(db_path: Path, output_dir: Path) -> dict[str, int]:
@@ -114,6 +116,10 @@ def export_backtest_report(db_path: Path, output_dir: Path) -> dict[str, int]:
     outputs = {
         "backtest_trades": output_dir / "backtest_trades.parquet",
         "backtest_summary": output_dir / "backtest_summary.parquet",
+        "observed_vs_synthetic_fills": output_dir
+        / "observed_vs_synthetic_fills.parquet",
+        "observed_vs_synthetic_fill_summary": output_dir
+        / "observed_vs_synthetic_fill_summary.parquet",
     }
     counts: dict[str, int] = {}
     with duckdb.connect(str(db_path)) as conn:
@@ -229,11 +235,11 @@ def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> 
                     signal_id,
                     order_id,
                     status,
-                    filled_price,
-                    filled_size,
-                    cumulative_filled_size,
-                    remaining_size,
-                    error,
+                    cast(filled_price as double) as filled_price,
+                    cast(filled_size as double) as filled_size,
+                    cast(cumulative_filled_size as double) as cumulative_filled_size,
+                    cast(remaining_size as double) as remaining_size,
+                    cast(error as varchar) as error,
                     event_timestamp_ms
                 from execution_reports
                 union all
@@ -242,16 +248,168 @@ def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> 
                     signal_id,
                     order_id,
                     status,
-                    filled_price,
-                    filled_size,
-                    cumulative_filled_size,
-                    remaining_size,
-                    error,
+                    cast(filled_price as double) as filled_price,
+                    cast(filled_size as double) as filled_size,
+                    cast(cumulative_filled_size as double) as cumulative_filled_size,
+                    cast(remaining_size as double) as remaining_size,
+                    cast(error as varchar) as error,
                     event_timestamp_ms
                 from synthetic_execution_reports
             )
         )
         where report_rank = 1
+        """
+    )
+
+
+def create_observed_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        create or replace view observed_execution_reports as
+        select
+            signal_id,
+            order_id,
+            status,
+            cast(filled_price as double) as filled_price,
+            cast(filled_size as double) as filled_size,
+            cast(cumulative_filled_size as double) as cumulative_filled_size,
+            cast(remaining_size as double) as remaining_size,
+            cast(error as varchar) as error,
+            event_timestamp_ms
+        from (
+            select
+                *,
+                row_number() over (
+                    partition by signal_id, coalesce(order_id, signal_id)
+                    order by
+                        case status
+                            when 'MATCHED' then 6
+                            when 'CANCELLED' then 5
+                            when 'ERROR' then 4
+                            when 'PARTIAL' then 3
+                            when 'UNMATCHED' then 2
+                            when 'DELAYED' then 1
+                            else 0
+                        end desc,
+                        event_timestamp_ms desc nulls last,
+                        coalesce(cumulative_filled_size, filled_size, 0) desc
+                ) as report_rank
+            from execution_reports
+        )
+        where report_rank = 1
+        """
+    )
+
+
+def create_observed_vs_synthetic_fill_views(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        create or replace view observed_vs_synthetic_fills as
+        select
+            s.signal_id,
+            s.market_id,
+            s.asset_id,
+            s.side,
+            coalesce(s.strategy, 'unknown') as strategy,
+            s.model_version::varchar as model_version,
+            s.data_version::varchar as data_version,
+            s.feature_version::varchar as feature_version,
+            s.price as signal_price,
+            s.size as signal_size,
+            s.confidence,
+            s.event_timestamp_ms as signal_timestamp_ms,
+            observed.order_id as observed_order_id,
+            observed.status as observed_status,
+            observed.filled_price as observed_filled_price,
+            observed.filled_size as observed_filled_size,
+            observed.cumulative_filled_size as observed_cumulative_filled_size,
+            observed.remaining_size as observed_remaining_size,
+            observed.event_timestamp_ms as observed_report_timestamp_ms,
+            synthetic.order_id as synthetic_order_id,
+            synthetic.status as synthetic_status,
+            synthetic.filled_price as synthetic_filled_price,
+            synthetic.filled_size as synthetic_filled_size,
+            synthetic.cumulative_filled_size as synthetic_cumulative_filled_size,
+            synthetic.remaining_size as synthetic_remaining_size,
+            synthetic.event_timestamp_ms as synthetic_report_timestamp_ms,
+            coalesce(observed.cumulative_filled_size, observed.filled_size, 0) as observed_fill_size,
+            coalesce(synthetic.cumulative_filled_size, synthetic.filled_size, 0) as synthetic_fill_size,
+            case
+                when s.size > 0 then coalesce(observed.cumulative_filled_size, observed.filled_size, 0) / s.size
+                else 0
+            end as observed_fill_rate,
+            case
+                when s.size > 0 then coalesce(synthetic.cumulative_filled_size, synthetic.filled_size, 0) / s.size
+                else 0
+            end as synthetic_fill_rate,
+            case
+                when observed.filled_price is null then null
+                when s.side = 'BUY' then observed.filled_price - s.price
+                when s.side = 'SELL' then s.price - observed.filled_price
+                else null
+            end as observed_slippage,
+            case
+                when synthetic.filled_price is null then null
+                when s.side = 'BUY' then synthetic.filled_price - s.price
+                when s.side = 'SELL' then s.price - synthetic.filled_price
+                else null
+            end as synthetic_slippage,
+            case
+                when observed.filled_price is null then null
+                when s.side = 'BUY' then s.confidence - s.price - (observed.filled_price - s.price)
+                when s.side = 'SELL' then s.price - (1 - s.confidence) - (s.price - observed.filled_price)
+                else null
+            end as observed_realized_edge_after_slippage,
+            case
+                when synthetic.filled_price is null then null
+                when s.side = 'BUY' then s.confidence - s.price - (synthetic.filled_price - s.price)
+                when s.side = 'SELL' then s.price - (1 - s.confidence) - (s.price - synthetic.filled_price)
+                else null
+            end as synthetic_realized_edge_after_slippage,
+            case
+                when coalesce(observed.cumulative_filled_size, observed.filled_size, 0) > 0
+                 and coalesce(synthetic.cumulative_filled_size, synthetic.filled_size, 0) > 0
+                    then 'both'
+                when coalesce(observed.cumulative_filled_size, observed.filled_size, 0) > 0
+                    then 'observed_only'
+                when coalesce(synthetic.cumulative_filled_size, synthetic.filled_size, 0) > 0
+                    then 'synthetic_only'
+                else 'neither'
+            end as fill_evidence
+        from signals s
+        left join observed_execution_reports observed on observed.signal_id = s.signal_id
+        left join synthetic_execution_reports synthetic on synthetic.signal_id = s.signal_id
+        where s.signal_id is not null
+        """
+    )
+    conn.execute(
+        """
+        create or replace view observed_vs_synthetic_fill_summary as
+        select
+            strategy,
+            coalesce(model_version, 'unknown') as model_version,
+            coalesce(data_version, 'unknown') as data_version,
+            coalesce(feature_version, 'unknown') as feature_version,
+            market_id,
+            side,
+            count(*) as signals,
+            sum(case when observed_fill_size > 0 then 1 else 0 end) as observed_filled_signals,
+            sum(case when synthetic_fill_size > 0 then 1 else 0 end) as synthetic_filled_signals,
+            avg(observed_fill_rate) as observed_fill_rate,
+            avg(synthetic_fill_rate) as synthetic_fill_rate,
+            avg(synthetic_fill_rate - observed_fill_rate) as fill_rate_delta,
+            avg(observed_slippage) as observed_avg_slippage,
+            avg(synthetic_slippage) as synthetic_avg_slippage,
+            avg(synthetic_slippage - observed_slippage) as slippage_delta,
+            avg(observed_realized_edge_after_slippage) as observed_avg_realized_edge_after_slippage,
+            avg(synthetic_realized_edge_after_slippage) as synthetic_avg_realized_edge_after_slippage,
+            avg(synthetic_realized_edge_after_slippage - observed_realized_edge_after_slippage) as realized_edge_delta,
+            sum(case when fill_evidence = 'both' then 1 else 0 end) as both_filled,
+            sum(case when fill_evidence = 'observed_only' then 1 else 0 end) as observed_only,
+            sum(case when fill_evidence = 'synthetic_only' then 1 else 0 end) as synthetic_only,
+            sum(case when fill_evidence = 'neither' then 1 else 0 end) as neither_filled
+        from observed_vs_synthetic_fills
+        group by strategy, model_version, data_version, feature_version, market_id, side
         """
     )
 

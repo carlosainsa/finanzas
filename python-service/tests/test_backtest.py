@@ -13,6 +13,7 @@ from src.research.backtest import (
     export_pre_live_gate_report,
 )
 from src.research.data_lake import create_duckdb_views, export_data_lake
+from src.research.synthetic_fills import create_synthetic_fill_views
 
 
 class FakeRedis:
@@ -183,9 +184,47 @@ def test_export_backtest_report_writes_outputs(tmp_path: Path) -> None:
 
     counts = export_backtest_report(db_path, output_dir)
 
-    assert counts == {"backtest_trades": 1, "backtest_summary": 1}
+    assert counts == {
+        "backtest_trades": 1,
+        "backtest_summary": 1,
+        "observed_vs_synthetic_fills": 1,
+        "observed_vs_synthetic_fill_summary": 1,
+    }
     assert (output_dir / "backtest_trades.parquet").exists()
     assert (output_dir / "backtest_summary.parquet").exists()
+    assert (output_dir / "observed_vs_synthetic_fill_summary.parquet").exists()
+
+
+def test_backtest_compares_observed_and_synthetic_fills(tmp_path: Path) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=True, with_touching_book=True)
+
+    create_synthetic_fill_views(db_path)
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select
+                signals,
+                observed_filled_signals,
+                synthetic_filled_signals,
+                observed_fill_rate,
+                synthetic_fill_rate,
+                fill_rate_delta,
+                both_filled
+            from observed_vs_synthetic_fill_summary
+            """
+        ).fetchone()
+
+    assert row == (
+        1,
+        1,
+        1,
+        pytest.approx(0.5),
+        pytest.approx(1.0),
+        pytest.approx(0.5),
+        1,
+    )
 
 
 def test_pre_live_gate_report_requires_positive_realized_edge(tmp_path: Path) -> None:
@@ -215,7 +254,9 @@ def test_export_pre_live_gate_report_writes_json(tmp_path: Path) -> None:
     assert (output_dir / "pre_live_gate.json").exists()
 
 
-def seed_research_db(tmp_path: Path, with_fill: bool) -> Path:
+def seed_research_db(
+    tmp_path: Path, with_fill: bool, with_touching_book: bool = False
+) -> Path:
     redis = FakeRedis()
     redis.add_payload(
         settings.signals_stream,
@@ -241,6 +282,17 @@ def seed_research_db(tmp_path: Path, with_fill: bool) -> Path:
                 "filled_price": 0.47,
                 "filled_size": 1.0,
                 "timestamp_ms": 1760000000010,
+            },
+        )
+    if with_touching_book:
+        redis.add_payload(
+            settings.orderbook_stream,
+            {
+                "market_id": "market-1",
+                "asset_id": "asset-1",
+                "bids": [{"price": 0.44, "size": 10.0}],
+                "asks": [{"price": 0.45, "size": 5.0}],
+                "timestamp_ms": 1760000000020,
             },
         )
 

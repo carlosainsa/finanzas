@@ -393,10 +393,10 @@ def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> 
             signal_id,
             order_id,
             status,
-            filled_price,
-            filled_size,
-            cumulative_filled_size,
-            remaining_size,
+            cast(filled_price as double) as filled_price,
+            cast(filled_size as double) as filled_size,
+            cast(cumulative_filled_size as double) as cumulative_filled_size,
+            cast(remaining_size as double) as remaining_size,
             cast(error as varchar) as error,
             event_timestamp_ms
         from (

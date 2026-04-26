@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::orderbook::{BookSide, BookSnapshot, Level, LocalOrderBooks, OrderBook, PriceChange};
 use crate::redis_client::StreamProducer;
@@ -42,9 +42,22 @@ struct PolymarketPriceChange {
 }
 
 pub async fn run(mut publisher: StreamProducer, url: String, asset_ids: Vec<String>) -> Result<()> {
+    loop {
+        if let Err(err) = run_market_ws_once(&mut publisher, &url, &asset_ids).await {
+            error!(error = %err, "Polymarket market WebSocket connection failed");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
+async fn run_market_ws_once(
+    publisher: &mut StreamProducer,
+    url: &str,
+    asset_ids: &[String],
+) -> Result<()> {
     info!("Connecting to Polymarket WebSocket: {}", url);
 
-    let (ws_stream, _) = connect_async(&url).await?;
+    let (ws_stream, _) = connect_async(url).await?;
     let (mut write, mut read) = ws_stream.split();
     let mut orderbooks = LocalOrderBooks::new();
 
@@ -81,6 +94,7 @@ pub async fn run(mut publisher: StreamProducer, url: String, asset_ids: Vec<Stri
         }
     }
 
+    warn!("Polymarket market WebSocket stream ended; reconnecting");
     Ok(())
 }
 

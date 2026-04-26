@@ -31,6 +31,7 @@ def create_promotion_views(
     db_path: Path, config: PromotionConfig = PromotionConfig()
 ) -> None:
     ensure_minimal_input_views(db_path)
+    drop_promotion_views(db_path)
     try:
         create_backtest_views(db_path)
     except duckdb.Error:
@@ -426,6 +427,9 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
                 cast(null as varchar) as asset_id,
                 cast(null as varchar) as side,
                 cast(null as varchar) as strategy,
+                cast(null as varchar) as model_version,
+                cast(null as varchar) as data_version,
+                cast(null as varchar) as feature_version,
                 cast(null as bigint) as signal_timestamp_ms,
                 cast(null as double) as signal_price,
                 cast(null as double) as signal_size,
@@ -443,6 +447,19 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
             where false
             """
         )
+
+
+def drop_promotion_views(db_path: Path) -> None:
+    with duckdb.connect(str(db_path)) as conn:
+        for view_name in (
+            "pre_live_promotion_checks",
+            "pre_live_metrics",
+            "pre_live_reconciliation_quality",
+            "pre_live_stale_data",
+            "pre_live_drawdown",
+            "pre_live_equity_curve",
+        ):
+            conn.execute(f"drop view if exists {view_name}")
 
 
 def ensure_empty_game_theory_views(db_path: Path) -> None:

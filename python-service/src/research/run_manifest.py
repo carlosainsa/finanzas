@@ -135,6 +135,12 @@ def manifest_counts(
         "synthetic_execution_reports": synthetic_counts.get("synthetic_execution_reports"),
         "backtest_trades": backtest_exports.get("backtest_trades"),
         "backtest_summary": backtest_exports.get("backtest_summary"),
+        "observed_vs_synthetic_fills": backtest_exports.get(
+            "observed_vs_synthetic_fills"
+        ),
+        "observed_vs_synthetic_fill_summary": backtest_exports.get(
+            "observed_vs_synthetic_fill_summary"
+        ),
         "pre_live_gate_signals": typed_dict(backtest.get("pre_live_gate")).get("signals"),
     }
 
@@ -214,6 +220,10 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "synthetic_execution_reports": counts.get("synthetic_execution_reports"),
         "backtest_trades": counts.get("backtest_trades"),
         "backtest_summary": counts.get("backtest_summary"),
+        "observed_vs_synthetic_fills": counts.get("observed_vs_synthetic_fills"),
+        "observed_vs_synthetic_fill_summary": counts.get(
+            "observed_vs_synthetic_fill_summary"
+        ),
         "pre_live_gate_signals": counts.get("pre_live_gate_signals"),
         "promotion_report_version": versions.get("promotion_report"),
         "advisory_report_version": versions.get("advisory_report"),

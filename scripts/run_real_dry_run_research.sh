@@ -79,6 +79,42 @@ cleanup() {
 }
 trap cleanup EXIT
 
+tail_service_logs() {
+  for name in rust-engine consumer api; do
+    log_path="$LOG_DIR/${name}.log"
+    if [[ -f "$log_path" ]]; then
+      echo "--- ${name}.log tail ---" >&2
+      tail -n 80 "$log_path" >&2 || true
+    fi
+  done
+}
+
+assert_services_running() {
+  local pid
+  for pid in "${pids[@]:-}"; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "Service process exited before dry-run capture completed: pid=$pid" >&2
+      tail_service_logs
+      exit 70
+    fi
+  done
+}
+
+capture_with_service_monitoring() {
+  local remaining="$REAL_DRY_RUN_SECONDS"
+  local interval
+  while (( remaining > 0 )); do
+    assert_services_running
+    interval=5
+    if (( remaining < interval )); then
+      interval="$remaining"
+    fi
+    sleep "$interval"
+    remaining=$((remaining - interval))
+  done
+  assert_services_running
+}
+
 cd "$ROOT_DIR"
 docker compose -f docker-compose.test.yml up -d --wait
 
@@ -156,7 +192,7 @@ while time.monotonic() < deadline:
 raise SystemExit("operator API did not become ready")
 PY
 
-sleep "$REAL_DRY_RUN_SECONDS"
+capture_with_service_monitoring
 
 PYTHONPATH=python-service python3 - <<'PY'
 import asyncio

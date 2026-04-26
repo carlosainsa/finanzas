@@ -170,6 +170,7 @@ Before live promotion, run:
 
 - data lake export;
 - synthetic offline fills for dry-run samples without observed fills;
+- observed-vs-synthetic fill comparison to measure synthetic fill optimism;
 - backtest report from [data_lake_plan.md](data_lake_plan.md);
 - game-theory report from [game_theory_plan.md](game_theory_plan.md);
 - walk-forward split by date;
@@ -194,6 +195,12 @@ Synthetic fills are implemented as `src.research.synthetic_fills`. They are
 research-only estimates from future orderbook snapshots and are useful when
 short `dry_run` samples have no observed fills. They are not exchange fills and
 must not be used as live execution evidence.
+
+Backtest exports include `observed_vs_synthetic_fill_summary`. This report is
+the guardrail for synthetic fills: it compares observed fills, synthetic fills,
+fill-rate deltas, slippage deltas, and realized-edge deltas for the same
+signals. Synthetic fills should remain a baseline, not a promotion signal, until
+that comparison is stable on real dry-run samples.
 
 The offline agent advisory report is implemented as `src.research.agent_advisory`.
 It runs deterministic reviewers for edge, execution quality, adverse selection,

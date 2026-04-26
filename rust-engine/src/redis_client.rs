@@ -74,11 +74,16 @@ impl StreamConsumer {
             let opts = StreamReadOptions::default()
                 .group(&self.group, &self.consumer)
                 .count(1)
-                .block(5_000);
-            let reply: StreamReadReply = self
+                .block(1_000);
+            let reply: StreamReadReply = match self
                 .conn
                 .xread_options(&[self.stream.as_str()], &[">"], &opts)
-                .await?;
+                .await
+            {
+                Ok(reply) => reply,
+                Err(err) if is_stream_read_timeout(&err) => continue,
+                Err(err) => return Err(err.into()),
+            };
 
             let Some(key) = reply.keys.first() else {
                 continue;
@@ -102,6 +107,10 @@ impl StreamConsumer {
             .await?;
         Ok(())
     }
+}
+
+fn is_stream_read_timeout(err: &redis::RedisError) -> bool {
+    err.to_string().to_ascii_lowercase().contains("timed out")
 }
 
 async fn ensure_group(conn: &mut ConnectionManager, stream: &str, group: &str) -> Result<()> {
