@@ -189,10 +189,14 @@ def test_export_backtest_report_writes_outputs(tmp_path: Path) -> None:
         "backtest_summary": 1,
         "observed_vs_synthetic_fills": 1,
         "observed_vs_synthetic_fill_summary": 1,
+        "unfilled_signal_reasons": 0,
+        "unfilled_reason_summary": 0,
     }
     assert (output_dir / "backtest_trades.parquet").exists()
     assert (output_dir / "backtest_summary.parquet").exists()
     assert (output_dir / "observed_vs_synthetic_fill_summary.parquet").exists()
+    assert (output_dir / "unfilled_signal_reasons.parquet").exists()
+    assert (output_dir / "unfilled_reason_summary.parquet").exists()
 
 
 def test_backtest_compares_observed_and_synthetic_fills(tmp_path: Path) -> None:
@@ -227,6 +231,97 @@ def test_backtest_compares_observed_and_synthetic_fills(tmp_path: Path) -> None:
     )
 
 
+def test_backtest_classifies_unfilled_with_synthetic_fill_available(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=False, with_touching_book=True)
+
+    create_synthetic_fill_views(db_path)
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select unfilled_reason, market_evidence_reason, unfilled_signals
+            from unfilled_reason_summary
+            """
+        ).fetchone()
+
+    assert row == (
+        "no_observed_report_but_synthetic_fill",
+        "synthetic_fill_available",
+        1,
+    )
+
+
+def test_backtest_classifies_unfilled_when_future_book_never_touches_limit(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_research_db(
+        tmp_path,
+        with_fill=False,
+        with_touching_book=True,
+        touch_limit=False,
+    )
+
+    create_synthetic_fill_views(db_path)
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select unfilled_reason, market_evidence_reason, unfilled_signals
+            from unfilled_reason_summary
+            """
+        ).fetchone()
+
+    assert row == (
+        "no_observed_report_no_synthetic_fill",
+        "future_book_never_touched_limit",
+        1,
+    )
+
+
+def test_backtest_classifies_unfilled_when_no_future_orderbook(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=False)
+
+    create_synthetic_fill_views(db_path)
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select unfilled_reason, market_evidence_reason, unfilled_signals
+            from unfilled_reason_summary
+            """
+        ).fetchone()
+
+    assert row == (
+        "no_observed_report_no_synthetic_fill",
+        "no_future_orderbook_snapshot",
+        1,
+    )
+
+
+def test_backtest_classifies_observed_unmatched(tmp_path: Path) -> None:
+    db_path = seed_research_db(tmp_path, with_fill=False, report_status="UNMATCHED")
+
+    create_synthetic_fill_views(db_path)
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select unfilled_reason, market_evidence_reason, observed_unmatched_signals
+            from unfilled_reason_summary
+            """
+        ).fetchone()
+
+    assert row == ("observed_unmatched", "no_future_orderbook_snapshot", 1)
+
+
 def test_pre_live_gate_report_requires_positive_realized_edge(tmp_path: Path) -> None:
     db_path = seed_research_db(tmp_path, with_fill=True)
 
@@ -255,7 +350,11 @@ def test_export_pre_live_gate_report_writes_json(tmp_path: Path) -> None:
 
 
 def seed_research_db(
-    tmp_path: Path, with_fill: bool, with_touching_book: bool = False
+    tmp_path: Path,
+    with_fill: bool,
+    with_touching_book: bool = False,
+    touch_limit: bool = True,
+    report_status: str | None = None,
 ) -> Path:
     redis = FakeRedis()
     redis.add_payload(
@@ -272,15 +371,19 @@ def seed_research_db(
             "strategy": "test-strategy",
         },
     )
-    if with_fill:
+    if with_fill or report_status is not None:
+        status = report_status or "PARTIAL"
+        filled_size = 1.0 if with_fill else 0.0
         redis.add_payload(
             settings.execution_reports_stream,
             {
                 "signal_id": "signal-1",
                 "order_id": "order-1",
-                "status": "PARTIAL",
-                "filled_price": 0.47,
-                "filled_size": 1.0,
+                "status": status,
+                "filled_price": 0.47 if with_fill else None,
+                "filled_size": filled_size,
+                "cumulative_filled_size": filled_size,
+                "remaining_size": 2.0 - filled_size,
                 "timestamp_ms": 1760000000010,
             },
         )
@@ -291,7 +394,7 @@ def seed_research_db(
                 "market_id": "market-1",
                 "asset_id": "asset-1",
                 "bids": [{"price": 0.44, "size": 10.0}],
-                "asks": [{"price": 0.45, "size": 5.0}],
+                "asks": [{"price": 0.45 if touch_limit else 0.46, "size": 5.0}],
                 "timestamp_ms": 1760000000020,
             },
         )

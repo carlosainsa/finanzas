@@ -91,6 +91,8 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["backtest_trades"] == 4
     assert flat["observed_vs_synthetic_fills"] == 4
     assert flat["observed_vs_synthetic_fill_summary"] == 1
+    assert flat["unfilled_signal_reasons"] == 2
+    assert flat["unfilled_reason_summary"] == 1
     assert flat["pre_live_gate_signals"] == 4
     assert flat["synthetic_execution_reports"] == 3
     assert flat["synthetic_fill_model_version"] == "conservative_orderbook_fill_v1"
@@ -120,6 +122,8 @@ def seed_report_root(report_root: Path) -> Path:
                 "backtest_summary": 1,
                 "observed_vs_synthetic_fills": 4,
                 "observed_vs_synthetic_fill_summary": 1,
+                "unfilled_signal_reasons": 2,
+                "unfilled_reason_summary": 1,
             },
         },
     )

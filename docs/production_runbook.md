@@ -86,6 +86,11 @@ runs the research loop. Promotion gate failures are expected for short samples;
 the infrastructure success criteria are populated Redis Streams, Parquet/DuckDB
 exports, `research_summary.json`, and `research_manifest.json`.
 
+In dry-run mode, Rust simulates fills from the normalized market orderbook when
+the opposite best level touches the submitted limit price. These execution
+reports remain simulation artifacts, but they exercise the same report and
+state-store paths as live reconciliation.
+
 For a longer research-quality run that does not mix with the default data lake:
 
 ```bash
@@ -95,6 +100,8 @@ REAL_DRY_RUN_SECONDS=900 scripts/run_real_dry_run_research.sh
 Real dry-run research is isolated by default under `.tmp/real-dry-run-data-lake/<run_id>/`.
 Set `REAL_DRY_RUN_ISOLATED=0` only when intentionally writing into the shared
 `data_lake/` root.
+Review `unfilled_reason_summary` and `observed_vs_synthetic_fill_summary`
+before changing predictor thresholds or considering live mode.
 
 ## Startup
 

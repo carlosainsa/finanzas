@@ -171,6 +171,7 @@ Before live promotion, run:
 - data lake export;
 - synthetic offline fills for dry-run samples without observed fills;
 - observed-vs-synthetic fill comparison to measure synthetic fill optimism;
+- unfilled reason summary to separate model, market-data, and execution causes;
 - backtest report from [data_lake_plan.md](data_lake_plan.md);
 - game-theory report from [game_theory_plan.md](game_theory_plan.md);
 - walk-forward split by date;
@@ -201,6 +202,12 @@ the guardrail for synthetic fills: it compares observed fills, synthetic fills,
 fill-rate deltas, slippage deltas, and realized-edge deltas for the same
 signals. Synthetic fills should remain a baseline, not a promotion signal, until
 that comparison is stable on real dry-run samples.
+
+Backtest also exports `unfilled_reason_summary`. Use it before changing a model:
+if most misses are `future_book_never_touched_limit`, the issue is quote
+placement; if they are `observed_delayed` or `observed_unmatched`, the issue is
+execution/reconciliation behavior; if synthetic fills are available without
+observed fills, dry-run/live execution simulation needs review.
 
 The offline agent advisory report is implemented as `src.research.agent_advisory`.
 It runs deterministic reviewers for edge, execution quality, adverse selection,

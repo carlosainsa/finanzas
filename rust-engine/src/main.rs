@@ -6,6 +6,7 @@ mod clob_client;
 mod config;
 mod control;
 mod executor;
+mod market_data;
 mod metrics;
 mod orderbook;
 mod reconciliation;
@@ -26,6 +27,7 @@ async fn main() -> Result<()> {
 
     let config = config::Config::from_env()?;
     let order_tracker = reconciliation::OrderTracker::new();
+    let market_data = market_data::MarketDataCache::new();
     let reconciliation_config = config.clone();
 
     let ws_publisher = redis_client::StreamProducer::new(&config.redis_url).await?;
@@ -60,13 +62,15 @@ async fn main() -> Result<()> {
             reconciliation::run(
                 reconciliation_publisher,
                 reconciliation_config,
-                order_tracker.clone()
+                order_tracker.clone(),
+                market_data.clone()
             ),
         )?;
     } else {
         tokio::try_join!(
             ws_client::run(
                 ws_publisher,
+                market_data.clone(),
                 config.polymarket_ws_url.clone(),
                 config.market_asset_ids.clone()
             ),
@@ -80,7 +84,8 @@ async fn main() -> Result<()> {
             reconciliation::run(
                 reconciliation_publisher,
                 reconciliation_config,
-                order_tracker.clone()
+                order_tracker.clone(),
+                market_data.clone()
             ),
         )?;
     }

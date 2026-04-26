@@ -8,6 +8,7 @@ def create_backtest_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_optional_execution_reports_view(conn)
         ensure_optional_synthetic_execution_reports_view(conn)
+        ensure_optional_orderbook_snapshots_view(conn)
         create_observed_execution_reports_view(conn)
         create_canonical_execution_reports_view(conn)
         conn.execute(
@@ -120,6 +121,8 @@ def export_backtest_report(db_path: Path, output_dir: Path) -> dict[str, int]:
         / "observed_vs_synthetic_fills.parquet",
         "observed_vs_synthetic_fill_summary": output_dir
         / "observed_vs_synthetic_fill_summary.parquet",
+        "unfilled_signal_reasons": output_dir / "unfilled_signal_reasons.parquet",
+        "unfilled_reason_summary": output_dir / "unfilled_reason_summary.parquet",
     }
     counts: dict[str, int] = {}
     with duckdb.connect(str(db_path)) as conn:
@@ -324,6 +327,7 @@ def create_observed_vs_synthetic_fill_views(conn: duckdb.DuckDBPyConnection) -> 
             observed.filled_size as observed_filled_size,
             observed.cumulative_filled_size as observed_cumulative_filled_size,
             observed.remaining_size as observed_remaining_size,
+            observed.error as observed_error,
             observed.event_timestamp_ms as observed_report_timestamp_ms,
             synthetic.order_id as synthetic_order_id,
             synthetic.status as synthetic_status,
@@ -412,6 +416,142 @@ def create_observed_vs_synthetic_fill_views(conn: duckdb.DuckDBPyConnection) -> 
         group by strategy, model_version, data_version, feature_version, market_id, side
         """
     )
+    create_unfilled_reason_views(conn)
+
+
+def create_unfilled_reason_views(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        create or replace view unfilled_signal_reasons as
+        select
+            *,
+            case
+                when observed_status = 'ERROR' then 'observed_error'
+                when observed_status = 'CANCELLED' then 'observed_cancelled'
+                when observed_status = 'UNMATCHED' then 'observed_unmatched'
+                when observed_status = 'DELAYED' then 'observed_delayed'
+                when observed_status = 'PARTIAL' and observed_fill_size = 0 then 'observed_zero_partial'
+                when observed_status is null and synthetic_fill_size > 0 then 'no_observed_report_but_synthetic_fill'
+                when observed_status is null and synthetic_fill_size <= 0 then 'no_observed_report_no_synthetic_fill'
+                else 'observed_unfilled_other'
+            end as unfilled_reason,
+            case
+                when signal_timestamp_ms is null then 'missing_signal_timestamp'
+                when signal_price is null or signal_size is null then 'missing_signal_price_or_size'
+                when side not in ('BUY', 'SELL') then 'unsupported_side'
+                when future_book_snapshots = 0 then 'no_future_orderbook_snapshot'
+                when synthetic_fill_size > 0 then 'synthetic_fill_available'
+                when synthetic_fill_size <= 0 and future_book_snapshots > 0 then 'future_book_never_touched_limit'
+                else 'unknown'
+            end as market_evidence_reason,
+            observed_status is not null as had_observed_report,
+            synthetic_fill_size > 0 as had_synthetic_fill,
+            case
+                when first_future_book_timestamp_ms is not null
+                 and signal_timestamp_ms is not null
+                    then first_future_book_timestamp_ms - signal_timestamp_ms
+                else null
+            end as ms_to_first_future_book,
+            case
+                when synthetic_report_timestamp_ms is not null
+                 and signal_timestamp_ms is not null
+                    then synthetic_report_timestamp_ms - signal_timestamp_ms
+                else null
+            end as ms_to_synthetic_touch
+        from (
+            select
+                fills.*,
+                (
+                    select count(*)
+                    from orderbook_snapshots book
+                    where book.market_id = fills.market_id
+                      and book.asset_id = fills.asset_id
+                      and book.event_timestamp_ms > fills.signal_timestamp_ms
+                      and book.event_timestamp_ms <= fills.signal_timestamp_ms + 300000
+                ) as future_book_snapshots,
+                (
+                    select min(book.event_timestamp_ms)
+                    from orderbook_snapshots book
+                    where book.market_id = fills.market_id
+                      and book.asset_id = fills.asset_id
+                      and book.event_timestamp_ms > fills.signal_timestamp_ms
+                      and book.event_timestamp_ms <= fills.signal_timestamp_ms + 300000
+                ) as first_future_book_timestamp_ms,
+                case
+                    when fills.side = 'BUY' then (
+                        select min(book.best_ask)
+                        from orderbook_snapshots book
+                        where book.market_id = fills.market_id
+                          and book.asset_id = fills.asset_id
+                          and book.event_timestamp_ms > fills.signal_timestamp_ms
+                          and book.event_timestamp_ms <= fills.signal_timestamp_ms + 300000
+                          and book.best_ask <= fills.signal_price
+                    )
+                    when fills.side = 'SELL' then (
+                        select max(book.best_bid)
+                        from orderbook_snapshots book
+                        where book.market_id = fills.market_id
+                          and book.asset_id = fills.asset_id
+                          and book.event_timestamp_ms > fills.signal_timestamp_ms
+                          and book.event_timestamp_ms <= fills.signal_timestamp_ms + 300000
+                          and book.best_bid >= fills.signal_price
+                    )
+                    else null
+                end as best_future_touch_price,
+                (
+                    select min(book.event_timestamp_ms)
+                    from orderbook_snapshots book
+                    where book.market_id = fills.market_id
+                      and book.asset_id = fills.asset_id
+                      and book.event_timestamp_ms > fills.signal_timestamp_ms
+                      and book.event_timestamp_ms <= fills.signal_timestamp_ms + 300000
+                      and (
+                        (fills.side = 'BUY' and book.best_ask <= fills.signal_price)
+                        or (fills.side = 'SELL' and book.best_bid >= fills.signal_price)
+                      )
+                ) as best_future_touch_timestamp_ms
+            from observed_vs_synthetic_fills fills
+            where observed_fill_size <= 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        create or replace view unfilled_reason_summary as
+        select
+            strategy,
+            coalesce(model_version, 'unknown') as model_version,
+            coalesce(data_version, 'unknown') as data_version,
+            coalesce(feature_version, 'unknown') as feature_version,
+            market_id,
+            side,
+            unfilled_reason,
+            market_evidence_reason,
+            count(*) as signals,
+            count(*) as unfilled_signals,
+            sum(case when had_synthetic_fill then 1 else 0 end) as synthetic_fill_available_signals,
+            sum(case when market_evidence_reason = 'no_future_orderbook_snapshot' then 1 else 0 end) as no_future_orderbook_snapshot_signals,
+            sum(case when market_evidence_reason = 'future_book_never_touched_limit' then 1 else 0 end) as future_book_never_touched_limit_signals,
+            sum(case when unfilled_reason = 'observed_error' then 1 else 0 end) as observed_error_signals,
+            sum(case when unfilled_reason = 'observed_cancelled' then 1 else 0 end) as observed_cancelled_signals,
+            sum(case when unfilled_reason = 'observed_unmatched' then 1 else 0 end) as observed_unmatched_signals,
+            sum(case when unfilled_reason = 'observed_delayed' then 1 else 0 end) as observed_delayed_signals,
+            avg(signal_size) as avg_signal_size,
+            avg(confidence) as avg_confidence,
+            avg(ms_to_first_future_book) as avg_ms_to_first_future_book,
+            avg(ms_to_synthetic_touch) as avg_ms_to_synthetic_touch
+        from unfilled_signal_reasons
+        group by
+            strategy,
+            model_version,
+            data_version,
+            feature_version,
+            market_id,
+            side,
+            unfilled_reason,
+            market_evidence_reason
+        """
+    )
 
 
 def ensure_optional_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> None:
@@ -468,6 +608,33 @@ def ensure_optional_synthetic_execution_reports_view(conn: duckdb.DuckDBPyConnec
             cast(null as double) as remaining_size,
             cast(null as varchar) as error,
             cast(null as bigint) as event_timestamp_ms
+        where false
+        """
+    )
+
+
+def ensure_optional_orderbook_snapshots_view(conn: duckdb.DuckDBPyConnection) -> None:
+    exists = conn.execute(
+        """
+        select count(*)
+        from information_schema.tables
+        where table_name = 'orderbook_snapshots'
+        """
+    ).fetchone()
+    if exists and int(exists[0]) > 0:
+        return
+    conn.execute(
+        """
+        create or replace view orderbook_snapshots as
+        select
+            cast(null as varchar) as market_id,
+            cast(null as varchar) as asset_id,
+            cast(null as bigint) as event_timestamp_ms,
+            cast(null as double) as best_bid,
+            cast(null as double) as best_ask,
+            cast(null as double) as spread,
+            cast(null as double) as bid_depth,
+            cast(null as double) as ask_depth
         where false
         """
     )

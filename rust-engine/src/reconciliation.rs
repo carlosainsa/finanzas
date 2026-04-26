@@ -15,6 +15,7 @@ use tracing::{error, info, warn};
 use crate::clob_client::AuthenticatedClob;
 use crate::config::{Config, ExecutionMode};
 use crate::executor::{ExecutionReport, ExecutionStatus, Side, TradeSignal};
+use crate::market_data::{DryRunFill, MarketDataCache};
 use crate::redis_client::StreamProducer;
 use crate::state_store::{StateStore, StoredOrder, TradeLifecycleUpdate};
 
@@ -37,6 +38,7 @@ pub(crate) struct TrackedOrder {
     seen_trade_ids: HashSet<String>,
     submitted_at_ms: u64,
     dry_run_reported: bool,
+    last_dry_run_book_timestamp_ms: Option<u64>,
 }
 
 impl TrackedOrder {
@@ -60,6 +62,7 @@ impl TrackedOrder {
             seen_trade_ids: HashSet::new(),
             submitted_at_ms: now_ms(),
             dry_run_reported: true,
+            last_dry_run_book_timestamp_ms: None,
         }
     }
 
@@ -113,6 +116,7 @@ impl OrderTracker {
             seen_trade_ids: HashSet::new(),
             submitted_at_ms,
             dry_run_reported: false,
+            last_dry_run_book_timestamp_ms: None,
         };
         self.inner
             .lock()
@@ -187,12 +191,73 @@ impl OrderTracker {
             })
             .collect()
     }
+
+    async fn dry_run_touched_orders(
+        &self,
+        market_data: &MarketDataCache,
+    ) -> Vec<(TrackedOrder, DryRunFill)> {
+        let orders: Vec<TrackedOrder> = self
+            .inner
+            .lock()
+            .await
+            .values()
+            .filter(|order| !order.dry_run_reported)
+            .cloned()
+            .collect();
+        let mut fills = Vec::new();
+        for order in orders {
+            let (Some(side), Some(limit_price)) = (order.side, order.limit_price) else {
+                continue;
+            };
+            let Some(fill) = market_data
+                .fill_for(&order.asset_id, side, limit_price, order.remaining_size)
+                .await
+            else {
+                continue;
+            };
+            if order
+                .last_dry_run_book_timestamp_ms
+                .is_some_and(|timestamp_ms| fill.timestamp_ms <= timestamp_ms)
+            {
+                continue;
+            }
+            let Some(filled_order) = self.apply_dry_run_fill(&order.order_id, fill).await else {
+                continue;
+            };
+            fills.push((filled_order, fill));
+        }
+        fills
+    }
+
+    async fn apply_dry_run_fill(&self, order_id: &str, fill: DryRunFill) -> Option<TrackedOrder> {
+        let mut inner = self.inner.lock().await;
+        let order = inner.get_mut(order_id)?;
+        if order
+            .last_dry_run_book_timestamp_ms
+            .is_some_and(|timestamp_ms| fill.timestamp_ms <= timestamp_ms)
+        {
+            return None;
+        }
+        let fill_size = fill.size.min(order.remaining_size).max(0.0);
+        if fill_size <= f64::EPSILON {
+            return None;
+        }
+        order.filled_size = (order.filled_size + fill_size).min(order.requested_size);
+        order.remaining_size = (order.requested_size - order.filled_size).max(0.0);
+        order.last_dry_run_book_timestamp_ms = Some(fill.timestamp_ms);
+        if order.remaining_size <= f64::EPSILON {
+            order.dry_run_reported = true;
+            return inner.remove(order_id);
+        }
+        Some(order.clone())
+    }
 }
 
 pub async fn run(
     mut publisher: StreamProducer,
     config: Config,
     order_tracker: OrderTracker,
+    market_data: MarketDataCache,
 ) -> Result<()> {
     let store = StateStore::connect(config.database_url.as_deref()).await?;
 
@@ -202,6 +267,7 @@ pub async fn run(
             &mut publisher,
             &store,
             order_tracker,
+            market_data,
             &config.execution_reports_stream,
             config.order_reconciliation_timeout_ms,
         )
@@ -240,12 +306,55 @@ async fn run_dry_run_reconciliation(
     publisher: &mut StreamProducer,
     store: &StateStore,
     order_tracker: OrderTracker,
+    market_data: MarketDataCache,
     execution_reports_stream: &str,
     timeout_ms: u64,
 ) -> Result<()> {
     let mut interval = time::interval(Duration::from_millis(250));
     loop {
         interval.tick().await;
+        for (order, fill) in order_tracker.dry_run_touched_orders(&market_data).await {
+            let status = if order.remaining_size <= f64::EPSILON {
+                ExecutionStatus::Matched
+            } else {
+                ExecutionStatus::Partial
+            };
+            let signal_id = order.signal_id.clone();
+            let order_id = order.order_id.clone();
+            let report = ExecutionReport {
+                signal_id: signal_id.clone(),
+                order_id: order_id.clone(),
+                status,
+                filled_price: Some(fill.price),
+                filled_size: Some(fill.size),
+                cumulative_filled_size: Some(order.filled_size),
+                remaining_size: Some(order.remaining_size),
+                error: None,
+                timestamp_ms: fill.timestamp_ms,
+            };
+            let payload = json!({
+                "event_type": "dry_run_orderbook_fill",
+                "source": "market_data_cache",
+                "fill_model": "touching_opposite_depth_v1",
+                "orderbook_timestamp_ms": fill.timestamp_ms,
+                "fill_price": fill.price,
+                "fill_size": fill.size,
+                "cumulative_filled_size": order.filled_size,
+                "remaining_size": order.remaining_size
+            });
+            store
+                .record_trade_lifecycle(TradeLifecycleUpdate {
+                    trade_id: &format!("dry-run-fill-{order_id}-{}", fill.timestamp_ms),
+                    order_id: &order_id,
+                    signal_id: &signal_id,
+                    status: execution_status_name(status),
+                    payload: &payload,
+                    fill_price: Some(fill.price),
+                    fill_size: Some(fill.size),
+                })
+                .await?;
+            publish_execution_report(publisher, store, execution_reports_stream, &report).await?;
+        }
         for order in order_tracker.dry_run_due(timeout_ms, now_ms()).await {
             let report = ExecutionReport {
                 signal_id: order.signal_id,
@@ -810,6 +919,7 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::executor::Side;
+    use crate::orderbook::{Level, OrderBook};
 
     fn signal() -> TradeSignal {
         TradeSignal {
@@ -1189,5 +1299,95 @@ mod tests {
 
         assert_eq!(tracker.dry_run_due(1, 10).await.len(), 1);
         assert!(tracker.dry_run_due(1, 10).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dry_run_buy_fill_matches_when_ask_touches_limit() {
+        let tracker = tracker().await;
+        let market_data = MarketDataCache::new();
+        market_data.update(orderbook_with_ask(0.57, 20.0)).await;
+
+        let fills = tracker.dry_run_touched_orders(&market_data).await;
+
+        assert_eq!(fills.len(), 1);
+        assert_eq!(fills[0].0.signal_id, "signal-1");
+        assert_eq!(fills[0].0.filled_size, 10.0);
+        assert_eq!(fills[0].0.remaining_size, 0.0);
+        assert_eq!(fills[0].1.price, 0.57);
+        assert_eq!(fills[0].1.size, 10.0);
+        assert!(tracker.get("order-1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dry_run_buy_fill_can_be_partial() {
+        let tracker = tracker().await;
+        let market_data = MarketDataCache::new();
+        market_data.update(orderbook_with_ask(0.57, 4.0)).await;
+
+        let fills = tracker.dry_run_touched_orders(&market_data).await;
+
+        assert_eq!(fills.len(), 1);
+        assert_eq!(fills[0].0.filled_size, 4.0);
+        assert_eq!(fills[0].0.remaining_size, 6.0);
+        assert!(tracker.get("order-1").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn dry_run_sell_fill_matches_when_bid_touches_limit() {
+        let mut sell_signal = signal();
+        sell_signal.side = Side::Sell;
+        sell_signal.price = 0.56;
+        let tracker = OrderTracker::new();
+        tracker
+            .track_submitted(&sell_signal, "order-1", now_ms())
+            .await;
+        let market_data = MarketDataCache::new();
+        market_data.update(orderbook_with_bid(0.56, 12.0)).await;
+
+        let fills = tracker.dry_run_touched_orders(&market_data).await;
+
+        assert_eq!(fills.len(), 1);
+        assert_eq!(fills[0].0.remaining_size, 0.0);
+        assert_eq!(fills[0].1.price, 0.56);
+    }
+
+    #[tokio::test]
+    async fn dry_run_ignores_unrelated_book() {
+        let tracker = tracker().await;
+        let market_data = MarketDataCache::new();
+        let mut book = orderbook_with_ask(0.57, 20.0);
+        book.asset_id = "other-asset".to_owned();
+        market_data.update(book).await;
+
+        assert!(tracker
+            .dry_run_touched_orders(&market_data)
+            .await
+            .is_empty());
+    }
+
+    fn orderbook_with_ask(price: f64, size: f64) -> OrderBook {
+        OrderBook {
+            market_id: "0xmarket".to_owned(),
+            asset_id: "asset-1".to_owned(),
+            bids: vec![Level {
+                price: 0.55,
+                size: 10.0,
+            }],
+            asks: vec![Level { price, size }],
+            timestamp_ms: 2_000,
+        }
+    }
+
+    fn orderbook_with_bid(price: f64, size: f64) -> OrderBook {
+        OrderBook {
+            market_id: "0xmarket".to_owned(),
+            asset_id: "asset-1".to_owned(),
+            bids: vec![Level { price, size }],
+            asks: vec![Level {
+                price: 0.58,
+                size: 10.0,
+            }],
+            timestamp_ms: 2_000,
+        }
     }
 }

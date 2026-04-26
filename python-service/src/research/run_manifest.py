@@ -141,6 +141,8 @@ def manifest_counts(
         "observed_vs_synthetic_fill_summary": backtest_exports.get(
             "observed_vs_synthetic_fill_summary"
         ),
+        "unfilled_signal_reasons": backtest_exports.get("unfilled_signal_reasons"),
+        "unfilled_reason_summary": backtest_exports.get("unfilled_reason_summary"),
         "pre_live_gate_signals": typed_dict(backtest.get("pre_live_gate")).get("signals"),
     }
 
@@ -224,6 +226,8 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "observed_vs_synthetic_fill_summary": counts.get(
             "observed_vs_synthetic_fill_summary"
         ),
+        "unfilled_signal_reasons": counts.get("unfilled_signal_reasons"),
+        "unfilled_reason_summary": counts.get("unfilled_reason_summary"),
         "pre_live_gate_signals": counts.get("pre_live_gate_signals"),
         "promotion_report_version": versions.get("promotion_report"),
         "advisory_report_version": versions.get("advisory_report"),
