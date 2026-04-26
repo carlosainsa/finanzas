@@ -97,6 +97,22 @@ PYTHONPATH=python-service python -m src.research.deterministic_baseline \
 
 It writes baseline features, filter decisions, synthetic baseline signals, and a summary for `deterministic_microstructure_baseline_v1`.
 
+Synthetic fills can be generated offline from future orderbook snapshots:
+
+```bash
+PYTHONPATH=python-service python -m src.research.synthetic_fills \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/synthetic_fills
+```
+
+This writes `synthetic_fills.json`, `synthetic_fill_candidates.parquet`,
+`synthetic_execution_reports.parquet`, and `synthetic_fill_summary.parquet`.
+The model `conservative_orderbook_fill_v1` only fills a BUY signal if a later
+best ask touches or improves the limit price, and only fills a SELL signal if a
+later best bid touches or improves the limit price. These reports are offline
+research artifacts; they are not published to Redis and do not affect live
+execution.
+
 Game-theory reports can also be generated from the same DuckDB database:
 
 ```bash
@@ -196,6 +212,21 @@ provided; waits for real orderbooks, signals, and dry-run execution reports;
 then runs the research loop. A short dry-run may fail promotion or calibration
 gates; that means the research data was collected but is not yet sufficient for
 live promotion.
+
+For longer isolated runs that should not mix with the default `data_lake/`, use:
+
+```bash
+REAL_DRY_RUN_SECONDS=900 \
+DISCOVERY_LIMIT=25 \
+PREDICTOR_MIN_SPREAD=0.001 \
+scripts/run_real_dry_run_research.sh
+```
+
+The script runs isolated by default and writes reports, DuckDB, manifests, and Parquet parts under
+`.tmp/real-dry-run-data-lake/<run_id>/`.
+Use `REAL_DRY_RUN_ISOLATED=0` only when deliberately exporting into the shared
+`data_lake/` root. Each run also writes `real_dry_run_evidence.json` with stream
+lengths, report status counts, paths, and capture settings.
 
 ## Notes
 

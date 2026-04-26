@@ -18,17 +18,32 @@ export OPERATOR_CONTROL_TOKEN="${OPERATOR_CONTROL_TOKEN:-real-dry-run-control}"
 export OPERATOR_API_URL="${OPERATOR_API_URL:-http://127.0.0.1:${TEST_OPERATOR_API_PORT}}"
 export DISABLE_MARKET_WS="${DISABLE_MARKET_WS:-false}"
 export ORDER_RECONCILIATION_TIMEOUT_MS="${ORDER_RECONCILIATION_TIMEOUT_MS:-1000}"
-export REAL_DRY_RUN_SECONDS="${REAL_DRY_RUN_SECONDS:-300}"
+export REAL_DRY_RUN_SECONDS="${REAL_DRY_RUN_SECONDS:-900}"
 export DISCOVERY_LIMIT="${DISCOVERY_LIMIT:-25}"
 export DISCOVERY_MIN_LIQUIDITY="${DISCOVERY_MIN_LIQUIDITY:-100}"
 export DISCOVERY_MIN_VOLUME="${DISCOVERY_MIN_VOLUME:-100}"
 export PREDICTOR_MIN_SPREAD="${PREDICTOR_MIN_SPREAD:-0.001}"
 export PREDICTOR_MIN_CONFIDENCE="${PREDICTOR_MIN_CONFIDENCE:-0.50}"
-export DATA_LAKE_EXPORT_COUNT="${DATA_LAKE_EXPORT_COUNT:-5000}"
+export DATA_LAKE_EXPORT_COUNT="${DATA_LAKE_EXPORT_COUNT:-50000}"
 export ALLOW_RESEARCH_GATE_FAILURE="${ALLOW_RESEARCH_GATE_FAILURE:-1}"
 export RESEARCH_RUN_SOURCE="${RESEARCH_RUN_SOURCE:-real_market_dry_run}"
 export REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-real-dry-run-$(date -u +%Y%m%dT%H%M%SZ)}"
-export RESEARCH_REPORT_ROOT="${RESEARCH_REPORT_ROOT:-${ROOT_DIR}/data_lake/reports/${REPORT_TIMESTAMP}}"
+REAL_DRY_RUN_ISOLATED="${REAL_DRY_RUN_ISOLATED:-${ISOLATED_REAL_DRY_RUN:-1}}"
+if [[ "$REAL_DRY_RUN_ISOLATED" == "1" || "$REAL_DRY_RUN_ISOLATED" == "true" ]]; then
+  export DATA_LAKE_ROOT="${DATA_LAKE_ROOT:-${ROOT_DIR}/.tmp/real-dry-run-data-lake/${REPORT_TIMESTAMP}}"
+fi
+export DATA_LAKE_ROOT="${DATA_LAKE_ROOT:-${ROOT_DIR}/data_lake}"
+export DATA_LAKE_DUCKDB="${DATA_LAKE_DUCKDB:-${DATA_LAKE_ROOT}/research.duckdb}"
+if [[ "$REAL_DRY_RUN_ISOLATED" == "1" || "$REAL_DRY_RUN_ISOLATED" == "true" ]]; then
+  if [[ -e "$DATA_LAKE_ROOT" && "${REAL_DRY_RUN_ALLOW_EXISTING_ROOT:-0}" != "1" ]]; then
+    echo "Refusing to reuse isolated DATA_LAKE_ROOT=$DATA_LAKE_ROOT. Set REAL_DRY_RUN_ALLOW_EXISTING_ROOT=1 to override." >&2
+    exit 64
+  fi
+  export RESEARCH_REPORT_ROOT="${RESEARCH_REPORT_ROOT:-${DATA_LAKE_ROOT}/reports/${REPORT_TIMESTAMP}}"
+  export RESEARCH_MANIFEST_ROOT="${RESEARCH_MANIFEST_ROOT:-${DATA_LAKE_ROOT}/research_runs}"
+else
+  export RESEARCH_REPORT_ROOT="${RESEARCH_REPORT_ROOT:-${DATA_LAKE_ROOT}/reports/${REPORT_TIMESTAMP}}"
+fi
 export RUST_LOG="${RUST_LOG:-info}"
 
 if [[ "$EXECUTION_MODE" != "dry_run" ]]; then
@@ -39,6 +54,18 @@ if [[ "$DISABLE_MARKET_WS" == "1" || "$DISABLE_MARKET_WS" == "true" ]]; then
   echo "Refusing to run: DISABLE_MARKET_WS must be false to collect real market data." >&2
   exit 64
 fi
+
+cat <<EOF
+real_dry_run_start
+run_id=$REPORT_TIMESTAMP
+isolated=$REAL_DRY_RUN_ISOLATED
+data_lake_root=$DATA_LAKE_ROOT
+duckdb=$DATA_LAKE_DUCKDB
+report_root=$RESEARCH_REPORT_ROOT
+manifest_root=${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}
+redis_url=$REDIS_URL
+capture_seconds=$REAL_DRY_RUN_SECONDS
+EOF
 
 pids=()
 cleanup() {
@@ -135,6 +162,8 @@ PYTHONPATH=python-service python3 - <<'PY'
 import asyncio
 import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 
 import redis.asyncio as redis
 
@@ -160,7 +189,31 @@ async def main() -> None:
         raise SystemExit("no dry-run execution report found")
     if not any(item.get("status") in {"DELAYED", "UNMATCHED", "MATCHED", "PARTIAL"} for item in parsed):
         raise SystemExit("no valid dry-run report status found")
-    print(json.dumps({"status": "ok", "stream_lengths": lengths}, sort_keys=True))
+    status_counts: dict[str, int] = {}
+    for item in parsed:
+        status = str(item.get("status", "UNKNOWN"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+    evidence = {
+        "status": "ok",
+        "run_id": os.environ["REPORT_TIMESTAMP"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "execution_mode": os.environ["EXECUTION_MODE"],
+        "disable_market_ws": os.environ["DISABLE_MARKET_WS"],
+        "capture_seconds": int(os.environ["REAL_DRY_RUN_SECONDS"]),
+        "market_asset_ids_count": len([item for item in os.environ.get("MARKET_ASSET_IDS", "").split(",") if item.strip()]),
+        "stream_lengths": lengths,
+        "recent_report_status_counts": status_counts,
+        "data_lake_root": os.environ["DATA_LAKE_ROOT"],
+        "research_report_root": os.environ["RESEARCH_REPORT_ROOT"],
+        "research_manifest_root": os.environ.get("RESEARCH_MANIFEST_ROOT"),
+    }
+    report_root = Path(os.environ["RESEARCH_REPORT_ROOT"])
+    report_root.mkdir(parents=True, exist_ok=True)
+    (report_root / "real_dry_run_evidence.json").write_text(
+        json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(evidence, sort_keys=True))
 
 asyncio.run(main())
 PY

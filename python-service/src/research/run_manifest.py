@@ -23,6 +23,7 @@ def create_run_manifest(
     promotion = read_json(report_root / "pre_live_promotion.json")
     advisory = read_json(report_root / "agent_advisory.json")
     baseline = read_json(report_root / "baseline.json")
+    synthetic_fills = read_json(report_root / "synthetic_fills.json")
     calibration = read_json(report_root / "calibration.json")
     backtest = read_json(report_root / "backtest.json")
 
@@ -47,9 +48,12 @@ def create_run_manifest(
             "baseline_model": baseline.get("model_version"),
             "baseline_data": baseline.get("data_version"),
             "baseline_feature": baseline.get("feature_version"),
+            "synthetic_fill_model": synthetic_fills.get("model_version"),
+            "synthetic_fill_data": synthetic_fills.get("data_version"),
+            "synthetic_fill_feature": synthetic_fills.get("feature_version"),
         },
         "metrics": manifest_metrics(promotion, advisory, calibration, backtest),
-        "counts": manifest_counts(summary, baseline, backtest),
+        "counts": manifest_counts(summary, baseline, synthetic_fills, backtest),
         "artifacts": artifact_metadata(report_root),
     }
     write_manifest(manifest_root, manifest)
@@ -114,16 +118,21 @@ def manifest_metrics(
 
 
 def manifest_counts(
-    summary: dict[str, object], baseline: dict[str, object], backtest: dict[str, object]
+    summary: dict[str, object],
+    baseline: dict[str, object],
+    synthetic_fills: dict[str, object],
+    backtest: dict[str, object],
 ) -> dict[str, object]:
     data_lake = typed_dict(summary.get("data_lake"))
     baseline_counts = typed_dict(baseline.get("counts"))
+    synthetic_counts = typed_dict(synthetic_fills.get("counts"))
     backtest_exports = typed_dict(summary.get("backtest_exports"))
     return {
         "orderbook_snapshots": data_lake.get("orderbook_snapshots"),
         "signals": data_lake.get("signals"),
         "execution_reports": data_lake.get("execution_reports"),
         "baseline_signals": baseline_counts.get("baseline_signals"),
+        "synthetic_execution_reports": synthetic_counts.get("synthetic_execution_reports"),
         "backtest_trades": backtest_exports.get("backtest_trades"),
         "backtest_summary": backtest_exports.get("backtest_summary"),
         "pre_live_gate_signals": typed_dict(backtest.get("pre_live_gate")).get("signals"),
@@ -140,6 +149,7 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "calibration.json",
         "pre_live_promotion.json",
         "agent_advisory.json",
+        "synthetic_fills.json",
     )
     artifacts: list[dict[str, object]] = []
     for name in names:
@@ -201,6 +211,7 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "signals": counts.get("signals"),
         "execution_reports": counts.get("execution_reports"),
         "baseline_signals": counts.get("baseline_signals"),
+        "synthetic_execution_reports": counts.get("synthetic_execution_reports"),
         "backtest_trades": counts.get("backtest_trades"),
         "backtest_summary": counts.get("backtest_summary"),
         "pre_live_gate_signals": counts.get("pre_live_gate_signals"),
@@ -212,6 +223,9 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "baseline_model_version": versions.get("baseline_model"),
         "baseline_data_version": versions.get("baseline_data"),
         "baseline_feature_version": versions.get("baseline_feature"),
+        "synthetic_fill_model_version": versions.get("synthetic_fill_model"),
+        "synthetic_fill_data_version": versions.get("synthetic_fill_data"),
+        "synthetic_fill_feature_version": versions.get("synthetic_fill_feature"),
         "artifact_count": artifact_count(manifest),
         "artifact_bytes_total": artifact_bytes_total(manifest),
     }

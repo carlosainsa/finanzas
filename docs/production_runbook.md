@@ -86,6 +86,16 @@ runs the research loop. Promotion gate failures are expected for short samples;
 the infrastructure success criteria are populated Redis Streams, Parquet/DuckDB
 exports, `research_summary.json`, and `research_manifest.json`.
 
+For a longer research-quality run that does not mix with the default data lake:
+
+```bash
+REAL_DRY_RUN_SECONDS=900 scripts/run_real_dry_run_research.sh
+```
+
+Real dry-run research is isolated by default under `.tmp/real-dry-run-data-lake/<run_id>/`.
+Set `REAL_DRY_RUN_ISOLATED=0` only when intentionally writing into the shared
+`data_lake/` root.
+
 ## Startup
 
 Run Redis and Postgres first, then start services:

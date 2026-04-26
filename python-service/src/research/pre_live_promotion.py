@@ -31,21 +31,18 @@ def create_promotion_views(
     db_path: Path, config: PromotionConfig = PromotionConfig()
 ) -> None:
     ensure_minimal_input_views(db_path)
-    if not has_relation(db_path, "backtest_trades"):
-        try:
-            create_backtest_views(db_path)
-        except duckdb.Error:
-            ensure_empty_backtest_views(db_path)
-    if not has_relation(db_path, "adverse_selection_by_strategy"):
-        try:
-            create_game_theory_views(db_path)
-        except duckdb.Error:
-            ensure_empty_game_theory_views(db_path)
-    if not has_relation(db_path, "walk_forward_metrics"):
-        try:
-            create_calibration_views(db_path)
-        except (ValueError, duckdb.Error):
-            ensure_empty_calibration_views(db_path)
+    try:
+        create_backtest_views(db_path)
+    except duckdb.Error:
+        ensure_empty_backtest_views(db_path)
+    try:
+        create_calibration_views(db_path)
+    except (ValueError, duckdb.Error):
+        ensure_empty_calibration_views(db_path)
+    try:
+        create_game_theory_views(db_path)
+    except duckdb.Error:
+        ensure_empty_game_theory_views(db_path)
     with duckdb.connect(str(db_path)) as conn:
         ensure_optional_views(conn)
         conn.execute(

@@ -169,6 +169,7 @@ External evidence can be scored and converted into features, but it should not d
 Before live promotion, run:
 
 - data lake export;
+- synthetic offline fills for dry-run samples without observed fills;
 - backtest report from [data_lake_plan.md](data_lake_plan.md);
 - game-theory report from [game_theory_plan.md](game_theory_plan.md);
 - walk-forward split by date;
@@ -188,6 +189,11 @@ Minimum promotion gates:
 The pre-live promotion report is implemented as `src.research.pre_live_promotion`.
 It combines backtest, game-theory, calibration, stale-data, drawdown, and
 reconciliation-divergence metrics into a single versioned offline gate.
+
+Synthetic fills are implemented as `src.research.synthetic_fills`. They are
+research-only estimates from future orderbook snapshots and are useful when
+short `dry_run` samples have no observed fills. They are not exchange fills and
+must not be used as live execution evidence.
 
 The offline agent advisory report is implemented as `src.research.agent_advisory`.
 It runs deterministic reviewers for edge, execution quality, adverse selection,

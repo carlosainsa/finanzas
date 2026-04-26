@@ -29,6 +29,9 @@ PYTHONPATH=python-service python3 "${DATA_LAKE_ARGS[@]}" > "$REPORT_ROOT/data_la
 PYTHONPATH=python-service python3 -m src.research.deterministic_baseline \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/baseline" > "$REPORT_ROOT/baseline.json"
+PYTHONPATH=python-service python3 -m src.research.synthetic_fills \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/synthetic_fills" > "$REPORT_ROOT/synthetic_fills.json"
 PYTHONPATH=python-service python3 -m src.research.backtest \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/backtest" \
@@ -64,12 +67,14 @@ backtest = read_json("backtest.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 advisory = read_json("agent_advisory.json")
+synthetic_fills = read_json("synthetic_fills.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
 advisory_summary = advisory.get("summary") if isinstance(advisory.get("summary"), dict) else {}
 summary = {
     "report_root": str(root),
     "data_lake": read_json("data_lake_export.json"),
     "baseline": read_json("baseline.json"),
+    "synthetic_fills": synthetic_fills,
     "backtest_exports": backtest.get("exports", {}),
     "game_theory_exports": read_json("game_theory.json"),
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,

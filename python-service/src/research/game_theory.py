@@ -397,7 +397,7 @@ def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> 
             filled_size,
             cumulative_filled_size,
             remaining_size,
-            error,
+            cast(error as varchar) as error,
             event_timestamp_ms
         from (
             select

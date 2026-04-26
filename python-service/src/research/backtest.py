@@ -7,6 +7,7 @@ import duckdb
 def create_backtest_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_optional_execution_reports_view(conn)
+        ensure_optional_synthetic_execution_reports_view(conn)
         create_canonical_execution_reports_view(conn)
         conn.execute(
             """
@@ -77,7 +78,7 @@ def create_backtest_views(db_path: Path) -> None:
                     when side = 'SELL' then signal_price - (1 - confidence) - (signal_price - filled_price)
                     else null
                 end as realized_edge_after_slippage,
-                error
+                cast(error as varchar) as error
             from signal_fills
             """
         )
@@ -218,10 +219,37 @@ def create_canonical_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> 
                             when 'DELAYED' then 1
                             else 0
                         end desc,
+                        report_source_priority asc,
                         event_timestamp_ms desc nulls last,
                         coalesce(cumulative_filled_size, filled_size, 0) desc
                 ) as report_rank
-            from execution_reports
+            from (
+                select
+                    0 as report_source_priority,
+                    signal_id,
+                    order_id,
+                    status,
+                    filled_price,
+                    filled_size,
+                    cumulative_filled_size,
+                    remaining_size,
+                    error,
+                    event_timestamp_ms
+                from execution_reports
+                union all
+                select
+                    1 as report_source_priority,
+                    signal_id,
+                    order_id,
+                    status,
+                    filled_price,
+                    filled_size,
+                    cumulative_filled_size,
+                    remaining_size,
+                    error,
+                    event_timestamp_ms
+                from synthetic_execution_reports
+            )
         )
         where report_rank = 1
         """
@@ -248,6 +276,34 @@ def ensure_optional_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> N
             cast(null as varchar) as model_version,
             cast(null as varchar) as data_version,
             cast(null as varchar) as feature_version,
+            cast(null as double) as filled_price,
+            cast(null as double) as filled_size,
+            cast(null as double) as cumulative_filled_size,
+            cast(null as double) as remaining_size,
+            cast(null as varchar) as error,
+            cast(null as bigint) as event_timestamp_ms
+        where false
+        """
+    )
+
+
+def ensure_optional_synthetic_execution_reports_view(conn: duckdb.DuckDBPyConnection) -> None:
+    exists = conn.execute(
+        """
+        select count(*)
+        from information_schema.tables
+        where table_name = 'synthetic_execution_reports'
+        """
+    ).fetchone()
+    if exists and int(exists[0]) > 0:
+        return
+    conn.execute(
+        """
+        create or replace view synthetic_execution_reports as
+        select
+            cast(null as varchar) as signal_id,
+            cast(null as varchar) as order_id,
+            cast(null as varchar) as status,
             cast(null as double) as filled_price,
             cast(null as double) as filled_size,
             cast(null as double) as cumulative_filled_size,

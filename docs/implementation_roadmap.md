@@ -119,6 +119,7 @@ These steps improve the trading platform before introducing heavier models. The 
 
 9. Research and model readiness
    - Offline deterministic baseline `deterministic_microstructure_baseline_v1` is implemented with spread, depth, orderbook imbalance, short-horizon momentum, stale-market, and adverse-selection filters.
+   - Offline synthetic fills `conservative_orderbook_fill_v1` are implemented for research-only fill-rate, slippage, and realized-edge estimation from future orderbook snapshots.
    - A committee of agents is acceptable only as an offline/advisory layer for model review, bias detection, feature proposals, and signal audits.
    - Live trading decisions must not depend on free-form agent consensus; they must remain deterministic, versioned, reproducible, and gated by Rust risk controls.
    - Agent outputs can become scores or diagnostics only after they are converted into versioned, testable inputs with clear promotion metrics.
@@ -129,7 +130,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
 10. Live promotion gates
-   - Feed the pre-live promotion report and advisory report with `scripts/run_real_dry_run_research.sh`, not only unit-test fixtures.
+   - Feed the pre-live promotion report and advisory report with isolated long runs from `scripts/run_real_dry_run_research.sh`, not only unit-test fixtures.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.

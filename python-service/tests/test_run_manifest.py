@@ -90,6 +90,8 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["calibration_passed"] is True
     assert flat["backtest_trades"] == 4
     assert flat["pre_live_gate_signals"] == 4
+    assert flat["synthetic_execution_reports"] == 3
+    assert flat["synthetic_fill_model_version"] == "conservative_orderbook_fill_v1"
     assert isinstance(flat["artifact_count"], int)
     assert isinstance(flat["artifact_bytes_total"], int)
     assert flat["artifact_count"] >= 6
@@ -154,6 +156,15 @@ def seed_report_root(report_root: Path) -> Path:
         },
     )
     write_json(report_root / "calibration.json", {"metrics": []})
+    write_json(
+        report_root / "synthetic_fills.json",
+        {
+            "model_version": "conservative_orderbook_fill_v1",
+            "data_version": "orderbook_snapshots_v1",
+            "feature_version": "limit_touch_after_signal_v1",
+            "counts": {"synthetic_execution_reports": 3},
+        },
+    )
     write_json(report_root / "backtest.json", {"pre_live_gate": {"signals": 4}})
     return report_root
 
