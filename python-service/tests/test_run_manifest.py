@@ -38,6 +38,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["market_regime_summary"] == 1
     assert counts["market_tail_risk"] == 1
     assert counts["whale_pressure"] == 1
+    assert counts["market_regime_trade_context"] == 1
+    assert counts["market_regime_bucket_performance"] == 4
+    assert counts["sentiment_feature_candidates"] == 2
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
     assert versions["promotion_report"] == "pre_live_promotion_v1"
@@ -110,6 +113,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["market_regime_summary"] == 1
     assert flat["market_tail_risk"] == 1
     assert flat["whale_pressure"] == 1
+    assert flat["market_regime_trade_context"] == 1
+    assert flat["market_regime_bucket_performance"] == 4
+    assert flat["sentiment_feature_candidates"] == 2
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
     assert flat["synthetic_execution_reports"] == 3
@@ -200,7 +206,18 @@ def seed_report_root(report_root: Path) -> Path:
                 "market_regime_summary": 1,
                 "market_tail_risk": 1,
                 "whale_pressure": 1,
+                "market_regime_trade_context": 1,
+                "market_regime_bucket_performance": 4,
             },
+        },
+    )
+    write_json(
+        report_root / "sentiment_features.json",
+        {
+            "report_version": "sentiment_feature_builder_v1",
+            "decision_policy": "offline_feature_builder_only",
+            "can_execute_trades": False,
+            "counts": {"sentiment_feature_candidates": 2},
         },
     )
     write_json(

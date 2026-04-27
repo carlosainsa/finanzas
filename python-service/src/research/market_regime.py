@@ -11,6 +11,7 @@ MARKET_REGIME_OUTPUTS = (
     "market_regime_summary",
     "market_tail_risk",
     "whale_pressure",
+    "market_regime_point_in_time",
     "market_regime_trade_context",
     "market_regime_trade_buckets",
     "market_regime_bucket_drawdown",
@@ -96,6 +97,8 @@ def create_market_regime_views(db_path: Path) -> None:
                 ) as lag_abs_log_return,
                 min(mid_price / nullif(running_mid_high, 0) - 1) over (
                     partition by market_id, asset_id
+                    order by event_timestamp_ms
+                    rows between unbounded preceding and current row
                 ) as max_mid_drawdown
             from (
                 select
@@ -106,6 +109,45 @@ def create_market_regime_views(db_path: Path) -> None:
                         rows between unbounded preceding and current row
                     ) as running_mid_high
                 from market_regime_returns
+            )
+            """
+        )
+        conn.execute(
+            """
+            create or replace view market_regime_point_in_time as
+            select
+                market_id,
+                asset_id,
+                event_timestamp_ms,
+                count(*) over point_window as snapshots_so_far,
+                avg(spread) over point_window as avg_spread,
+                avg(total_depth) over point_window as avg_total_depth,
+                avg(abs_log_return) over point_window as avg_abs_return,
+                stddev_samp(log_return) over point_window as realized_volatility,
+                max(abs_log_return) over point_window as max_abs_return,
+                min(max_mid_drawdown) over point_window as max_mid_drawdown,
+                corr(log_return, lag_log_return) over point_window as return_autocorrelation,
+                corr(abs_log_return, lag_abs_log_return) over point_window as volatility_cluster_score,
+                least(
+                    0.95,
+                    greatest(
+                        0.05,
+                        0.5 + 0.25 * coalesce(corr(log_return, lag_log_return) over point_window, 0)
+                    )
+                ) as hurst_proxy,
+                2 - least(
+                    0.95,
+                    greatest(
+                        0.05,
+                        0.5 + 0.25 * coalesce(corr(log_return, lag_log_return) over point_window, 0)
+                    )
+                ) as fractal_dimension_proxy,
+                quantile_cont(abs_log_return, 0.90) over point_window as point_in_time_tail_threshold
+            from market_regime_features
+            window point_window as (
+                partition by market_id, asset_id
+                order by event_timestamp_ms
+                rows between unbounded preceding and current row
             )
             """
         )
@@ -271,20 +313,21 @@ def create_market_regime_views(db_path: Path) -> None:
                 t.model_edge,
                 t.realized_edge_after_slippage,
                 t.filled_notional,
+                r.regime_timestamp_ms,
                 r.realized_volatility,
                 r.volatility_cluster_score,
                 r.hurst_proxy,
                 r.fractal_dimension_proxy,
                 r.max_mid_drawdown,
-                r.hill_tail_index,
-                r.tail_events,
+                r.point_in_time_tail_threshold,
+                r.tail_events_so_far as tail_events,
                 w.whale_pressure_score,
                 w.large_order_ratio,
                 w.depth_withdrawal_rate,
                 case
-                    when r.hill_tail_index is null then 'unknown'
-                    when r.hill_tail_index < 2 then 'heavy_tail'
-                    when r.hill_tail_index < 4 then 'moderate_tail'
+                    when r.point_in_time_tail_threshold is null then 'unknown'
+                    when r.max_abs_return >= r.point_in_time_tail_threshold and r.point_in_time_tail_threshold > 0 then 'heavy_tail'
+                    when r.tail_events_so_far >= 2 then 'moderate_tail'
                     else 'thin_tail'
                 end as tail_risk_bucket,
                 case
@@ -310,8 +353,76 @@ def create_market_regime_views(db_path: Path) -> None:
                     else 0
                 end as adverse_edge_event
             from backtest_trades t
-            left join market_regime_summary r using (market_id, asset_id)
-            left join whale_pressure w using (market_id, asset_id)
+            left join lateral (
+                select
+                    p.event_timestamp_ms as regime_timestamp_ms,
+                    p.realized_volatility,
+                    p.volatility_cluster_score,
+                    p.hurst_proxy,
+                    p.fractal_dimension_proxy,
+                    p.max_mid_drawdown,
+                    p.max_abs_return,
+                    p.point_in_time_tail_threshold,
+                    (
+                        select count(*)
+                        from market_regime_features history
+                        where history.market_id = t.market_id
+                          and history.asset_id = t.asset_id
+                          and history.event_timestamp_ms <= t.signal_timestamp_ms
+                          and history.abs_log_return >= p.point_in_time_tail_threshold
+                          and p.point_in_time_tail_threshold > 0
+                    ) as tail_events_so_far
+                from market_regime_point_in_time p
+                where p.market_id = t.market_id
+                  and p.asset_id = t.asset_id
+                  and p.event_timestamp_ms <= t.signal_timestamp_ms
+                order by p.event_timestamp_ms desc
+                limit 1
+            ) r on true
+            left join lateral (
+                select
+                    latest.large_order_ratio,
+                    latest.depth_withdrawal_rate,
+                    least(
+                        1.0,
+                        greatest(
+                            0.0,
+                            0.45 * latest.large_order_ratio
+                            + 0.35 * latest.depth_withdrawal_rate
+                            + 0.20 * abs(coalesce(latest.orderbook_imbalance, 0))
+                        )
+                    ) as whale_pressure_score
+                from (
+                    select
+                        m.event_timestamp_ms,
+                        m.orderbook_imbalance,
+                        avg(case when coalesce(l.max_level_size, 0) >= coalesce(l.avg_level_size_so_far, 0) and coalesce(l.avg_level_size_so_far, 0) > 0 then 1.0 else 0.0 end)
+                            over whale_window as large_order_ratio,
+                        avg(case when m.total_depth_delta < -1 * greatest(coalesce(l.avg_level_size_so_far, 0), 1.0) then 1.0 else 0.0 end)
+                            over whale_window as depth_withdrawal_rate
+                    from market_regime_returns m
+                    left join (
+                        select
+                            top_levels.*,
+                            avg(max_level_size) over (
+                                partition by market_id, asset_id
+                                order by event_timestamp_ms
+                                rows between unbounded preceding and current row
+                            ) as avg_level_size_so_far
+                        from orderbook_top_levels top_levels
+                    ) l using (market_id, asset_id, event_timestamp_ms)
+                    where m.market_id = t.market_id
+                      and m.asset_id = t.asset_id
+                      and m.event_timestamp_ms <= t.signal_timestamp_ms
+                    window whale_window as (
+                        partition by m.market_id, m.asset_id
+                        order by m.event_timestamp_ms
+                        rows between unbounded preceding and current row
+                    )
+                ) latest
+                order by latest.event_timestamp_ms desc
+                limit 1
+            ) w on true
             """
         )
         conn.execute(

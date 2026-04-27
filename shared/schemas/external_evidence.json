@@ -5,7 +5,19 @@
     "asset_id": {
       "type": ["string", "null"]
     },
+    "available_at_ms": {
+      "type": "integer"
+    },
     "data_version": {
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "direction": {
+      "enum": ["YES", "NO", "NEUTRAL", "UNKNOWN"],
       "type": "string"
     },
     "evidence_id": {
@@ -26,12 +38,22 @@
     "raw_reference_hash": {
       "type": "string"
     },
+    "sentiment_score": {
+      "maximum": 1,
+      "minimum": -1,
+      "type": "number"
+    },
     "source": {
       "type": "string"
     },
     "source_type": {
       "enum": ["news", "social", "search", "market_comment", "official", "other"],
       "type": "string"
+    },
+    "source_quality": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
     },
     "text_hash": {
       "type": ["string", "null"]
@@ -49,6 +71,7 @@
     "source_type",
     "published_at_ms",
     "observed_at_ms",
+    "available_at_ms",
     "market_id",
     "raw_reference_hash",
     "data_version"

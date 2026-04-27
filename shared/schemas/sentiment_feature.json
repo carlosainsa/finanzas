@@ -5,6 +5,9 @@
     "asset_id": {
       "type": ["string", "null"]
     },
+    "available_at_ms": {
+      "type": "integer"
+    },
     "confidence": {
       "maximum": 1,
       "minimum": 0,
@@ -20,6 +23,13 @@
     "evidence_id": {
       "type": "string"
     },
+    "evidence_count": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "evidence_ids_hash": {
+      "type": "string"
+    },
     "feature_id": {
       "type": "string"
     },
@@ -31,6 +41,15 @@
     },
     "market_id": {
       "type": "string"
+    },
+    "lookback_ms": {
+      "exclusiveMinimum": 0,
+      "type": "integer"
+    },
+    "net_sentiment": {
+      "maximum": 1,
+      "minimum": -1,
+      "type": "number"
     },
     "model_version": {
       "type": "string"
@@ -55,6 +74,10 @@
       "maximum": 1,
       "minimum": 0,
       "type": "number"
+    },
+    "source_count": {
+      "minimum": 1,
+      "type": "integer"
     }
   },
   "required": [
@@ -62,9 +85,15 @@
     "evidence_id",
     "market_id",
     "observed_at_ms",
+    "available_at_ms",
     "feature_timestamp_ms",
     "direction",
     "sentiment_score",
+    "net_sentiment",
+    "lookback_ms",
+    "evidence_count",
+    "source_count",
+    "evidence_ids_hash",
     "source_quality",
     "confidence",
     "model_version",

@@ -217,8 +217,9 @@ rules, but they do not authorize live trades. The report also exports
 `market_regime_bucket_performance.parquet`, which joins regime and whale
 diagnostics to `backtest_trades` so realized edge, fill-rate, adverse edge
 rate, slippage, trade-level drawdown, and PnL per signal can be reviewed by
-risk bucket. This attribution is explanatory post-run until a point-in-time
-feature view is added.
+risk bucket. `market_regime_trade_context` uses point-in-time joins where
+`regime_timestamp_ms <= signal_timestamp_ms`; aggregate regime files remain
+post-run diagnostics for the full capture window.
 
 External sentiment contracts are available as offline data-lake datasets:
 
@@ -228,6 +229,18 @@ External sentiment contracts are available as offline data-lake datasets:
 These datasets are not Redis streams and are not part of the live predictor.
 They exist so future ingestion jobs can write timestamped evidence and derived
 features without creating leakage-prone ad hoc JSON.
+
+The deterministic offline sentiment builder can be run with:
+
+```bash
+PYTHONPATH=python-service python -m src.research.sentiment_features \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/sentiment_features
+```
+
+It reads only loaded `external_evidence` rows and writes
+`sentiment_feature_candidates.parquet`; it performs no scraping and has no live
+execution authority.
 
 ## Research Run Manifest
 

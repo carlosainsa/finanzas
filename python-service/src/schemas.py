@@ -82,9 +82,14 @@ class ExternalEvidence(BaseModel):
     source_type: Literal["news", "social", "search", "market_comment", "official", "other"]
     published_at_ms: int
     observed_at_ms: int
+    available_at_ms: int
     market_id: str
     asset_id: str | None = None
     raw_reference_hash: str
+    direction: Literal["YES", "NO", "NEUTRAL", "UNKNOWN"] = "UNKNOWN"
+    sentiment_score: float = Field(default=0.0, ge=-1, le=1)
+    source_quality: float = Field(default=0.5, ge=0, le=1)
+    confidence: float = Field(default=0.5, ge=0, le=1)
     url: str | None = None
     title: str | None = None
     text_hash: str | None = None
@@ -99,6 +104,14 @@ class ExternalEvidence(BaseModel):
             raise ValueError("observed_at_ms must be >= published_at_ms")
         return observed_at_ms
 
+    @field_validator("available_at_ms")
+    @classmethod
+    def available_after_observation(cls, available_at_ms: int, info: ValidationInfo) -> int:
+        observed_at_ms = info.data.get("observed_at_ms")
+        if isinstance(observed_at_ms, int) and available_at_ms < observed_at_ms:
+            raise ValueError("available_at_ms must be >= observed_at_ms")
+        return available_at_ms
+
 
 class SentimentFeature(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -109,8 +122,14 @@ class SentimentFeature(BaseModel):
     asset_id: str | None = None
     observed_at_ms: int
     feature_timestamp_ms: int
+    available_at_ms: int
     direction: Literal["YES", "NO", "NEUTRAL", "UNKNOWN"]
     sentiment_score: float = Field(ge=-1, le=1)
+    net_sentiment: float = Field(ge=-1, le=1)
+    lookback_ms: int = Field(gt=0)
+    evidence_count: int = Field(ge=1)
+    source_count: int = Field(ge=1)
+    evidence_ids_hash: str
     sentiment_momentum: float | None = None
     sentiment_disagreement: float | None = Field(default=None, ge=0, le=1)
     source_quality: float = Field(ge=0, le=1)
@@ -126,3 +145,11 @@ class SentimentFeature(BaseModel):
         if isinstance(observed_at_ms, int) and feature_timestamp_ms < observed_at_ms:
             raise ValueError("feature_timestamp_ms must be >= observed_at_ms")
         return feature_timestamp_ms
+
+    @field_validator("available_at_ms")
+    @classmethod
+    def available_after_feature(cls, available_at_ms: int, info: ValidationInfo) -> int:
+        feature_timestamp_ms = info.data.get("feature_timestamp_ms")
+        if isinstance(feature_timestamp_ms, int) and available_at_ms < feature_timestamp_ms:
+            raise ValueError("available_at_ms must be >= feature_timestamp_ms")
+        return available_at_ms

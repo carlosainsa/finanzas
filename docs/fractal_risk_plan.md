@@ -84,6 +84,9 @@ volatility-cluster, Hurst, and whale-pressure buckets. This is the first
 evidence layer for deciding whether a regime metric should become a blocklist
 rule, a sizing reducer, or only a diagnostic label.
 
-The current attribution is post-run explanatory. It uses run-level regime
-summaries, so it must not be treated as point-in-time training evidence until a
-future view joins only features available before `signal_timestamp_ms`.
+`market_regime_trade_context.parquet` uses point-in-time regime rows: each
+signal is joined to the latest regime snapshot with
+`regime_timestamp_ms <= signal_timestamp_ms`. The aggregate
+`market_regime_summary.parquet`, `market_tail_risk.parquet`, and
+`whale_pressure.parquet` files remain post-run diagnostics for explaining the
+full capture window.

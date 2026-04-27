@@ -190,9 +190,14 @@ def test_sentiment_contract_exports_timestamped_offline_features(tmp_path: Path)
                 "source_type": "news",
                 "published_at_ms": 1_000,
                 "observed_at_ms": 1_100,
+                "available_at_ms": 1_150,
                 "market_id": "market-1",
                 "asset_id": "asset-yes",
                 "raw_reference_hash": "sha256:abc",
+                "direction": "YES",
+                "sentiment_score": 0.4,
+                "source_quality": 0.8,
+                "confidence": 0.7,
                 "data_version": "external_evidence_v1",
             }
         ],
@@ -206,9 +211,15 @@ def test_sentiment_contract_exports_timestamped_offline_features(tmp_path: Path)
                 "market_id": "market-1",
                 "asset_id": "asset-yes",
                 "observed_at_ms": 1_100,
+                "available_at_ms": 1_250,
                 "feature_timestamp_ms": 1_200,
                 "direction": "YES",
                 "sentiment_score": 0.4,
+                "net_sentiment": 0.4,
+                "lookback_ms": 86_400_000,
+                "evidence_count": 1,
+                "source_count": 1,
+                "evidence_ids_hash": "hash",
                 "source_quality": 0.8,
                 "confidence": 0.7,
                 "model_version": "sentiment_baseline_v1",
@@ -224,13 +235,13 @@ def test_sentiment_contract_exports_timestamped_offline_features(tmp_path: Path)
     assert feature_count == 1
     with duckdb.connect(str(db_path)) as conn:
         evidence = conn.execute(
-            "select evidence_id, observed_at_ms >= published_at_ms from external_evidence"
+            "select evidence_id, observed_at_ms >= published_at_ms, available_at_ms >= observed_at_ms from external_evidence"
         ).fetchone()
         feature = conn.execute(
             """
-            select feature_id, feature_timestamp_ms >= observed_at_ms, sentiment_score
+            select feature_id, feature_timestamp_ms >= observed_at_ms, available_at_ms >= feature_timestamp_ms, sentiment_score
             from sentiment_features
             """
         ).fetchone()
-    assert evidence == ("evidence-1", True)
-    assert feature == ("sentiment-1", True, 0.4)
+    assert evidence == ("evidence-1", True, True)
+    assert feature == ("sentiment-1", True, True, 0.4)

@@ -48,9 +48,14 @@ Initial contracts are defined in `shared/schemas/external_evidence.json`,
 - `source_type`;
 - `published_at_ms`;
 - `observed_at_ms`;
+- `available_at_ms`;
 - `market_id`;
 - `asset_id`;
 - `raw_reference_hash`;
+- `direction`;
+- `sentiment_score`;
+- `source_quality`;
+- `confidence`;
 - `data_version`.
 
 `sentiment_features` rows contain:
@@ -60,9 +65,15 @@ Initial contracts are defined in `shared/schemas/external_evidence.json`,
 - `market_id`;
 - `asset_id`;
 - `observed_at_ms`;
+- `available_at_ms`;
 - `feature_timestamp_ms`;
 - `direction`;
 - `sentiment_score`;
+- `net_sentiment`;
+- `lookback_ms`;
+- `evidence_count`;
+- `source_count`;
+- `evidence_ids_hash`;
 - `source_quality`;
 - `confidence`;
 - `model_version`;
@@ -71,7 +82,13 @@ Initial contracts are defined in `shared/schemas/external_evidence.json`,
 
 The first anti-leakage rules are enforced at schema validation time:
 `observed_at_ms >= published_at_ms` for evidence and
-`feature_timestamp_ms >= observed_at_ms` for derived sentiment features.
+`feature_timestamp_ms >= observed_at_ms` for derived sentiment features. Derived
+features also require `available_at_ms >= feature_timestamp_ms`.
+
+The first deterministic builder is `src.research.sentiment_features`. It
+aggregates already-loaded `external_evidence` rows into
+`sentiment_feature_candidates` over a configurable lookback window. It performs
+no scraping and does not enter the live predictor.
 
 ## Whale and Flow Detection
 

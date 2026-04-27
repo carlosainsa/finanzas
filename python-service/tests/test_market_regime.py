@@ -61,6 +61,13 @@ def test_market_regime_views_measure_tail_fractal_and_whale_pressure(
             where bucket_type = 'whale_pressure'
             """
         ).fetchone()
+        context = conn.execute(
+            """
+            select regime_timestamp_ms, signal_timestamp_ms
+            from market_regime_trade_context
+            where signal_id = 'signal-1'
+            """
+        ).fetchone()
 
     assert summary is not None
     assert tail is not None
@@ -81,6 +88,8 @@ def test_market_regime_views_measure_tail_fractal_and_whale_pressure(
     assert performance[3] == 1
     assert performance[4] == pytest.approx(0.10)
     assert performance[5] == pytest.approx(0.0)
+    assert context is not None
+    assert context[0] <= context[1]
 
 
 def test_export_market_regime_report_writes_parquet_outputs(tmp_path: Path) -> None:
@@ -118,6 +127,7 @@ def seed_market_regime_db(tmp_path: Path) -> Path:
         (4_000, 0.47, 0.49, 36.0, 8.0),
         (5_000, 0.58, 0.60, 7.0, 6.0),
         (6_000, 0.57, 0.59, 6.0, 6.0),
+        (7_000, 0.20, 0.22, 100.0, 5.0),
     ]
     for timestamp_ms, bid, ask, bid_size, ask_size in snapshots:
         redis.add_payload(

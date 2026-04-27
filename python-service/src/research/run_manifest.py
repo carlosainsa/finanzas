@@ -27,6 +27,7 @@ def create_run_manifest(
     calibration = read_json(report_root / "calibration.json")
     backtest = read_json(report_root / "backtest.json")
     market_regime = read_json(report_root / "market_regime.json")
+    sentiment_features = read_json(report_root / "sentiment_features.json")
     blocked_segments = read_json(report_root / "pre_live_promotion" / "blocked_segments.json")
     real_dry_run_evidence = read_json(report_root / "real_dry_run_evidence.json")
 
@@ -62,6 +63,7 @@ def create_run_manifest(
             synthetic_fills,
             backtest,
             market_regime,
+            sentiment_features,
             blocked_segments,
             real_dry_run_evidence,
         ),
@@ -147,6 +149,7 @@ def manifest_counts(
     synthetic_fills: dict[str, object],
     backtest: dict[str, object],
     market_regime: dict[str, object],
+    sentiment_features: dict[str, object],
     blocked_segments: dict[str, object] | None = None,
     real_dry_run_evidence: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -154,6 +157,7 @@ def manifest_counts(
     baseline_counts = typed_dict(baseline.get("counts"))
     synthetic_counts = typed_dict(synthetic_fills.get("counts"))
     market_regime_counts = typed_dict(market_regime.get("counts"))
+    sentiment_counts = typed_dict(sentiment_features.get("counts"))
     backtest_exports = typed_dict(summary.get("backtest_exports"))
     return {
         "orderbook_snapshots": data_lake.get("orderbook_snapshots"),
@@ -176,6 +180,15 @@ def manifest_counts(
         "market_regime_summary": market_regime_counts.get("market_regime_summary"),
         "market_tail_risk": market_regime_counts.get("market_tail_risk"),
         "whale_pressure": market_regime_counts.get("whale_pressure"),
+        "market_regime_trade_context": market_regime_counts.get(
+            "market_regime_trade_context"
+        ),
+        "market_regime_bucket_performance": market_regime_counts.get(
+            "market_regime_bucket_performance"
+        ),
+        "sentiment_feature_candidates": sentiment_counts.get(
+            "sentiment_feature_candidates"
+        ),
         "blocked_segments": count_blocked_segments(blocked_segments),
         "runtime_blocked_segments": count_runtime_blocked_segments(real_dry_run_evidence),
     }
@@ -189,6 +202,7 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "backtest.json",
         "game_theory.json",
         "market_regime.json",
+        "sentiment_features.json",
         "calibration.json",
         "pre_live_promotion.json",
         "agent_advisory.json",
@@ -279,6 +293,11 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "market_regime_summary": counts.get("market_regime_summary"),
         "market_tail_risk": counts.get("market_tail_risk"),
         "whale_pressure": counts.get("whale_pressure"),
+        "market_regime_trade_context": counts.get("market_regime_trade_context"),
+        "market_regime_bucket_performance": counts.get(
+            "market_regime_bucket_performance"
+        ),
+        "sentiment_feature_candidates": counts.get("sentiment_feature_candidates"),
         "blocked_segments": counts.get("blocked_segments"),
         "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
         "promotion_report_version": versions.get("promotion_report"),
