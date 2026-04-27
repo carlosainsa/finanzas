@@ -9,11 +9,16 @@ class Settings(BaseSettings):
     gamma_api_url: str = "https://gamma-api.polymarket.com"
     nvidia_nim_api_key: str | None = None
     nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nim_model: str = "deepseek-ai/deepseek-r1"
+    nim_model: str = "deepseek-ai/deepseek-v3.2"
     enable_nim_advisory: bool = False
     nim_timeout_seconds: float = 30.0
+    nim_max_evidence_per_run: int = 25
+    nim_input_cost_per_million_tokens: float = 0.0
+    nim_output_cost_per_million_tokens: float = 0.0
+    nim_cost_currency: str = "USD"
     private_key: str | None = None
     app_env: str = "development"
+    disable_market_ws: bool = False
     host: str = "0.0.0.0"
     port: int = 18000
     operator_api_url: str = "http://127.0.0.1:18000"

@@ -34,14 +34,14 @@ def test_generate_posts_openai_compatible_payload() -> None:
         return httpx.Response(
             200,
             json={
-                "model": "deepseek-ai/deepseek-r1",
+                "model": "deepseek-ai/deepseek-v3.2",
                 "choices": [
                     {
                         "message": {"content": "diagnostic only"},
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+                "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
             },
         )
 
@@ -53,7 +53,7 @@ def test_generate_posts_openai_compatible_payload() -> None:
         NIMResearchConfig(
             enabled=True,
             api_key="nvapi-test",
-            model="deepseek-ai/deepseek-r1",
+            model="deepseek-ai/deepseek-v3.2",
         ),
         http_client=http_client,
     )
@@ -61,16 +61,18 @@ def test_generate_posts_openai_compatible_payload() -> None:
     result = client.generate("You are offline only.", "Review this feature.")
 
     assert result.text == "diagnostic only"
-    assert result.model == "deepseek-ai/deepseek-r1"
+    assert result.model == "deepseek-ai/deepseek-v3.2"
     assert result.model_version == NIM_ADVISORY_MODEL_VERSION
     assert result.decision_policy == "offline_advisory_only"
     assert result.can_execute_trades is False
     assert result.usage["prompt_tokens"] == 10
+    assert result.usage["total_tokens"] == 13
+    assert result.latency_ms >= 0
     assert requests[0].url.path == "/v1/chat/completions"
     assert requests[0].headers["authorization"] == "Bearer nvapi-test"
     assert requests[0].read()
     payload = requests[0].content.decode()
-    assert '"model":"deepseek-ai/deepseek-r1"' in payload
+    assert '"model":"deepseek-ai/deepseek-v3.2"' in payload
     assert '"role":"system"' in payload
 
 

@@ -45,7 +45,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["sentiment_lift_summary"] == 2
     assert counts["nim_advisory_enabled"] is True
     assert counts["nim_advisory_annotations"] == 2
+    assert counts["nim_advisory_cost_summary"] == 1
     assert counts["nim_advisory_failures"] == 0
+    assert counts["nim_advisory_total_tokens"] == 26
     assert counts["research_feature_blocklist_candidates"] == 3
     assert counts["blocked_segment_candidates"] == 1
     assert counts["blocked_segments"] == 1
@@ -141,7 +143,13 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["nim_advisory_enabled"] is True
     assert flat["nim_advisory_status"] == "ok"
     assert flat["nim_advisory_annotations"] == 2
+    assert flat["nim_advisory_cost_summary"] == 1
     assert flat["nim_advisory_failures"] == 0
+    assert flat["nim_advisory_prompt_tokens"] == 20
+    assert flat["nim_advisory_completion_tokens"] == 6
+    assert flat["nim_advisory_total_tokens"] == 26
+    assert flat["nim_advisory_latency_ms_avg"] == 12.5
+    assert flat["nim_advisory_estimated_cost"] == 0.0
     assert flat["nim_advisory_report_version"] == "nim_advisory_offline_v1"
     assert flat["nim_advisory_model_version"] == "nvidia_nim_research_client_v1"
     assert flat["nim_advisory_feature_version"] == "nim_advisory_annotations_v1"
@@ -297,10 +305,15 @@ def seed_report_root(report_root: Path) -> Path:
             "summary": {
                 "annotations": 2,
                 "failures": 0,
+                "prompt_tokens": 20,
+                "completion_tokens": 6,
+                "total_tokens": 26,
+                "latency_ms_avg": 12.5,
+                "estimated_cost": 0.0,
                 "advisory_acceptable": True,
                 "can_execute_trades": False,
             },
-            "counts": {"nim_advisory_annotations": 2},
+            "counts": {"nim_advisory_annotations": 2, "nim_advisory_cost_summary": 1},
         },
     )
     write_json(

@@ -5,6 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import mean, median, quantiles
 from typing import Protocol
 
 import duckdb
@@ -43,7 +44,11 @@ class AdvisoryClient(Protocol):
 class NIMAdvisoryConfig:
     enabled: bool = False
     limit: int = 25
+    max_evidence_per_run: int = 25
     prompt_version: str = DEFAULT_PROMPT_VERSION
+    input_cost_per_million_tokens: float = 0.0
+    output_cost_per_million_tokens: float = 0.0
+    cost_currency: str = "USD"
 
 
 def export_nim_advisory_report(
@@ -55,12 +60,16 @@ def export_nim_advisory_report(
     resolved_config = config or NIMAdvisoryConfig(enabled=settings.enable_nim_advisory)
     if resolved_config.limit <= 0:
         raise ValueError("limit must be positive")
+    if resolved_config.max_evidence_per_run <= 0:
+        raise ValueError("max_evidence_per_run must be positive")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not resolved_config.enabled:
+        cost_summary = build_cost_summary(resolved_config, settings.nim_model, [], 0)
         return write_outputs(
             output_dir,
             rows=[],
+            cost_summary=cost_summary,
             report=base_report(
                 resolved_config,
                 status="disabled",
@@ -68,11 +77,13 @@ def export_nim_advisory_report(
                 nim_model=settings.nim_model,
                 annotations=0,
                 failures=0,
+                cost_summary=cost_summary,
             ),
         )
 
     resolved_client = client or NIMResearchClient()
-    evidence_rows = load_evidence_rows(db_path, resolved_config.limit)
+    effective_limit = min(resolved_config.limit, resolved_config.max_evidence_per_run)
+    evidence_rows = load_evidence_rows(db_path, effective_limit)
     annotations: list[dict[str, object]] = []
     failures = 0
     for row in evidence_rows:
@@ -90,6 +101,9 @@ def export_nim_advisory_report(
         annotations.append(result_annotation(row, resolved_config, result))
 
     status = "ok" if failures == 0 else "partial"
+    cost_summary = build_cost_summary(
+        resolved_config, resolved_client.config.model, annotations, len(evidence_rows)
+    )
     report = base_report(
         resolved_config,
         status=status,
@@ -97,8 +111,9 @@ def export_nim_advisory_report(
         nim_model=resolved_client.config.model,
         annotations=len(annotations),
         failures=failures,
+        cost_summary=cost_summary,
     )
-    return write_outputs(output_dir, annotations, report)
+    return write_outputs(output_dir, annotations, cost_summary, report)
 
 
 def load_evidence_rows(db_path: Path, limit: int) -> list[dict[str, object]]:
@@ -189,6 +204,11 @@ def result_annotation(
         "rationale_reference_hash": hash_text(
             normalized_string(parsed.get("rationale"), default=result.text)
         ),
+        "request_latency_ms": result.latency_ms,
+        "prompt_tokens": usage_int(result.usage.get("prompt_tokens")),
+        "completion_tokens": usage_int(result.usage.get("completion_tokens")),
+        "total_tokens": usage_int(result.usage.get("total_tokens")),
+        "finish_reason": result.finish_reason,
         "status": "OK",
         "error": None,
         "data_version": NIM_ADVISORY_DATA_VERSION,
@@ -217,6 +237,11 @@ def error_annotation(
         "confidence": None,
         "contradiction_score": None,
         "rationale_reference_hash": None,
+        "request_latency_ms": None,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+        "finish_reason": None,
         "status": "ERROR",
         "error": error[:500],
         "data_version": NIM_ADVISORY_DATA_VERSION,
@@ -229,10 +254,12 @@ def error_annotation(
 def write_outputs(
     output_dir: Path,
     rows: list[dict[str, object]],
+    cost_summary: dict[str, object],
     report: dict[str, object],
 ) -> dict[str, object]:
     annotations_path = output_dir / "nim_advisory_annotations.parquet"
     summary_path = output_dir / "nim_advisory_summary.parquet"
+    cost_summary_path = output_dir / "nim_advisory_cost_summary.parquet"
     pd.DataFrame(rows, columns=annotation_columns()).to_parquet(
         annotations_path, index=False
     )
@@ -249,9 +276,16 @@ def write_outputs(
         "decision_policy": "offline_advisory_only",
     }
     pd.DataFrame([summary]).to_parquet(summary_path, index=False)
+    pd.DataFrame([cost_summary]).to_parquet(cost_summary_path, index=False)
+    (output_dir / "nim_advisory_cost_summary.json").write_text(
+        json.dumps(cost_summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     report["outputs"] = [
         "nim_advisory_annotations.parquet",
         "nim_advisory_summary.parquet",
+        "nim_advisory_cost_summary.parquet",
+        "nim_advisory_cost_summary.json",
     ]
     (output_dir / "nim_advisory.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -267,6 +301,7 @@ def base_report(
     nim_model: str,
     annotations: int,
     failures: int,
+    cost_summary: dict[str, object],
 ) -> dict[str, object]:
     return {
         "report_version": NIM_ADVISORY_REPORT_VERSION,
@@ -283,11 +318,88 @@ def base_report(
         "summary": {
             "annotations": annotations,
             "failures": failures,
+            "prompt_tokens": cost_summary.get("prompt_tokens"),
+            "completion_tokens": cost_summary.get("completion_tokens"),
+            "total_tokens": cost_summary.get("total_tokens"),
+            "latency_ms_avg": cost_summary.get("latency_ms_avg"),
+            "estimated_cost": cost_summary.get("total_cost_estimate"),
             "advisory_acceptable": failures == 0,
             "can_execute_trades": False,
         },
-        "counts": {"nim_advisory_annotations": annotations},
+        "counts": {
+            "nim_advisory_annotations": annotations,
+            "nim_advisory_cost_summary": 1,
+        },
+        "limits": {
+            "requested_limit": config.limit,
+            "max_evidence_per_run": config.max_evidence_per_run,
+            "effective_limit": min(config.limit, config.max_evidence_per_run),
+        },
+        "cost_summary": cost_summary,
     }
+
+
+def build_cost_summary(
+    config: NIMAdvisoryConfig,
+    nim_model: str,
+    rows: list[dict[str, object]],
+    evidence_rows: int,
+) -> dict[str, object]:
+    succeeded = [row for row in rows if row.get("status") == "OK"]
+    failed = [row for row in rows if row.get("status") == "ERROR"]
+    prompt_tokens = sum_optional_int(rows, "prompt_tokens")
+    completion_tokens = sum_optional_int(rows, "completion_tokens")
+    total_tokens = sum_optional_int(rows, "total_tokens")
+    latencies = [
+        float(value)
+        for row in rows
+        if (value := row.get("request_latency_ms")) is not None
+        and isinstance(value, (int, float))
+    ]
+    input_cost = (prompt_tokens / 1_000_000) * config.input_cost_per_million_tokens
+    output_cost = (
+        completion_tokens / 1_000_000
+    ) * config.output_cost_per_million_tokens
+    return {
+        "nim_model": nim_model,
+        "requests_attempted": len(rows),
+        "requests_succeeded": len(succeeded),
+        "requests_failed": len(failed),
+        "evidence_rows": evidence_rows,
+        "evidence_requested_limit": config.limit,
+        "evidence_max_per_run": config.max_evidence_per_run,
+        "evidence_effective_limit": min(config.limit, config.max_evidence_per_run),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "latency_ms_total": round(sum(latencies), 3) if latencies else 0.0,
+        "latency_ms_avg": round(mean(latencies), 3) if latencies else None,
+        "latency_ms_p50": round(median(latencies), 3) if latencies else None,
+        "latency_ms_p95": round(percentile_95(latencies), 3) if latencies else None,
+        "latency_ms_max": round(max(latencies), 3) if latencies else None,
+        "cost_currency": config.cost_currency,
+        "input_cost_estimate": input_cost,
+        "output_cost_estimate": output_cost,
+        "total_cost_estimate": input_cost + output_cost,
+        "cost_pricing_source": "env:NIM_INPUT_COST_PER_MILLION_TOKENS,NIM_OUTPUT_COST_PER_MILLION_TOKENS",
+        "decision_policy": "offline_advisory_only",
+        "can_execute_trades": False,
+    }
+
+
+def percentile_95(values: list[float]) -> float:
+    if len(values) < 2:
+        return values[0] if values else 0.0
+    return quantiles(values, n=100, method="inclusive")[94]
+
+
+def sum_optional_int(rows: list[dict[str, object]], key: str) -> int:
+    total = 0
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, (int, float)):
+            total += int(value)
+    return total
 
 
 def parse_model_json(text: str) -> dict[str, object]:
@@ -308,6 +420,10 @@ def normalized_string(value: object, default: str) -> str:
 
 def normalized_float(value: object) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
+
+
+def usage_int(value: object) -> int | None:
+    return int(value) if isinstance(value, (int, float)) else None
 
 
 def advisory_id(row: dict[str, object], prompt_version: str) -> str:
@@ -339,6 +455,11 @@ def annotation_columns() -> list[str]:
         "confidence",
         "contradiction_score",
         "rationale_reference_hash",
+        "request_latency_ms",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "finish_reason",
         "status",
         "error",
         "data_version",
@@ -360,7 +481,14 @@ def main() -> int:
     report = export_nim_advisory_report(
         Path(args.duckdb),
         Path(args.output_dir),
-        NIMAdvisoryConfig(enabled=enabled, limit=args.limit),
+        NIMAdvisoryConfig(
+            enabled=enabled,
+            limit=args.limit,
+            max_evidence_per_run=settings.nim_max_evidence_per_run,
+            input_cost_per_million_tokens=settings.nim_input_cost_per_million_tokens,
+            output_cost_per_million_tokens=settings.nim_output_cost_per_million_tokens,
+            cost_currency=settings.nim_cost_currency,
+        ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

@@ -36,8 +36,9 @@ class FakeNIMClient:
             model_version="nvidia_nim_research_client_v1",
             decision_policy="offline_advisory_only",
             can_execute_trades=False,
-            usage={},
+            usage={"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
             finish_reason="stop",
+            latency_ms=12.5,
         )
 
 
@@ -61,6 +62,8 @@ def test_nim_advisory_exports_annotations_without_live_authority(tmp_path: Path)
     assert (output_dir / "nim_advisory.json").exists()
     assert (output_dir / "nim_advisory_annotations.parquet").exists()
     assert (output_dir / "nim_advisory_summary.parquet").exists()
+    assert (output_dir / "nim_advisory_cost_summary.parquet").exists()
+    assert (output_dir / "nim_advisory_cost_summary.json").exists()
 
     with duckdb.connect(str(db_path)) as conn:
         rows = conn.execute(
@@ -72,6 +75,10 @@ def test_nim_advisory_exports_annotations_without_live_authority(tmp_path: Path)
                 direction,
                 confidence,
                 contradiction_score,
+                request_latency_ms,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
                 decision_policy,
                 can_execute_trades
             from read_parquet('{(output_dir / "nim_advisory_annotations.parquet").as_posix()}')
@@ -86,6 +93,10 @@ def test_nim_advisory_exports_annotations_without_live_authority(tmp_path: Path)
             "YES",
             0.82,
             0.12,
+            12.5,
+            10,
+            3,
+            13,
             "offline_advisory_only",
             False,
         ),
@@ -96,10 +107,29 @@ def test_nim_advisory_exports_annotations_without_live_authority(tmp_path: Path)
             "YES",
             0.82,
             0.12,
+            12.5,
+            10,
+            3,
+            13,
             "offline_advisory_only",
             False,
         ),
     ]
+    with duckdb.connect(str(db_path)) as conn:
+        cost_row = conn.execute(
+            f"""
+            select
+                requests_attempted,
+                requests_succeeded,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                latency_ms_avg,
+                can_execute_trades
+            from read_parquet('{(output_dir / "nim_advisory_cost_summary.parquet").as_posix()}')
+            """
+        ).fetchone()
+    assert cost_row == (2, 2, 20, 6, 26, 12.5, False)
 
 
 def test_nim_advisory_disabled_writes_empty_artifacts_without_calling_client(
@@ -118,10 +148,14 @@ def test_nim_advisory_disabled_writes_empty_artifacts_without_calling_client(
 
     assert report["enabled"] is False
     assert report["status"] == "disabled"
-    assert report["counts"] == {"nim_advisory_annotations": 0}
+    assert report["counts"] == {
+        "nim_advisory_annotations": 0,
+        "nim_advisory_cost_summary": 1,
+    }
     assert fake.calls == []
     assert (output_dir / "nim_advisory_annotations.parquet").exists()
     assert (output_dir / "nim_advisory_summary.parquet").exists()
+    assert (output_dir / "nim_advisory_cost_summary.parquet").exists()
 
 
 def test_nim_advisory_handles_missing_external_evidence_view(tmp_path: Path) -> None:
@@ -137,8 +171,35 @@ def test_nim_advisory_handles_missing_external_evidence_view(tmp_path: Path) -> 
     )
 
     assert report["status"] == "ok"
-    assert report["counts"] == {"nim_advisory_annotations": 0}
+    assert report["counts"] == {
+        "nim_advisory_annotations": 0,
+        "nim_advisory_cost_summary": 1,
+    }
     assert fake.calls == []
+
+
+def test_nim_advisory_applies_max_evidence_per_run_cap(tmp_path: Path) -> None:
+    db_path = seed_evidence_db(tmp_path)
+    output_dir = tmp_path / "nim_advisory"
+    fake = FakeNIMClient()
+
+    report = export_nim_advisory_report(
+        db_path,
+        output_dir,
+        NIMAdvisoryConfig(enabled=True, limit=10, max_evidence_per_run=1),
+        client=fake,
+    )
+
+    assert len(fake.calls) == 1
+    assert report["counts"] == {
+        "nim_advisory_annotations": 1,
+        "nim_advisory_cost_summary": 1,
+    }
+    assert report["limits"] == {
+        "requested_limit": 10,
+        "max_evidence_per_run": 1,
+        "effective_limit": 1,
+    }
 
 
 def seed_evidence_db(tmp_path: Path) -> Path:

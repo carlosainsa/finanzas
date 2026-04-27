@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -24,7 +25,7 @@ class NIMRequestError(RuntimeError):
 class NIMResearchConfig:
     api_key: str | None = None
     base_url: str = "https://integrate.api.nvidia.com/v1"
-    model: str = "deepseek-ai/deepseek-r1"
+    model: str = "deepseek-ai/deepseek-v3.2"
     timeout_seconds: float = 30.0
     enabled: bool = False
 
@@ -48,6 +49,7 @@ class NIMAdvisoryResult:
     can_execute_trades: bool
     usage: dict[str, object]
     finish_reason: str | None
+    latency_ms: float
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -58,6 +60,7 @@ class NIMAdvisoryResult:
             "can_execute_trades": self.can_execute_trades,
             "usage": self.usage,
             "finish_reason": self.finish_reason,
+            "latency_ms": self.latency_ms,
         }
 
 
@@ -115,18 +118,20 @@ class NIMResearchClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        started = perf_counter()
         response = self._http_client().post(
             "/chat/completions",
             headers={"Authorization": f"Bearer {self.config.api_key}"},
             json=payload,
         )
+        latency_ms = round((perf_counter() - started) * 1000, 3)
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise NIMRequestError(
-                f"NVIDIA NIM request failed with status {response.status_code}"
+                f"NVIDIA NIM request failed with status {response.status_code} after {latency_ms}ms"
             ) from exc
-        return parse_chat_completion(response.json(), self.config.model)
+        return parse_chat_completion(response.json(), self.config.model, latency_ms)
 
     def _require_api_key(self) -> None:
         if not self.config.api_key:
@@ -141,7 +146,9 @@ class NIMResearchClient:
         return self._client
 
 
-def parse_chat_completion(payload: dict[str, Any], fallback_model: str) -> NIMAdvisoryResult:
+def parse_chat_completion(
+    payload: dict[str, Any], fallback_model: str, latency_ms: float
+) -> NIMAdvisoryResult:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
         raise NIMRequestError("NVIDIA NIM response did not contain choices")
@@ -165,4 +172,5 @@ def parse_chat_completion(payload: dict[str, Any], fallback_model: str) -> NIMAd
         finish_reason=first.get("finish_reason")
         if isinstance(first.get("finish_reason"), str)
         else None,
+        latency_ms=latency_ms,
     )

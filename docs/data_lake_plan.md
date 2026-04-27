@@ -205,12 +205,15 @@ advisory evidence for comparing model versions against realized offline metrics.
 NVIDIA NIM advisory outputs are optional offline artifacts described in
 [nim_research_plan.md](nim_research_plan.md). They are exported by
 `src.research.nim_advisory` as `nim_advisory.json`,
-`nim_advisory_annotations.parquet`, and `nim_advisory_summary.parquet`, with
+`nim_advisory_annotations.parquet`, `nim_advisory_summary.parquet`, and
+`nim_advisory_cost_summary.parquet`, with
 `can_execute_trades=false`, model name, prompt version, and input/output hashes.
 When `ENABLE_NIM_ADVISORY=false`, the exporter writes disabled/empty artifacts
 without calling NVIDIA. NIM artifacts are registered in run manifests, but they
 must not write Redis Streams, runtime blocklists, execution reports, or live
-predictor state.
+predictor state. The cost summary records request counts, token usage, latency,
+and configured cost estimates so a run cannot silently exceed its research
+budget.
 
 Market-regime diagnostics can also be generated from the same DuckDB database:
 

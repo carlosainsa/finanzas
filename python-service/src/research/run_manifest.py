@@ -221,7 +221,13 @@ def manifest_counts(
         "nim_advisory_enabled": nim_advisory.get("enabled"),
         "nim_advisory_status": nim_advisory.get("status"),
         "nim_advisory_annotations": nim_counts.get("nim_advisory_annotations"),
+        "nim_advisory_cost_summary": nim_counts.get("nim_advisory_cost_summary"),
         "nim_advisory_failures": nim_summary.get("failures"),
+        "nim_advisory_prompt_tokens": nim_summary.get("prompt_tokens"),
+        "nim_advisory_completion_tokens": nim_summary.get("completion_tokens"),
+        "nim_advisory_total_tokens": nim_summary.get("total_tokens"),
+        "nim_advisory_latency_ms_avg": nim_summary.get("latency_ms_avg"),
+        "nim_advisory_estimated_cost": nim_summary.get("estimated_cost"),
         "research_feature_bucket_performance": feature_blocklist_counts.get(
             "research_feature_bucket_performance"
         ),
@@ -351,7 +357,13 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "nim_advisory_enabled": counts.get("nim_advisory_enabled"),
         "nim_advisory_status": counts.get("nim_advisory_status"),
         "nim_advisory_annotations": counts.get("nim_advisory_annotations"),
+        "nim_advisory_cost_summary": counts.get("nim_advisory_cost_summary"),
         "nim_advisory_failures": counts.get("nim_advisory_failures"),
+        "nim_advisory_prompt_tokens": counts.get("nim_advisory_prompt_tokens"),
+        "nim_advisory_completion_tokens": counts.get("nim_advisory_completion_tokens"),
+        "nim_advisory_total_tokens": counts.get("nim_advisory_total_tokens"),
+        "nim_advisory_latency_ms_avg": counts.get("nim_advisory_latency_ms_avg"),
+        "nim_advisory_estimated_cost": counts.get("nim_advisory_estimated_cost"),
         "research_feature_bucket_performance": counts.get(
             "research_feature_bucket_performance"
         ),
