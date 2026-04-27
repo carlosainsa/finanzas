@@ -57,7 +57,26 @@ This path is intentionally under `research/llm/`, not `ml/` or `data/`, so it
 does not enter runtime signal generation. The client uses the OpenAI-compatible
 `/chat/completions` endpoint through `httpx`.
 
-Future persisted outputs should be separate research artifacts, for example:
+The offline advisory exporter lives under:
+
+```text
+python-service/src/research/nim_advisory.py
+```
+
+It can be run directly:
+
+```bash
+PYTHONPATH=python-service python -m src.research.nim_advisory \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/nim_advisory
+```
+
+By default, it writes disabled/empty artifacts and makes no NVIDIA API call.
+Set `ENABLE_NIM_ADVISORY=true` or pass `--enabled` to run real advisory
+inference. The research loop emits `nim_advisory.json` for manifest/audit
+consistency, but NIM does not affect `research_exit_code.txt` or promotion gates.
+
+Persisted outputs are separate research artifacts:
 
 ```text
 nim_advisory.json
@@ -65,7 +84,7 @@ nim_advisory_annotations.parquet
 nim_advisory_summary.parquet
 ```
 
-These artifacts may be registered in research manifests after they have stable
-schemas and tests. They must remain advisory until converted into deterministic,
-timestamped, versioned features and promoted through existing backtest,
-calibration, comparison, and pre-live gates.
+These artifacts are registered in research manifests as diagnostics. They must
+remain advisory until converted into deterministic, timestamped, versioned
+features and promoted through existing backtest, calibration, comparison, and
+pre-live gates.

@@ -29,6 +29,7 @@ def create_run_manifest(
     market_regime = read_json(report_root / "market_regime.json")
     sentiment_features = read_json(report_root / "sentiment_features.json")
     sentiment_lift = read_json(report_root / "sentiment_lift.json")
+    nim_advisory = read_json(report_root / "nim_advisory.json")
     feature_blocklist_candidates = read_json(
         report_root / "feature_blocklist_candidates.json"
     )
@@ -63,6 +64,10 @@ def create_run_manifest(
             "synthetic_fill_data": synthetic_fills.get("data_version"),
             "synthetic_fill_feature": synthetic_fills.get("feature_version"),
             "feature_decision_report": feature_research_decision.get("report_version"),
+            "nim_advisory_report": nim_advisory.get("report_version"),
+            "nim_advisory_model": nim_advisory.get("model_version"),
+            "nim_advisory_feature": nim_advisory.get("feature_version"),
+            "nim_advisory_prompt": nim_advisory.get("prompt_version"),
         },
         "metrics": manifest_metrics(promotion, advisory, calibration, backtest),
         "counts": manifest_counts(
@@ -73,6 +78,7 @@ def create_run_manifest(
             market_regime,
             sentiment_features,
             sentiment_lift,
+            nim_advisory,
             feature_blocklist_candidates,
             blocked_segments,
             real_dry_run_evidence,
@@ -161,6 +167,7 @@ def manifest_counts(
     market_regime: dict[str, object],
     sentiment_features: dict[str, object],
     sentiment_lift: dict[str, object],
+    nim_advisory: dict[str, object],
     feature_blocklist_candidates: dict[str, object],
     blocked_segments: dict[str, object] | None = None,
     real_dry_run_evidence: dict[str, object] | None = None,
@@ -171,6 +178,8 @@ def manifest_counts(
     market_regime_counts = typed_dict(market_regime.get("counts"))
     sentiment_counts = typed_dict(sentiment_features.get("counts"))
     sentiment_lift_counts = typed_dict(sentiment_lift.get("counts"))
+    nim_counts = typed_dict(nim_advisory.get("counts"))
+    nim_summary = typed_dict(nim_advisory.get("summary"))
     feature_blocklist_counts = typed_dict(feature_blocklist_candidates.get("counts"))
     backtest_exports = typed_dict(summary.get("backtest_exports"))
     return {
@@ -209,6 +218,10 @@ def manifest_counts(
         "sentiment_lift_summary": sentiment_lift_counts.get(
             "sentiment_lift_summary"
         ),
+        "nim_advisory_enabled": nim_advisory.get("enabled"),
+        "nim_advisory_status": nim_advisory.get("status"),
+        "nim_advisory_annotations": nim_counts.get("nim_advisory_annotations"),
+        "nim_advisory_failures": nim_summary.get("failures"),
         "research_feature_bucket_performance": feature_blocklist_counts.get(
             "research_feature_bucket_performance"
         ),
@@ -235,6 +248,7 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "sentiment_lift.json",
         "feature_blocklist_candidates.json",
         "feature_research_decision.json",
+        "nim_advisory.json",
         "calibration.json",
         "pre_live_promotion.json",
         "agent_advisory.json",
@@ -334,6 +348,10 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "sentiment_feature_candidates": counts.get("sentiment_feature_candidates"),
         "sentiment_lift_trade_context": counts.get("sentiment_lift_trade_context"),
         "sentiment_lift_summary": counts.get("sentiment_lift_summary"),
+        "nim_advisory_enabled": counts.get("nim_advisory_enabled"),
+        "nim_advisory_status": counts.get("nim_advisory_status"),
+        "nim_advisory_annotations": counts.get("nim_advisory_annotations"),
+        "nim_advisory_failures": counts.get("nim_advisory_failures"),
         "research_feature_bucket_performance": counts.get(
             "research_feature_bucket_performance"
         ),
@@ -355,6 +373,10 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "synthetic_fill_data_version": versions.get("synthetic_fill_data"),
         "synthetic_fill_feature_version": versions.get("synthetic_fill_feature"),
         "feature_decision_report_version": versions.get("feature_decision_report"),
+        "nim_advisory_report_version": versions.get("nim_advisory_report"),
+        "nim_advisory_model_version": versions.get("nim_advisory_model"),
+        "nim_advisory_feature_version": versions.get("nim_advisory_feature"),
+        "nim_advisory_prompt_version": versions.get("nim_advisory_prompt"),
         "artifact_count": artifact_count(manifest),
         "artifact_bytes_total": artifact_bytes_total(manifest),
     }

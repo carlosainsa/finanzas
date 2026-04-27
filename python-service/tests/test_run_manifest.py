@@ -43,6 +43,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["sentiment_feature_candidates"] == 2
     assert counts["sentiment_lift_trade_context"] == 2
     assert counts["sentiment_lift_summary"] == 2
+    assert counts["nim_advisory_enabled"] is True
+    assert counts["nim_advisory_annotations"] == 2
+    assert counts["nim_advisory_failures"] == 0
     assert counts["research_feature_blocklist_candidates"] == 3
     assert counts["blocked_segment_candidates"] == 1
     assert counts["blocked_segments"] == 1
@@ -50,6 +53,7 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
     assert versions["promotion_report"] == "pre_live_promotion_v1"
     assert versions["feature_decision_report"] == "feature_research_decision_v1"
+    assert versions["nim_advisory_report"] == "nim_advisory_offline_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
     assert (manifest_root / "research_runs.parquet").exists()
@@ -70,11 +74,16 @@ def test_run_manifest_records_artifact_hashes(tmp_path: Path) -> None:
     feature_decision_artifact = [
         item for item in artifacts if item["relative_path"] == "feature_research_decision.json"
     ][0]
+    nim_advisory_artifact = [
+        item for item in artifacts if item["relative_path"] == "nim_advisory.json"
+    ][0]
     assert summary_artifact["kind"] == "json"
     assert summary_artifact["bytes"] > 0
     assert summary_artifact["sha256"] == sha256_file(report_root / "research_summary.json")
     assert feature_decision_artifact["kind"] == "json"
     assert feature_decision_artifact["bytes"] > 0
+    assert nim_advisory_artifact["kind"] == "json"
+    assert nim_advisory_artifact["bytes"] > 0
 
 
 def test_run_manifest_index_contains_multiple_runs(tmp_path: Path) -> None:
@@ -129,6 +138,14 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["sentiment_feature_candidates"] == 2
     assert flat["sentiment_lift_trade_context"] == 2
     assert flat["sentiment_lift_summary"] == 2
+    assert flat["nim_advisory_enabled"] is True
+    assert flat["nim_advisory_status"] == "ok"
+    assert flat["nim_advisory_annotations"] == 2
+    assert flat["nim_advisory_failures"] == 0
+    assert flat["nim_advisory_report_version"] == "nim_advisory_offline_v1"
+    assert flat["nim_advisory_model_version"] == "nvidia_nim_research_client_v1"
+    assert flat["nim_advisory_feature_version"] == "nim_advisory_annotations_v1"
+    assert flat["nim_advisory_prompt_version"] == "nim_evidence_advisory_prompt_v1"
     assert flat["research_feature_blocklist_candidates"] == 3
     assert flat["blocked_segment_candidates"] == 1
     assert flat["blocked_segments"] == 1
@@ -263,6 +280,27 @@ def seed_report_root(report_root: Path) -> Path:
                 "research_feature_blocklist_candidates": 3,
                 "blocked_segment_candidates": 1,
             },
+        },
+    )
+    write_json(
+        report_root / "nim_advisory.json",
+        {
+            "report_version": "nim_advisory_offline_v1",
+            "model_version": "nvidia_nim_research_client_v1",
+            "data_version": "external_evidence_v1",
+            "feature_version": "nim_advisory_annotations_v1",
+            "prompt_version": "nim_evidence_advisory_prompt_v1",
+            "decision_policy": "offline_advisory_only",
+            "can_execute_trades": False,
+            "enabled": True,
+            "status": "ok",
+            "summary": {
+                "annotations": 2,
+                "failures": 0,
+                "advisory_acceptable": True,
+                "can_execute_trades": False,
+            },
+            "counts": {"nim_advisory_annotations": 2},
         },
     )
     write_json(

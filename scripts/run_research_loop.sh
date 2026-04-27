@@ -96,6 +96,15 @@ PYTHONPATH=python-service python3 -m src.research.pre_live_promotion \
 PYTHONPATH=python-service python3 -m src.research.agent_advisory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"
+NIM_ADVISORY_ARGS=(
+  -m src.research.nim_advisory
+  --duckdb "$DUCKDB_PATH"
+  --output-dir "$REPORT_ROOT/nim_advisory"
+)
+if [[ "${ENABLE_NIM_ADVISORY:-0}" == "1" || "${ENABLE_NIM_ADVISORY:-0}" == "true" ]]; then
+  NIM_ADVISORY_ARGS+=(--enabled)
+fi
+PYTHONPATH=python-service python3 "${NIM_ADVISORY_ARGS[@]}" > "$REPORT_ROOT/nim_advisory.json"
 
 python3 - "$REPORT_ROOT" "$MANIFEST_ROOT" <<'PY' > "$REPORT_ROOT/feature_research_decision.json"
 import json
@@ -162,6 +171,7 @@ backtest = read_json("backtest.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 advisory = read_json("agent_advisory.json")
+nim_advisory = read_json("nim_advisory.json")
 synthetic_fills = read_json("synthetic_fills.json")
 feature_research_decision = read_json("feature_research_decision.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
@@ -183,6 +193,7 @@ summary = {
     "agent_advisory_acceptable": advisory_summary.get("advisory_acceptable", False),
     "pre_live_promotion": promotion,
     "agent_advisory": advisory,
+    "nim_advisory": nim_advisory,
     "feature_research_decision": feature_research_decision,
 }
 summary["passed"] = bool(
