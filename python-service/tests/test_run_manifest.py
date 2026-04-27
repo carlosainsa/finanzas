@@ -35,6 +35,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert metrics["dry_run_observed_fill_rate"] == 0.75
     assert counts["orderbook_snapshots"] == 4
     assert counts["signals"] == 4
+    assert counts["market_regime_summary"] == 1
+    assert counts["market_tail_risk"] == 1
+    assert counts["whale_pressure"] == 1
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
     assert versions["promotion_report"] == "pre_live_promotion_v1"
@@ -104,6 +107,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["unfilled_reason_summary"] == 1
     assert flat["dry_run_simulator_quality"] == 1
     assert flat["pre_live_gate_signals"] == 4
+    assert flat["market_regime_summary"] == 1
+    assert flat["market_tail_risk"] == 1
+    assert flat["whale_pressure"] == 1
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
     assert flat["synthetic_execution_reports"] == 3
@@ -184,6 +190,19 @@ def seed_report_root(report_root: Path) -> Path:
         },
     )
     write_json(report_root / "calibration.json", {"metrics": []})
+    write_json(
+        report_root / "market_regime.json",
+        {
+            "report_version": "market_regime_diagnostics_v1",
+            "decision_policy": "offline_diagnostics_only",
+            "can_execute_trades": False,
+            "counts": {
+                "market_regime_summary": 1,
+                "market_tail_risk": 1,
+                "whale_pressure": 1,
+            },
+        },
+    )
     write_json(
         report_root / "synthetic_fills.json",
         {

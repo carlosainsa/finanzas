@@ -202,6 +202,19 @@ reconciliation quality, and adverse-selection checks. They do not publish to
 Redis, do not create live signals, and do not decide trades. Their output is
 advisory evidence for comparing model versions against realized offline metrics.
 
+Market-regime diagnostics can also be generated from the same DuckDB database:
+
+```bash
+PYTHONPATH=python-service python -m src.research.market_regime \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/market_regime
+```
+
+This writes `market_regime.json` plus Parquet outputs for fractal/tail-risk
+diagnostics and whale-pressure features. These outputs are offline diagnostics:
+they can explain drawdowns, propose segment blocks, and inform future risk
+rules, but they do not authorize live trades.
+
 ## Research Run Manifest
 
 `research_summary.json` is the gate summary for one run. `research_manifest.json`

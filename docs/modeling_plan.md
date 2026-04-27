@@ -164,6 +164,19 @@ External evidence can be scored and converted into features, but it should not d
 - recency;
 - contradiction score.
 
+The sentiment roadmap is defined in
+[sentiment_and_whale_signals.md](sentiment_and_whale_signals.md). Sentiment
+features must be timestamped, evaluated walk-forward, and compared against
+price/liquidity behavior before they can influence the predictor.
+
+### Fractal Risk and Extreme Regimes
+
+Mandelbrot-style diagnostics are treated as risk and regime features, not as a
+standalone alpha model. The plan is defined in
+[fractal_risk_plan.md](fractal_risk_plan.md). Initial offline metrics include
+tail index, volatility clustering, Hurst/fractal-dimension proxies, max
+drawdown, and whale-pressure diagnostics from the orderbook.
+
 ## Offline Evaluation
 
 Before live promotion, run:
@@ -175,6 +188,7 @@ Before live promotion, run:
 - dry-run simulator quality summary for fill-rate, slippage, time-to-fill, and terminal status mix;
 - backtest report from [data_lake_plan.md](data_lake_plan.md);
 - game-theory report from [game_theory_plan.md](game_theory_plan.md);
+- market-regime report from [fractal_risk_plan.md](fractal_risk_plan.md);
 - walk-forward split by date;
 - calibration report;
 - pre-live promotion report;

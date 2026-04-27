@@ -73,6 +73,9 @@ PYTHONPATH=python-service python3 -m src.research.backtest \
 PYTHONPATH=python-service python3 -m src.research.game_theory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/game_theory" > "$REPORT_ROOT/game_theory.json"
+PYTHONPATH=python-service python3 -m src.research.market_regime \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/market_regime" > "$REPORT_ROOT/market_regime.json"
 PYTHONPATH=python-service python3 -m src.research.calibration \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/calibration" \
@@ -112,6 +115,7 @@ summary = {
     "synthetic_fills": synthetic_fills,
     "backtest_exports": backtest.get("exports", {}),
     "game_theory_exports": read_json("game_theory.json"),
+    "market_regime": read_json("market_regime.json"),
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
     "calibration_passed": calibration.get("passed", False),
     "pre_live_promotion_passed": promotion.get("passed", False),
