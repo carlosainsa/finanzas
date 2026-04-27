@@ -271,6 +271,20 @@ not runtime blocklists and must not be loaded into live execution without a
 separate promotion step, comparable restricted dry-run, and Rust risk-gate
 approval.
 
+To compare feature research across two runs without applying anything live:
+
+```bash
+PYTHONPATH=python-service python -m src.research.feature_research_decision \
+  --baseline-report-root data_lake/reports/run-a \
+  --candidate-report-root data_lake/reports/run-b \
+  --json
+```
+
+The decision is limited to `PROMOTE_FEATURE`, `KEEP_DIAGNOSTIC`, or
+`REJECT_FEATURE`. It checks sentiment lift, drawdown, adverse edge lift, feature
+blocklist candidate churn, and confirms candidate payloads remain
+`can_apply_live=false`.
+
 ## Research Run Manifest
 
 `research_summary.json` is the gate summary for one run. `research_manifest.json`

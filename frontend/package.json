@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "generate:types": "PYTHONPATH=../python-service python3 ../scripts/export_openapi.py src/generated/openapi.json && openapi-typescript src/generated/openapi.json -o src/generated/openapi.ts",
     "build": "tsc -b && vite build",
+    "test:e2e": "playwright test",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b"
   },
@@ -17,6 +18,7 @@
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "latest",

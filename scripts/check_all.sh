@@ -17,4 +17,5 @@ PYTHONPATH=python-service mypy python-service/src python-service/tests
 cd "$ROOT_DIR/frontend"
 npm run generate:types
 npm run typecheck
+npm run test:e2e
 npm run build
