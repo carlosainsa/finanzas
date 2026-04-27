@@ -54,7 +54,7 @@ def test_promotion_report_combines_required_pre_live_metrics(tmp_path: Path) -> 
     assert metrics["fill_rate"] == pytest.approx(1.0)
     assert metrics["realized_edge"] == pytest.approx(0.04)
     assert metrics["capture_duration_ms"] == 3000.0
-    assert metrics["dry_run_observed_fill_rate"] == 0.0
+    assert metrics["dry_run_observed_fill_rate"] is None
     assert metrics["max_abs_simulator_fill_rate_delta"] == 0.0
     assert metrics["reconciliation_divergence_rate"] == pytest.approx(0.0)
     assert checks["has_signals"] is True
@@ -117,16 +117,51 @@ def test_promotion_views_expose_drawdown_and_stale_data(tmp_path: Path) -> None:
                     'pre_live_drawdown',
                     'pre_live_stale_data',
                     'pre_live_promotion_metrics',
-                    'pre_live_promotion_checks'
+                    'pre_live_promotion_checks',
+                    'pre_live_promotion_segments',
+                    'pre_live_promotion_segment_checks',
+                    'pre_live_promotion_segment_summary'
                 )
+                """
+            ).fetchall()
+        }
+        segment = conn.execute(
+            """
+            select
+                signals,
+                filled_signals,
+                fill_rate,
+                realized_edge,
+                max_drawdown
+            from pre_live_promotion_segments
+            where market_id = 'market-1'
+              and asset_id = 'asset-1'
+              and side = 'BUY'
+            """
+        ).fetchone()
+        segment_checks = {
+            str(row[0]): bool(row[1])
+            for row in conn.execute(
+                """
+                select check_name, passed
+                from pre_live_promotion_segment_checks
+                where market_id = 'market-1'
+                  and asset_id = 'asset-1'
+                  and side = 'BUY'
                 """
             ).fetchall()
         }
 
     assert drawdown == (pytest.approx(0.26),)
     assert stale == (4, pytest.approx(0.0))
+    assert segment == (4, 4, pytest.approx(1.0), pytest.approx(0.04), pytest.approx(0.26))
+    assert segment_checks["positive_realized_edge"] is True
+    assert segment_checks["bounded_drawdown"] is True
     assert relation_types == {
         "pre_live_drawdown": "BASE TABLE",
+        "pre_live_promotion_segment_checks": "BASE TABLE",
+        "pre_live_promotion_segment_summary": "BASE TABLE",
+        "pre_live_promotion_segments": "BASE TABLE",
         "pre_live_promotion_checks": "BASE TABLE",
         "pre_live_promotion_metrics": "BASE TABLE",
         "pre_live_stale_data": "BASE TABLE",
@@ -145,6 +180,7 @@ def test_export_promotion_report_writes_json_and_parquet(tmp_path: Path) -> None
     assert (output_dir / "pre_live_promotion.json").exists()
     assert (output_dir / "pre_live_promotion_metrics.parquet").exists()
     assert (output_dir / "pre_live_promotion_checks.parquet").exists()
+    assert (output_dir / "pre_live_promotion_segments.parquet").exists()
 
 
 def test_promotion_report_handles_missing_data_without_crashing(tmp_path: Path) -> None:

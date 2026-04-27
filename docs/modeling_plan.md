@@ -195,6 +195,10 @@ Minimum promotion gates:
 The pre-live promotion report is implemented as `src.research.pre_live_promotion`.
 It combines backtest, game-theory, calibration, stale-data, drawdown, and
 reconciliation-divergence metrics into a single versioned offline gate.
+It also exports segment-level metrics by `market_id`, `asset_id`, `side`,
+`strategy`, and `model_version`, so a weak market can be blocked without hiding
+the rest of the strategy. Promotion PnL and drawdown are computed from observed
+trades; synthetic fills are used only for simulator-quality comparison.
 
 Synthetic fills are implemented as `src.research.synthetic_fills`. They are
 research-only estimates from future orderbook snapshots and are useful when

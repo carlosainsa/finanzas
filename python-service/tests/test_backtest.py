@@ -283,6 +283,7 @@ def test_backtest_reports_dry_run_simulator_quality(tmp_path: Path) -> None:
                 avg_ms_to_dry_run_fill,
                 avg_ms_to_synthetic_fill
             from dry_run_simulator_quality
+            where asset_id = 'asset-1'
             """
         ).fetchone()
 
@@ -290,9 +291,9 @@ def test_backtest_reports_dry_run_simulator_quality(tmp_path: Path) -> None:
         1,
         1,
         1,
-        pytest.approx(0.5),
         pytest.approx(1.0),
-        pytest.approx(-0.5),
+        pytest.approx(1.0),
+        pytest.approx(0.0),
         1,
         pytest.approx(1.0),
         pytest.approx(10.0),

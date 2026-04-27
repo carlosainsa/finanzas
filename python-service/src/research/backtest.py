@@ -431,13 +431,26 @@ def create_dry_run_simulator_quality_view(conn: duckdb.DuckDBPyConnection) -> No
             coalesce(data_version, 'unknown') as data_version,
             coalesce(feature_version, 'unknown') as feature_version,
             market_id,
+            asset_id,
             side,
             count(*) as signals,
             sum(case when is_dry_run_order then 1 else 0 end) as dry_run_reports,
             sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end) as dry_run_filled_signals,
-            avg(case when is_dry_run_order then observed_fill_rate else 0 end) as dry_run_observed_fill_rate,
+            case
+                when sum(case when is_dry_run_order then 1 else 0 end) > 0
+                then sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end)::double
+                   / sum(case when is_dry_run_order then 1 else 0 end)
+                else null
+            end as dry_run_observed_fill_rate,
             avg(synthetic_fill_rate) as synthetic_fill_rate,
-            avg(case when is_dry_run_order then observed_fill_rate else 0 end) - avg(synthetic_fill_rate) as fill_rate_delta_vs_synthetic,
+            case
+                when sum(case when is_dry_run_order then 1 else 0 end) > 0
+                then (
+                    sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end)::double
+                    / sum(case when is_dry_run_order then 1 else 0 end)
+                ) - avg(synthetic_fill_rate)
+                else null
+            end as fill_rate_delta_vs_synthetic,
             avg(case when is_dry_run_order then observed_slippage else null end) as dry_run_avg_slippage,
             avg(synthetic_slippage) as synthetic_avg_slippage,
             avg(case when is_dry_run_order then observed_slippage else null end) - avg(synthetic_slippage) as slippage_delta_vs_synthetic,
@@ -474,7 +487,7 @@ def create_dry_run_simulator_quality_view(conn: duckdb.DuckDBPyConnection) -> No
                 coalesce(observed_order_id, '') like 'dry-run-%' as is_dry_run_order
             from observed_vs_synthetic_fills
         )
-        group by strategy, model_version, data_version, feature_version, market_id, side
+        group by strategy, model_version, data_version, feature_version, market_id, asset_id, side
         """
     )
 

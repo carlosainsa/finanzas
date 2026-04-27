@@ -55,6 +55,53 @@ def create_promotion_views(
         ensure_optional_views(conn)
         ensure_optional_dry_run_simulator_quality_view(conn)
         conn.execute(
+            """
+            create or replace table pre_live_observed_trades as
+            select
+                s.signal_id,
+                s.market_id,
+                s.asset_id,
+                s.side,
+                coalesce(s.strategy, 'unknown') as strategy,
+                s.model_version::varchar as model_version,
+                s.data_version::varchar as data_version,
+                s.feature_version::varchar as feature_version,
+                s.event_timestamp_ms as signal_timestamp_ms,
+                s.price as signal_price,
+                s.size as signal_size,
+                s.confidence,
+                er.order_id,
+                er.status,
+                er.filled_price,
+                coalesce(er.cumulative_filled_size, er.filled_size, 0) as filled_size,
+                case
+                    when s.size > 0 then coalesce(er.cumulative_filled_size, er.filled_size, 0) / s.size
+                    else 0
+                end as fill_rate,
+                case
+                    when er.filled_price is null then null
+                    when s.side = 'BUY' then er.filled_price - s.price
+                    when s.side = 'SELL' then s.price - er.filled_price
+                    else null
+                end as slippage,
+                coalesce(er.filled_price, 0) * coalesce(er.cumulative_filled_size, er.filled_size, 0) as filled_notional,
+                case
+                    when s.side = 'BUY' then s.confidence - s.price
+                    when s.side = 'SELL' then s.price - (1 - s.confidence)
+                    else null
+                end as model_edge,
+                case
+                    when er.filled_price is null then null
+                    when s.side = 'BUY' then s.confidence - s.price - (er.filled_price - s.price)
+                    when s.side = 'SELL' then s.price - (1 - s.confidence) - (s.price - er.filled_price)
+                    else null
+                end as realized_edge_after_slippage,
+                cast(er.error as varchar) as error
+            from signals s
+            left join observed_execution_reports er on er.signal_id = s.signal_id
+            """
+        )
+        conn.execute(
             f"""
             create or replace table pre_live_equity_curve as
             select
@@ -66,7 +113,7 @@ def create_promotion_views(
                     order by signal_timestamp_ms, cast(signal_id as varchar), coalesce(cast(order_id as varchar), '')
                     rows between unbounded preceding and current row
                 ) as cumulative_pnl
-            from backtest_trades
+            from pre_live_observed_trades
             where signal_timestamp_ms is not null
             """
         )
@@ -186,7 +233,7 @@ def create_promotion_views(
                     coalesce(avg(fill_rate), 0) as fill_rate,
                     avg(slippage) as avg_slippage,
                     avg(realized_edge_after_slippage) as realized_edge
-                from backtest_trades
+                from pre_live_observed_trades
             ),
             adverse_metrics as (
                 select avg(adverse_30s_rate) as adverse_selection_rate
@@ -208,21 +255,58 @@ def create_promotion_views(
                     coalesce(avg(case when is_divergent then 1.0 else 0.0 end), 0) as reconciliation_divergence_rate
                 from pre_live_reconciliation_divergence
             ),
+            simulator_quality_segments as (
+                select
+                    coalesce(market_id, '') as market_id,
+                    coalesce(asset_id, '') as asset_id,
+                    coalesce(side, '') as side,
+                    coalesce(strategy, 'unknown') as strategy,
+                    coalesce(model_version, 'unknown') as model_version,
+                    count(*) as signals,
+                    sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end) as dry_run_reports,
+                    sum(case when coalesce(observed_order_id, '') like 'dry-run-%' and observed_fill_size > 0 then 1 else 0 end) as dry_run_filled_signals,
+                    case
+                        when sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end) > 0
+                        then sum(case when coalesce(observed_order_id, '') like 'dry-run-%' and observed_fill_size > 0 then 1 else 0 end)::double
+                           / sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end)
+                        else null
+                    end as dry_run_observed_fill_rate,
+                    avg(case when coalesce(observed_order_id, '') like 'dry-run-%' then synthetic_fill_rate else null end) as synthetic_fill_rate,
+                    case
+                        when sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end) > 0
+                        then (
+                            sum(case when coalesce(observed_order_id, '') like 'dry-run-%' and observed_fill_size > 0 then 1 else 0 end)::double
+                            / sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end)
+                        ) - avg(case when coalesce(observed_order_id, '') like 'dry-run-%' then synthetic_fill_rate else null end)
+                        else null
+                    end as simulator_fill_rate_delta,
+                    avg(case when coalesce(observed_order_id, '') like 'dry-run-%' then observed_slippage else null end) as dry_run_avg_slippage,
+                    avg(case
+                        when coalesce(observed_order_id, '') like 'dry-run-%'
+                         and observed_report_timestamp_ms is not null
+                         and signal_timestamp_ms is not null
+                            then observed_report_timestamp_ms - signal_timestamp_ms
+                        else null
+                    end) as avg_ms_to_dry_run_fill
+                from observed_vs_synthetic_fills
+                group by market_id, asset_id, side, strategy, model_version
+            ),
             simulator_quality_metrics as (
                 select
                     coalesce(sum(signals), 0) as dry_run_quality_signals,
                     coalesce(sum(dry_run_reports), 0) as dry_run_reports,
                     coalesce(sum(dry_run_filled_signals), 0) as dry_run_filled_signals,
                     case
-                        when coalesce(sum(signals), 0) > 0
-                        then coalesce(sum(dry_run_filled_signals), 0)::double / sum(signals)
-                        else 0
+                        when coalesce(sum(dry_run_reports), 0) > 0
+                        then coalesce(sum(dry_run_filled_signals), 0)::double / sum(dry_run_reports)
+                        else null
                     end as dry_run_observed_fill_rate,
-                    coalesce(avg(fill_rate_delta_vs_synthetic), 0) as simulator_fill_rate_delta,
-                    coalesce(max(abs(fill_rate_delta_vs_synthetic)), 0) as max_abs_simulator_fill_rate_delta,
+                    coalesce(avg(simulator_fill_rate_delta), 0) as simulator_fill_rate_delta,
+                    coalesce(max(abs(simulator_fill_rate_delta)), 0) as max_abs_simulator_fill_rate_delta,
                     avg(dry_run_avg_slippage) as dry_run_avg_slippage,
                     avg(avg_ms_to_dry_run_fill) as avg_ms_to_dry_run_fill
-                from dry_run_simulator_quality
+                from simulator_quality_segments
+                where dry_run_reports > 0
             ),
             calibration_metrics as (
                 select
@@ -314,7 +398,9 @@ def create_promotion_views(
                     'acceptable_dry_run_observed_fill_rate',
                     dry_run_observed_fill_rate,
                     {config.min_dry_run_observed_fill_rate},
-                    dry_run_observed_fill_rate >= {config.min_dry_run_observed_fill_rate}
+                    (
+                        dry_run_reports = 0 and {config.min_dry_run_observed_fill_rate} <= 0
+                    ) or dry_run_observed_fill_rate >= {config.min_dry_run_observed_fill_rate}
                 from metrics
                 union all
                 select
@@ -368,6 +454,221 @@ def create_promotion_views(
             )
             """
         )
+        conn.execute(
+            """
+            create or replace table pre_live_promotion_segments as
+            with segment_trades as (
+                select
+                    coalesce(market_id, '') as market_id,
+                    coalesce(asset_id, '') as asset_id,
+                    coalesce(side, '') as side,
+                    coalesce(strategy, 'unknown') as strategy,
+                    coalesce(model_version, 'unknown') as model_version,
+                    count(distinct signal_id) as signals,
+                    count(distinct case when filled_size > 0 then signal_id else null end) as filled_signals,
+                    coalesce(avg(fill_rate), 0) as fill_rate,
+                    avg(slippage) as avg_slippage,
+                    avg(realized_edge_after_slippage) as realized_edge,
+                    sum(coalesce(realized_edge_after_slippage, 0) * coalesce(filled_size, 0)) as pnl
+                from pre_live_observed_trades
+                group by market_id, asset_id, side, strategy, model_version
+            ),
+            segment_quality as (
+                select
+                    coalesce(market_id, '') as market_id,
+                    coalesce(asset_id, '') as asset_id,
+                    coalesce(side, '') as side,
+                    coalesce(strategy, 'unknown') as strategy,
+                    coalesce(model_version, 'unknown') as model_version,
+                    count(*) as quality_signals,
+                    sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end) as dry_run_reports,
+                    sum(case when coalesce(observed_order_id, '') like 'dry-run-%' and observed_fill_size > 0 then 1 else 0 end) as dry_run_filled_signals,
+                    case
+                        when sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end) > 0
+                        then sum(case when coalesce(observed_order_id, '') like 'dry-run-%' and observed_fill_size > 0 then 1 else 0 end)::double
+                           / sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end)
+                        else null
+                    end as dry_run_observed_fill_rate,
+                    avg(case when coalesce(observed_order_id, '') like 'dry-run-%' then synthetic_fill_rate else null end) as synthetic_fill_rate,
+                    case
+                        when sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end) > 0
+                        then (
+                            sum(case when coalesce(observed_order_id, '') like 'dry-run-%' and observed_fill_size > 0 then 1 else 0 end)::double
+                            / sum(case when coalesce(observed_order_id, '') like 'dry-run-%' then 1 else 0 end)
+                        ) - avg(case when coalesce(observed_order_id, '') like 'dry-run-%' then synthetic_fill_rate else null end)
+                        else null
+                    end as simulator_fill_rate_delta
+                from observed_vs_synthetic_fills
+                group by market_id, asset_id, side, strategy, model_version
+            ),
+            segment_equity as (
+                select
+                    coalesce(market_id, '') as market_id,
+                    coalesce(asset_id, '') as asset_id,
+                    coalesce(side, '') as side,
+                    coalesce(strategy, 'unknown') as strategy,
+                    coalesce(model_version, 'unknown') as model_version,
+                    signal_timestamp_ms,
+                    cast(signal_id as varchar) as signal_id,
+                    coalesce(cast(order_id as varchar), '') as order_id,
+                    coalesce(realized_edge_after_slippage, 0) * coalesce(filled_size, 0) as pnl,
+                    sum(coalesce(realized_edge_after_slippage, 0) * coalesce(filled_size, 0)) over (
+                        partition by
+                            coalesce(market_id, ''),
+                            coalesce(asset_id, ''),
+                            coalesce(side, ''),
+                            coalesce(strategy, 'unknown'),
+                            coalesce(model_version, 'unknown')
+                        order by signal_timestamp_ms, cast(signal_id as varchar), coalesce(cast(order_id as varchar), '')
+                        rows between unbounded preceding and current row
+                    ) as cumulative_pnl
+                from pre_live_observed_trades
+                where signal_timestamp_ms is not null
+            ),
+            segment_drawdown as (
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    max(drawdown) as max_drawdown
+                from (
+                    select
+                        market_id,
+                        asset_id,
+                        side,
+                        strategy,
+                        model_version,
+                        greatest(
+                            0,
+                            max(cumulative_pnl) over (
+                                partition by market_id, asset_id, side, strategy, model_version
+                                order by signal_timestamp_ms, signal_id, order_id
+                                rows between unbounded preceding and current row
+                            ) - cumulative_pnl
+                        ) as drawdown
+                    from segment_equity
+                )
+                group by market_id, asset_id, side, strategy, model_version
+            )
+            select
+                trades.market_id,
+                trades.asset_id,
+                trades.side,
+                trades.strategy,
+                trades.model_version,
+                trades.signals,
+                trades.filled_signals,
+                trades.fill_rate,
+                trades.avg_slippage,
+                trades.realized_edge,
+                trades.pnl,
+                coalesce(quality.dry_run_reports, 0) as dry_run_reports,
+                coalesce(quality.dry_run_filled_signals, 0) as dry_run_filled_signals,
+                    quality.dry_run_observed_fill_rate,
+                    coalesce(quality.synthetic_fill_rate, 0) as synthetic_fill_rate,
+                    quality.simulator_fill_rate_delta,
+                    abs(quality.simulator_fill_rate_delta) as abs_simulator_fill_rate_delta,
+                    coalesce(drawdown.max_drawdown, 0) as max_drawdown
+            from segment_trades trades
+            left join segment_quality quality
+              on quality.market_id = trades.market_id
+             and quality.asset_id = trades.asset_id
+             and quality.side = trades.side
+             and quality.strategy = trades.strategy
+             and quality.model_version = trades.model_version
+            left join segment_drawdown drawdown
+              on drawdown.market_id = trades.market_id
+             and drawdown.asset_id = trades.asset_id
+             and drawdown.side = trades.side
+             and drawdown.strategy = trades.strategy
+             and drawdown.model_version = trades.model_version
+            """
+        )
+        conn.execute(
+            f"""
+            create or replace table pre_live_promotion_segment_checks as
+            select *
+            from (
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    'positive_realized_edge' as check_name,
+                    realized_edge as metric_value,
+                    {config.min_realized_edge} as threshold,
+                    realized_edge is not null and realized_edge > {config.min_realized_edge} as passed
+                from pre_live_promotion_segments
+                union all
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    'acceptable_dry_run_observed_fill_rate',
+                    dry_run_observed_fill_rate,
+                    {config.min_dry_run_observed_fill_rate},
+                    (
+                        dry_run_reports = 0 and {config.min_dry_run_observed_fill_rate} <= 0
+                    ) or dry_run_observed_fill_rate >= {config.min_dry_run_observed_fill_rate}
+                from pre_live_promotion_segments
+                union all
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    'bounded_simulator_fill_rate_delta',
+                    abs_simulator_fill_rate_delta,
+                    {config.max_abs_simulator_fill_rate_delta},
+                    dry_run_reports = 0 or abs_simulator_fill_rate_delta <= {config.max_abs_simulator_fill_rate_delta}
+                from pre_live_promotion_segments
+                union all
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    'bounded_drawdown',
+                    max_drawdown,
+                    {config.max_drawdown},
+                    max_drawdown <= {config.max_drawdown}
+                from pre_live_promotion_segments
+            )
+            """
+        )
+        conn.execute(
+            """
+            create or replace table pre_live_promotion_segment_summary as
+            select
+                count(*) as segments,
+                sum(case when failed_checks = 0 then 1 else 0 end) as passing_segments,
+                sum(case when failed_checks > 0 then 1 else 0 end) as failing_segments,
+                max(max_drawdown) as worst_segment_drawdown,
+                max(abs_simulator_fill_rate_delta) as worst_segment_abs_simulator_fill_rate_delta,
+                min(realized_edge) as worst_segment_realized_edge
+            from (
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    count(*) filter (where not passed) as failed_checks
+                from pre_live_promotion_segment_checks
+                group by market_id, asset_id, side, strategy, model_version
+            ) checks
+            join pre_live_promotion_segments segments using (
+                market_id, asset_id, side, strategy, model_version
+            )
+            """
+        )
 
 
 def create_promotion_report(
@@ -417,6 +718,9 @@ def export_promotion_report(
         for view_name in (
             "pre_live_promotion_metrics",
             "pre_live_promotion_checks",
+            "pre_live_promotion_segments",
+            "pre_live_promotion_segment_checks",
+            "pre_live_promotion_segment_summary",
             "pre_live_drawdown",
             "pre_live_stale_data",
             "pre_live_reconciliation_divergence",
@@ -481,6 +785,7 @@ def ensure_optional_dry_run_simulator_quality_view(
             cast(null as varchar) as data_version,
             cast(null as varchar) as feature_version,
             cast(null as varchar) as market_id,
+            cast(null as varchar) as asset_id,
             cast(null as varchar) as side,
             cast(0 as bigint) as signals,
             cast(0 as bigint) as dry_run_reports,
@@ -517,6 +822,9 @@ def ensure_minimal_input_views(db_path: Path) -> None:
                     cast(null as double) as size,
                     cast(null as double) as confidence,
                     cast(null as varchar) as strategy,
+                    cast(null as varchar) as model_version,
+                    cast(null as varchar) as data_version,
+                    cast(null as varchar) as feature_version,
                     cast(null as bigint) as event_timestamp_ms
                 where false
                 """
@@ -564,6 +872,7 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
                 cast(null as varchar) as data_version,
                 cast(null as varchar) as feature_version,
                 cast(null as varchar) as market_id,
+                cast(null as varchar) as asset_id,
                 cast(null as varchar) as side,
                 cast(0 as bigint) as signals,
                 cast(0 as bigint) as dry_run_reports,
@@ -583,13 +892,60 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
             where false
             """
         )
+        conn.execute(
+            """
+            create or replace view observed_vs_synthetic_fills as
+            select
+                cast(null as varchar) as signal_id,
+                cast(null as varchar) as market_id,
+                cast(null as varchar) as asset_id,
+                cast(null as varchar) as side,
+                cast(null as varchar) as strategy,
+                cast(null as varchar) as model_version,
+                cast(null as varchar) as data_version,
+                cast(null as varchar) as feature_version,
+                cast(null as double) as signal_price,
+                cast(null as double) as signal_size,
+                cast(null as double) as confidence,
+                cast(null as bigint) as signal_timestamp_ms,
+                cast(null as varchar) as observed_order_id,
+                cast(null as varchar) as observed_status,
+                cast(null as double) as observed_filled_price,
+                cast(null as double) as observed_filled_size,
+                cast(null as double) as observed_cumulative_filled_size,
+                cast(null as double) as observed_remaining_size,
+                cast(null as varchar) as observed_error,
+                cast(null as bigint) as observed_report_timestamp_ms,
+                cast(null as varchar) as synthetic_order_id,
+                cast(null as varchar) as synthetic_status,
+                cast(null as double) as synthetic_filled_price,
+                cast(null as double) as synthetic_filled_size,
+                cast(null as double) as synthetic_cumulative_filled_size,
+                cast(null as double) as synthetic_remaining_size,
+                cast(null as bigint) as synthetic_report_timestamp_ms,
+                cast(null as double) as observed_fill_size,
+                cast(null as double) as synthetic_fill_size,
+                cast(null as double) as observed_fill_rate,
+                cast(null as double) as synthetic_fill_rate,
+                cast(null as double) as observed_slippage,
+                cast(null as double) as synthetic_slippage,
+                cast(null as double) as observed_realized_edge_after_slippage,
+                cast(null as double) as synthetic_realized_edge_after_slippage,
+                cast(null as varchar) as fill_evidence
+            where false
+            """
+        )
 
 
 def drop_promotion_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         for relation_name in (
+            "pre_live_promotion_segment_summary",
+            "pre_live_promotion_segment_checks",
+            "pre_live_promotion_segments",
             "pre_live_promotion_checks",
             "pre_live_promotion_metrics",
+            "pre_live_observed_trades",
             "pre_live_metrics",
             "pre_live_reconciliation_divergence",
             "pre_live_reconciliation_quality",
