@@ -169,6 +169,26 @@ class RuntimeMetricsResponse(BaseModel):
     source: list[str]
 
 
+class NIMBudgetResponse(BaseModel):
+    status: str
+    source: str
+    run_id: str | None = None
+    report_root: str | None = None
+    enabled: bool | None = None
+    nim_model: str | None = None
+    annotations: int | None = None
+    failures: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    latency_ms_avg: float | None = None
+    estimated_cost: float | None = None
+    budget_status: str | None = None
+    budget_violations: list[str]
+    can_execute_trades: bool
+    updated_at: str | None = None
+
+
 class ReconciliationEvent(BaseModel):
     event_id: str
     order_id: str | None = None

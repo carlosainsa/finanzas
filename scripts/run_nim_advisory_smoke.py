@@ -68,6 +68,8 @@ def main() -> int:
         raise SystemExit("NIM advisory report unexpectedly allowed trading")
     if flags != [("offline_advisory_only", False, "OK")]:
         raise SystemExit(f"unexpected NIM advisory flags: {flags}")
+    if report["summary"]["budget_status"] != "OK":
+        raise SystemExit(f"unexpected NIM budget status: {report['summary']['budget_status']}")
 
     print(
         json.dumps(
@@ -80,6 +82,7 @@ def main() -> int:
                 "total_tokens": report["summary"]["total_tokens"],
                 "latency_ms_avg": report["summary"]["latency_ms_avg"],
                 "estimated_cost": report["summary"]["estimated_cost"],
+                "budget_status": report["summary"]["budget_status"],
                 "annotation_flags": flags,
             },
             indent=2,

@@ -157,6 +157,25 @@ test('dashboard keeps last successful state when a later refresh fails', async (
   await expect(page.getByRole('heading', { name: 'Runtime Metrics' })).toBeVisible();
 });
 
+test('dashboard shows NIM budget and tolerates research endpoint failure', async ({ page }) => {
+  let failResearch = false;
+  await mockOperatorApi(page, {
+    fail: (method, path) => method === 'GET' && path === '/api/research/nim-budget' && failResearch ? 500 : null,
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'NIM Budget' })).toBeVisible();
+  await expect(page.getByText('deepseek-ai/deepseek-v3.2')).toBeVisible();
+  await expect(page.getByText('OK', { exact: true })).toBeVisible();
+
+  failResearch = true;
+  await page.getByRole('button', { name: 'Refresh dashboard' }).click();
+
+  await expect(page.getByRole('heading', { name: 'NIM Budget' })).toBeVisible();
+  await expect(page.getByText('API connected')).toBeVisible();
+});
+
 test('cancel-all preview failure does not submit destructive command', async ({ page }) => {
   const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
   await mockOperatorApi(page, {
@@ -399,6 +418,26 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         signal_to_order_latency_ms: 60,
         order_to_report_latency_ms: 80,
         source: ['signals:stream', 'execution:reports:stream'],
+      };
+    case '/api/research/nim-budget':
+      return {
+        status: 'ok',
+        source: 'data_lake/research_runs/research_runs.jsonl',
+        run_id: '20260427T000000Z',
+        report_root: 'data_lake/reports/20260427T000000Z',
+        enabled: true,
+        nim_model: 'deepseek-ai/deepseek-v3.2',
+        annotations: 1,
+        failures: 0,
+        prompt_tokens: 200,
+        completion_tokens: 66,
+        total_tokens: 266,
+        latency_ms_avg: 9625.576,
+        estimated_cost: 0,
+        budget_status: 'OK',
+        budget_violations: [],
+        can_execute_trades: false,
+        updated_at: '2026-04-27T00:00:00+00:00',
       };
     default:
       return {};

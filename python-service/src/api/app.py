@@ -19,12 +19,14 @@ from src.api.models import (
     OrdersOpenResponse,
     PositionsResponse,
     ReconciliationStatusResponse,
+    NIMBudgetResponse,
     RiskResponse,
     RuntimeMetricsResponse,
     StatusResponse,
     StrategyMetricsResponse,
     StreamsResponse,
 )
+from src.api.research_service import latest_nim_budget
 from src.api.operator_service import (
     open_orders,
     positions,
@@ -254,6 +256,11 @@ async def get_prometheus_metrics(_: ReadAuthDependency, limit: int = 500) -> Res
     redis = cast(RedisLike, await get_redis())
     metrics = await runtime_metrics(redis, count=max(1, min(limit, 1000)))
     return Response(content=prometheus_metrics(metrics), media_type="text/plain")
+
+
+@router.get("/research/nim-budget", response_model=NIMBudgetResponse)
+async def research_nim_budget(_: ReadAuthDependency) -> dict[str, object]:
+    return latest_nim_budget()
 
 
 @router.get("/reconciliation/status", response_model=ReconciliationStatusResponse)

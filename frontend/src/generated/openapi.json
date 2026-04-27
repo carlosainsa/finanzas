@@ -686,6 +686,180 @@
         "title": "MarketsDiscoverResponse",
         "type": "object"
       },
+      "NIMBudgetResponse": {
+        "properties": {
+          "annotations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotations"
+          },
+          "budget_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Status"
+          },
+          "budget_violations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Budget Violations",
+            "type": "array"
+          },
+          "can_execute_trades": {
+            "title": "Can Execute Trades",
+            "type": "boolean"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "estimated_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost"
+          },
+          "failures": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failures"
+          },
+          "latency_ms_avg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms Avg"
+          },
+          "nim_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nim Model"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "report_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Root"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "budget_violations",
+          "can_execute_trades"
+        ],
+        "title": "NIMBudgetResponse",
+        "type": "object"
+      },
       "OrdersOpenResponse": {
         "properties": {
           "orders": {
@@ -2056,6 +2230,29 @@
         "summary": "Reconciliation Status"
       }
     },
+    "/api/research/nim-budget": {
+      "get": {
+        "operationId": "research_nim_budget_api_research_nim_budget_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NIMBudgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Nim Budget"
+      }
+    },
     "/api/risk": {
       "get": {
         "operationId": "risk_api_risk_get",
@@ -2771,6 +2968,29 @@
           }
         ],
         "summary": "Reconciliation Status"
+      }
+    },
+    "/research/nim-budget": {
+      "get": {
+        "operationId": "research_nim_budget_research_nim_budget_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NIMBudgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Nim Budget"
       }
     },
     "/risk": {

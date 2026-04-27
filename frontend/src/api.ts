@@ -14,6 +14,7 @@ export type ControlResponse = components['schemas']['ControlResponse'];
 export type ControlPreview = components['schemas']['ControlPreviewResponse'];
 export type ReconciliationStatus = components['schemas']['ReconciliationStatusResponse'];
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
+export type NIMBudget = components['schemas']['NIMBudgetResponse'];
 
 export type DashboardData = {
   status: StatusResponse;
@@ -27,6 +28,7 @@ export type DashboardData = {
   controlResults: ControlResult[];
   reconciliation: ReconciliationStatus;
   runtime: RuntimeMetrics;
+  nimBudget: NIMBudget;
 };
 
 const API_BASE = import.meta.env.VITE_OPERATOR_API_BASE ?? '';
@@ -99,7 +101,7 @@ async function getJson<T>(path: keyof paths): Promise<T> {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const status = await getJson<StatusResponse>('/api/status');
-  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime] = await Promise.all([
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget] = await Promise.all([
     getJson<RiskResponse>('/api/risk'),
     getJson<{ streams: StreamSummary[] }>('/api/streams'),
     getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
@@ -110,6 +112,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     client.GET('/api/control/results', { params: { query: { limit: 20 } } }),
     client.GET('/api/reconciliation/status', { params: { query: { limit: 20 } } }),
     client.GET('/api/metrics', { params: { query: { limit: 500 } } }),
+    optionalGet<NIMBudget>('/api/research/nim-budget', fallbackData.nimBudget),
   ]);
 
   return {
@@ -124,7 +127,16 @@ export async function loadDashboard(): Promise<DashboardData> {
     controlResults: unwrap(controlResults.data, controlResults.error, '/api/control/results').results,
     reconciliation: unwrap(reconciliation.data, reconciliation.error, '/api/reconciliation/status'),
     runtime: unwrap(runtime.data, runtime.error, '/api/metrics'),
+    nimBudget,
   };
+}
+
+async function optionalGet<T>(path: keyof paths, fallback: T): Promise<T> {
+  try {
+    return await getJson<T>(path);
+  } catch {
+    return fallback;
+  }
 }
 
 export async function setKillSwitch(enabled: boolean): Promise<void> {
@@ -247,5 +259,24 @@ export const fallbackData: DashboardData = {
     signal_to_order_latency_ms: null,
     order_to_report_latency_ms: null,
     source: ['signals:stream', 'execution:reports:stream', 'operator:results:stream'],
+  },
+  nimBudget: {
+    status: 'missing',
+    source: 'data_lake/research_runs/research_runs.jsonl',
+    run_id: null,
+    report_root: null,
+    enabled: null,
+    nim_model: null,
+    annotations: null,
+    failures: null,
+    prompt_tokens: null,
+    completion_tokens: null,
+    total_tokens: null,
+    latency_ms_avg: null,
+    estimated_cost: null,
+    budget_status: null,
+    budget_violations: [],
+    can_execute_trades: false,
+    updated_at: null,
   },
 };

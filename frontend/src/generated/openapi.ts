@@ -259,6 +259,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/nim-budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Nim Budget */
+        get: operations["research_nim_budget_api_research_nim_budget_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/risk": {
         parameters: {
             query?: never;
@@ -582,6 +599,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/research/nim-budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Nim Budget */
+        get: operations["research_nim_budget_research_nim_budget_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/risk": {
         parameters: {
             query?: never;
@@ -852,6 +886,43 @@ export interface components {
             markets: components["schemas"]["ScoredMarket"][];
             /** Source */
             source: string;
+        };
+        /** NIMBudgetResponse */
+        NIMBudgetResponse: {
+            /** Annotations */
+            annotations?: number | null;
+            /** Budget Status */
+            budget_status?: string | null;
+            /** Budget Violations */
+            budget_violations: string[];
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Completion Tokens */
+            completion_tokens?: number | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Estimated Cost */
+            estimated_cost?: number | null;
+            /** Failures */
+            failures?: number | null;
+            /** Latency Ms Avg */
+            latency_ms_avg?: number | null;
+            /** Nim Model */
+            nim_model?: string | null;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
+            /** Report Root */
+            report_root?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+            /** Total Tokens */
+            total_tokens?: number | null;
+            /** Updated At */
+            updated_at?: string | null;
         };
         /** OrdersOpenResponse */
         OrdersOpenResponse: {
@@ -1522,6 +1593,26 @@ export interface operations {
             };
         };
     };
+    research_nim_budget_api_research_nim_budget_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NIMBudgetResponse"];
+                };
+            };
+        };
+    };
     risk_api_risk_get: {
         parameters: {
             query?: never;
@@ -2030,6 +2121,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_nim_budget_research_nim_budget_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NIMBudgetResponse"];
                 };
             };
         };

@@ -28,7 +28,7 @@ import {
   setReadToken,
 } from './api';
 
-const navItems = ['Overview', 'Streams', 'Risk', 'Orders', 'Discovery'];
+const navItems = ['Overview', 'Streams', 'Risk', 'Orders', 'Discovery', 'Research'];
 
 export function App() {
   const [data, setData] = useState<DashboardData>(fallbackData);
@@ -393,6 +393,35 @@ export function App() {
               <Counter label="Controls" value={data.runtime.control_results} />
             </div>
           </Panel>
+
+          <Panel title="NIM Budget" subtitle={data.nimBudget.source}>
+            <div className="budgetHeader">
+              <span className={`budgetBadge ${budgetTone(data.nimBudget.budget_status)}`}>
+                {data.nimBudget.budget_status ?? data.nimBudget.status}
+              </span>
+              <code>{data.nimBudget.run_id ?? 'no research run'}</code>
+            </div>
+            <div className="counterGrid">
+              <Counter label="Tokens" value={data.nimBudget.total_tokens ?? 0} />
+              <Counter label="Annotations" value={data.nimBudget.annotations ?? 0} />
+              <Counter label="Failures" value={data.nimBudget.failures ?? 0} />
+              <Counter label="Cost" value={Number(data.nimBudget.estimated_cost ?? 0)} />
+            </div>
+            <Table
+              empty="No NIM budget data"
+              rows={[
+                [
+                  data.nimBudget.nim_model ?? '-',
+                  formatNumber(data.nimBudget.latency_ms_avg),
+                  formatBudgetCost(data.nimBudget.estimated_cost),
+                  data.nimBudget.budget_violations.length > 0
+                    ? data.nimBudget.budget_violations.join(', ')
+                    : '-',
+                ],
+              ]}
+              headers={['Model', 'Avg latency ms', 'Cost', 'Violations']}
+            />
+          </Panel>
         </section>
 
         <section className="widePanel">
@@ -453,6 +482,23 @@ function formatNumber(value: number | null | undefined): string {
     return '-';
   }
   return value.toFixed(value >= 10 ? 0 : 2);
+}
+
+function formatBudgetCost(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+  return value === 0 ? '0' : value.toFixed(6);
+}
+
+function budgetTone(status: string | null | undefined): string {
+  if (status === 'OK' || status === 'DISABLED') {
+    return 'good';
+  }
+  if (status === 'BUDGET_EXCEEDED') {
+    return 'danger';
+  }
+  return 'neutral';
 }
 
 function Counter({ label, value }: { label: string; value: number }) {

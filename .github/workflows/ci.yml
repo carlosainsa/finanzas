@@ -96,3 +96,43 @@ jobs:
 
       - name: Run managed integration smoke
         run: scripts/run_integration_smoke.sh
+
+  nim-advisory-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+      ENABLE_NIM_ADVISORY: "true"
+      NIM_MODEL: deepseek-ai/deepseek-v3.2
+      NIM_MAX_REQUESTS_PER_RUN: "1"
+      NIM_MAX_EVIDENCE_PER_RUN: "1"
+      NIM_MAX_TOKENS_PER_RUN: "2000"
+      NIM_MAX_LATENCY_MS_PER_RUN: "60000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip when NVIDIA secret is absent
+        if: env.NVIDIA_NIM_API_KEY == ''
+        run: echo "NVIDIA_NIM_API_KEY is not configured; skipping NIM advisory smoke."
+
+      - name: Set up Python
+        if: env.NVIDIA_NIM_API_KEY != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            python-service/requirements.txt
+            python-service/requirements-dev.txt
+
+      - name: Install Python dependencies
+        if: env.NVIDIA_NIM_API_KEY != ''
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r python-service/requirements-dev.txt
+
+      - name: Run NIM advisory smoke
+        if: env.NVIDIA_NIM_API_KEY != ''
+        run: PYTHONPATH=python-service scripts/run_nim_advisory_smoke.py

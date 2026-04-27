@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("orders")
     subparsers.add_parser("positions")
     subparsers.add_parser("metrics")
+    subparsers.add_parser("nim-budget")
     reconciliation = subparsers.add_parser("reconciliation")
     reconciliation.add_argument("--limit", type=int)
     control_results = subparsers.add_parser("control-results")
@@ -88,6 +89,8 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
             return request_json(client, "GET", "/positions", token=read_token(args))
         if args.command == "metrics":
             return request_json(client, "GET", "/metrics", token=read_token(args))
+        if args.command == "nim-budget":
+            return request_json(client, "GET", "/research/nim-budget", token=read_token(args))
         if args.command == "reconciliation":
             return request_json(
                 client,
@@ -252,6 +255,32 @@ def print_command_table(command: str, value: object) -> None:
             return
     if command == "metrics" and isinstance(value, dict):
         print_metrics(value)
+        return
+    if command == "nim-budget" and isinstance(value, dict):
+        print_rows(
+            [
+                {
+                    "status": value.get("status"),
+                    "budget_status": value.get("budget_status"),
+                    "run_id": value.get("run_id"),
+                    "model": value.get("nim_model"),
+                    "tokens": value.get("total_tokens"),
+                    "latency_ms_avg": value.get("latency_ms_avg"),
+                    "estimated_cost": value.get("estimated_cost"),
+                    "violations": value.get("budget_violations"),
+                }
+            ],
+            [
+                "status",
+                "budget_status",
+                "run_id",
+                "model",
+                "tokens",
+                "latency_ms_avg",
+                "estimated_cost",
+                "violations",
+            ],
+        )
         return
     if command == "reconciliation" and isinstance(value, dict):
         print_rows(

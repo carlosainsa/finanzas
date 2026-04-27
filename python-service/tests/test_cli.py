@@ -32,6 +32,7 @@ def test_cli_supports_metrics_and_control_results() -> None:
     parser = cli.build_parser()
 
     assert parser.parse_args(["metrics"]).command == "metrics"
+    assert parser.parse_args(["nim-budget"]).command == "nim-budget"
     assert parser.parse_args(["reconciliation"]).command == "reconciliation"
     args = parser.parse_args(["control-results", "--limit", "5"])
 
@@ -144,3 +145,24 @@ def test_cli_prints_reconciliation_summary(capsys: pytest.CaptureFixture[str]) -
     output = capsys.readouterr().out
     assert "open_local_orders" in output
     assert "warning" in output
+
+
+def test_cli_prints_nim_budget_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "nim-budget",
+        {
+            "status": "ok",
+            "budget_status": "OK",
+            "run_id": "run-1",
+            "nim_model": "deepseek-ai/deepseek-v3.2",
+            "total_tokens": 266,
+            "latency_ms_avg": 9625.576,
+            "estimated_cost": 0.0,
+            "budget_violations": [],
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "budget_status" in output
+    assert "deepseek-ai/deepseek-v3.2" in output
+    assert "266" in output

@@ -405,6 +405,36 @@ h2 {
   font-size: 18px;
 }
 
+.budgetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.budgetBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #ebe5d9;
+  color: #38423f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.budgetBadge.good {
+  background: #dff4ee;
+  color: #116657;
+}
+
+.budgetBadge.danger {
+  background: #fee7dd;
+  color: #9f341f;
+}
+
 code {
   color: #18201f;
   font-family: "SFMono-Regular", Consolas, monospace;
@@ -511,7 +541,7 @@ th {
   }
 
   nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     overflow-x: auto;
   }
 
