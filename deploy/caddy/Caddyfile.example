@@ -1,0 +1,16 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$OPERATOR_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+	}
+
+	reverse_proxy {$OPERATOR_API_UPSTREAM:127.0.0.1:18000}
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket Python Consumer
+After=network-online.target operator-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/carlos_ainsa_gmail_com/finanzas
+EnvironmentFile=/home/carlos_ainsa_gmail_com/finanzas/.env.production
+Environment=PYTHONPATH=/home/carlos_ainsa_gmail_com/finanzas/python-service
+ExecStart=/usr/bin/python3 -m src.data.consumer
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

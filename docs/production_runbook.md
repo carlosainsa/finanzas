@@ -142,13 +142,24 @@ The standard non-conflicting VM ports for this project are:
 - Operator API: `127.0.0.1:18000`.
 - Operator dashboard dev/preview server: `127.0.0.1:5174`.
 
-Start the Operator API:
+For production, build the dashboard and let FastAPI serve both `/` and `/api/*`
+from `127.0.0.1:18000`:
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+scripts/run_operator_api.sh
+```
+
+For local VM preview with Vite, start the Operator API:
 
 ```bash
 scripts/run_operator_api.sh
 ```
 
-Start the dashboard against that API:
+Then start the dashboard against that API:
 
 ```bash
 scripts/run_operator_frontend.sh
@@ -164,7 +175,17 @@ Then open `http://<vm-public-ip>:5174/`. A private VM address such as `10.x.x.x`
 
 Production should expose only the reverse proxy publicly on `80` and `443`; keep raw Vite and Uvicorn ports private.
 
-Nginx example:
+The production Nginx example is versioned at `deploy/nginx/operator-dashboard.conf.example`. It proxies all dashboard and API traffic to FastAPI on `127.0.0.1:18000`, which is the preferred production topology after `npm run build`.
+
+Caddy example with automatic TLS is versioned at `deploy/caddy/Caddyfile.example`.
+
+Systemd examples for the API and Python consumer are versioned at
+`deploy/systemd/operator-api.service.example` and
+`deploy/systemd/operator-consumer.service.example`. Copy them into
+`/etc/systemd/system/`, adjust paths if the repo lives elsewhere, then run
+`systemctl daemon-reload` before enabling them.
+
+For temporary preview deployments that intentionally put Vite behind Nginx, use:
 
 ```nginx
 server {
@@ -211,6 +232,39 @@ Local checks on the VM:
 curl http://127.0.0.1:18000/health
 curl http://127.0.0.1:5174/
 ```
+
+## Public Proxy Smoke Test
+
+After DNS, TLS, and the reverse proxy are configured, run the public HTTP smoke:
+
+```bash
+PUBLIC_OPERATOR_URL=https://operator.example.com \
+OPERATOR_READ_TOKEN="$OPERATOR_READ_TOKEN" \
+scripts/run_public_operator_smoke.sh
+```
+
+This validates the dashboard HTML, `/api/health`, read-only API endpoints,
+Prometheus metrics, and negative auth for read endpoints. To validate control
+preview auth without sending any destructive command:
+
+```bash
+PUBLIC_OPERATOR_URL=https://operator.example.com \
+OPERATOR_READ_TOKEN="$OPERATOR_READ_TOKEN" \
+OPERATOR_CONTROL_TOKEN="$OPERATOR_CONTROL_TOKEN" \
+scripts/run_public_operator_smoke.sh --include-control-previews
+```
+
+Run the browser smoke against the same public URL:
+
+```bash
+cd frontend
+PUBLIC_OPERATOR_URL=https://operator.example.com \
+OPERATOR_READ_TOKEN="$OPERATOR_READ_TOKEN" \
+npm run test:e2e:public
+```
+
+These public smokes are intentionally not part of `scripts/check_all.sh` because
+they depend on deployed infrastructure, DNS, TLS, and operator secrets.
 
 ## Operator CLI
 

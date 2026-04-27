@@ -1,0 +1,19 @@
+[Unit]
+Description=Polymarket Operator API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/carlos_ainsa_gmail_com/finanzas
+EnvironmentFile=/home/carlos_ainsa_gmail_com/finanzas/.env.production
+Environment=OPERATOR_API_HOST=127.0.0.1
+Environment=OPERATOR_API_PORT=18000
+ExecStart=/home/carlos_ainsa_gmail_com/finanzas/scripts/run_operator_api.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

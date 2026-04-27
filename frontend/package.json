@@ -10,6 +10,7 @@
     "generate:types": "PYTHONPATH=../python-service python3 ../scripts/export_openapi.py src/generated/openapi.json && openapi-typescript src/generated/openapi.json -o src/generated/openapi.ts",
     "build": "tsc -b && vite build",
     "test:e2e": "playwright test",
+    "test:e2e:public": "playwright test --config playwright.public.config.ts",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b"
   },
