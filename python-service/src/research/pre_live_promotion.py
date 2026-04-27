@@ -51,7 +51,7 @@ def create_promotion_views(
         ensure_optional_views(conn)
         conn.execute(
             f"""
-            create or replace view pre_live_equity_curve as
+            create or replace table pre_live_equity_curve as
             select
                 signal_timestamp_ms,
                 cast(signal_id as varchar) as signal_id,
@@ -67,7 +67,7 @@ def create_promotion_views(
         )
         conn.execute(
             """
-            create or replace view pre_live_drawdown as
+            create or replace table pre_live_drawdown as
             select
                 signal_timestamp_ms,
                 signal_id,
@@ -91,7 +91,7 @@ def create_promotion_views(
         if relation_exists(conn, "baseline_filter_decisions"):
             conn.execute(
                 """
-                create or replace view pre_live_stale_data as
+                create or replace table pre_live_stale_data as
                 select
                     cast(null as varchar) as market_id,
                     cast(null as varchar) as asset_id,
@@ -104,7 +104,7 @@ def create_promotion_views(
         else:
             conn.execute(
                 f"""
-                create or replace view pre_live_stale_data as
+                create or replace table pre_live_stale_data as
                 select
                     market_id,
                     asset_id,
@@ -127,7 +127,7 @@ def create_promotion_views(
         if relation_exists(conn, "reconciliation_events"):
             conn.execute(
                 """
-                create or replace view pre_live_reconciliation_divergence as
+                create or replace table pre_live_reconciliation_divergence as
                 select
                     cast(signal_id as varchar) as signal_id,
                     cast(order_id as varchar) as order_id,
@@ -145,7 +145,7 @@ def create_promotion_views(
         else:
             conn.execute(
                 """
-                create or replace view pre_live_reconciliation_divergence as
+                create or replace table pre_live_reconciliation_divergence as
                 select
                     cast(signal_id as varchar) as signal_id,
                     cast(order_id as varchar) as order_id,
@@ -162,7 +162,7 @@ def create_promotion_views(
             )
         conn.execute(
             f"""
-            create or replace view pre_live_promotion_metrics as
+            create or replace table pre_live_promotion_metrics as
             with trade_metrics as (
                 select
                     count(distinct signal_id) as signals,
@@ -223,7 +223,11 @@ def create_promotion_views(
         )
         conn.execute(
             f"""
-            create or replace view pre_live_promotion_checks as
+            create or replace table pre_live_promotion_checks as
+            with metrics as (
+                select *
+                from pre_live_promotion_metrics
+            )
             select *
             from (
                 select
@@ -231,70 +235,70 @@ def create_promotion_views(
                     signals::double as metric_value,
                     1.0 as threshold,
                     signals > 0 as passed
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'has_fills',
                     filled_signals::double,
                     1.0,
                     filled_signals > 0
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'positive_realized_edge',
                     realized_edge,
                     {config.min_realized_edge},
                     realized_edge is not null and realized_edge > {config.min_realized_edge}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'acceptable_fill_rate',
                     fill_rate,
                     {config.min_fill_rate},
                     fill_rate >= {config.min_fill_rate}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'bounded_slippage',
                     abs(avg_slippage),
                     {config.max_abs_slippage},
                     avg_slippage is null or abs(avg_slippage) <= {config.max_abs_slippage}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'no_persistent_adverse_selection',
                     adverse_selection_rate,
                     {config.max_adverse_selection_rate},
                     adverse_selection_rate is null or adverse_selection_rate <= {config.max_adverse_selection_rate}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'bounded_drawdown',
                     max_drawdown,
                     {config.max_drawdown},
                     max_drawdown <= {config.max_drawdown}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'fresh_market_data',
                     stale_data_rate,
                     {config.max_stale_data_rate},
                     stale_data_rate <= {config.max_stale_data_rate}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'clean_reconciliation',
                     reconciliation_divergence_rate,
                     {config.max_reconciliation_divergence_rate},
                     reconciliation_divergence_rate <= {config.max_reconciliation_divergence_rate}
-                from pre_live_promotion_metrics
+                from metrics
                 union all
                 select
                     'calibration_available',
                     test_brier_score,
                     {config.max_brier_score},
                     test_brier_score is not null and test_brier_score <= {config.max_brier_score}
-                from pre_live_promotion_metrics
+                from metrics
             )
             """
         )
@@ -454,15 +458,35 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
 
 def drop_promotion_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
-        for view_name in (
+        for relation_name in (
             "pre_live_promotion_checks",
+            "pre_live_promotion_metrics",
             "pre_live_metrics",
+            "pre_live_reconciliation_divergence",
             "pre_live_reconciliation_quality",
             "pre_live_stale_data",
             "pre_live_drawdown",
             "pre_live_equity_curve",
         ):
-            conn.execute(f"drop view if exists {view_name}")
+            drop_relation_if_exists(conn, relation_name)
+
+
+def drop_relation_if_exists(conn: duckdb.DuckDBPyConnection, name: str) -> None:
+    row = conn.execute(
+        """
+        select table_type
+        from information_schema.tables
+        where table_name = ?
+        """,
+        [name],
+    ).fetchone()
+    if row is None:
+        return
+    relation_type = str(row[0]).upper()
+    if relation_type == "VIEW":
+        conn.execute(f"drop view {name}")
+    else:
+        conn.execute(f"drop table {name}")
 
 
 def db_relation_exists(db_path: Path, name: str) -> bool:

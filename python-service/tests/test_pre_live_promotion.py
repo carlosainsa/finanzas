@@ -74,9 +74,30 @@ def test_promotion_views_expose_drawdown_and_stale_data(tmp_path: Path) -> None:
             from pre_live_stale_data
             """
         ).fetchone()
+        relation_types = {
+            str(row[0]): str(row[1])
+            for row in conn.execute(
+                """
+                select table_name, table_type
+                from information_schema.tables
+                where table_name in (
+                    'pre_live_drawdown',
+                    'pre_live_stale_data',
+                    'pre_live_promotion_metrics',
+                    'pre_live_promotion_checks'
+                )
+                """
+            ).fetchall()
+        }
 
     assert drawdown == (pytest.approx(0.26),)
     assert stale == (4, pytest.approx(0.0))
+    assert relation_types == {
+        "pre_live_drawdown": "BASE TABLE",
+        "pre_live_promotion_checks": "BASE TABLE",
+        "pre_live_promotion_metrics": "BASE TABLE",
+        "pre_live_stale_data": "BASE TABLE",
+    }
 
 
 def test_export_promotion_report_writes_json_and_parquet(tmp_path: Path) -> None:

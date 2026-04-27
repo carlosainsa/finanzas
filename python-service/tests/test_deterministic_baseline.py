@@ -11,6 +11,8 @@ from src.research.data_lake import create_duckdb_views, export_data_lake
 from src.research.deterministic_baseline import (
     BASELINE_FEATURE_VERSION,
     BASELINE_MODEL_VERSION,
+    NEAR_TOUCH_BASELINE_FEATURE_VERSION,
+    NEAR_TOUCH_BASELINE_MODEL_VERSION,
     BaselineConfig,
     create_baseline_views,
     export_baseline_report,
@@ -60,6 +62,39 @@ def test_baseline_generates_deterministic_versioned_signals(tmp_path: Path) -> N
     assert features == (pytest.approx(0.08), pytest.approx(10.0), pytest.approx(0.0))
     assert len(signals) == 1
     assert signals[0][1:] == ("BUY", pytest.approx(0.44), pytest.approx(1.0), BASELINE_MODEL_VERSION, BASELINE_FEATURE_VERSION)
+
+
+def test_baseline_near_touch_quote_generates_versioned_signals(tmp_path: Path) -> None:
+    db_path = seed_baseline_db(tmp_path)
+
+    create_baseline_views(
+        db_path,
+        BaselineConfig(
+            min_depth=1.0,
+            max_stale_gap_ms=60_000,
+            quote_placement="near_touch",
+            near_touch_tick_size=0.01,
+            near_touch_offset_ticks=0,
+            near_touch_max_spread_fraction=1.0,
+        ),
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        signals = conn.execute(
+            """
+            select side, price, model_version, feature_version
+            from baseline_signals
+            order by timestamp_ms
+            """
+        ).fetchall()
+
+    assert len(signals) == 1
+    assert signals[0] == (
+        "BUY",
+        pytest.approx(0.52),
+        NEAR_TOUCH_BASELINE_MODEL_VERSION,
+        NEAR_TOUCH_BASELINE_FEATURE_VERSION,
+    )
 
 
 def test_baseline_filters_stale_momentum_and_depth(tmp_path: Path) -> None:

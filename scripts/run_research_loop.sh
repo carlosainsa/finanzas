@@ -6,6 +6,10 @@ DATA_LAKE_ROOT="${DATA_LAKE_ROOT:-$ROOT_DIR/data_lake}"
 DUCKDB_PATH="${DATA_LAKE_DUCKDB:-$DATA_LAKE_ROOT/research.duckdb}"
 EXPORT_COUNT="${DATA_LAKE_EXPORT_COUNT:-1000}"
 TRAIN_FRACTION="${RESEARCH_TRAIN_FRACTION:-0.70}"
+BASELINE_QUOTE_PLACEMENT="${BASELINE_QUOTE_PLACEMENT:-passive_bid}"
+BASELINE_NEAR_TOUCH_TICK_SIZE="${BASELINE_NEAR_TOUCH_TICK_SIZE:-0.01}"
+BASELINE_NEAR_TOUCH_OFFSET_TICKS="${BASELINE_NEAR_TOUCH_OFFSET_TICKS:-0}"
+BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION="${BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION:-1.0}"
 REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 REPORT_ROOT="${RESEARCH_REPORT_ROOT:-$DATA_LAKE_ROOT/reports/$REPORT_TIMESTAMP}"
 MANIFEST_ROOT="${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}"
@@ -28,7 +32,12 @@ cd "$ROOT_DIR"
 PYTHONPATH=python-service python3 "${DATA_LAKE_ARGS[@]}" > "$REPORT_ROOT/data_lake_export.json"
 PYTHONPATH=python-service python3 -m src.research.deterministic_baseline \
   --duckdb "$DUCKDB_PATH" \
-  --output-dir "$REPORT_ROOT/baseline" > "$REPORT_ROOT/baseline.json"
+  --output-dir "$REPORT_ROOT/baseline" \
+  --quote-placement "$BASELINE_QUOTE_PLACEMENT" \
+  --near-touch-tick-size "$BASELINE_NEAR_TOUCH_TICK_SIZE" \
+  --near-touch-offset-ticks "$BASELINE_NEAR_TOUCH_OFFSET_TICKS" \
+  --near-touch-max-spread-fraction "$BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION" \
+  > "$REPORT_ROOT/baseline.json"
 PYTHONPATH=python-service python3 -m src.research.synthetic_fills \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/synthetic_fills" > "$REPORT_ROOT/synthetic_fills.json"

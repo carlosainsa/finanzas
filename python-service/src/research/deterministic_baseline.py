@@ -11,6 +11,9 @@ BASELINE_STRATEGY = "deterministic_microstructure_baseline_v1"
 BASELINE_MODEL_VERSION = "deterministic_microstructure_baseline_v1"
 BASELINE_FEATURE_VERSION = "microstructure_features_v1"
 BASELINE_DATA_VERSION = "research_orderbook_snapshots_v1"
+NEAR_TOUCH_BASELINE_STRATEGY = "deterministic_microstructure_baseline_near_touch_v1"
+NEAR_TOUCH_BASELINE_MODEL_VERSION = "deterministic_microstructure_baseline_near_touch_v1"
+NEAR_TOUCH_BASELINE_FEATURE_VERSION = "microstructure_features_near_touch_v1"
 
 
 @dataclass(frozen=True)
@@ -24,9 +27,29 @@ class BaselineConfig:
     max_stale_gap_ms: int = 60_000
     max_adverse_30s_rate: float = 0.50
     order_size: float = 1.0
+    quote_placement: str = "passive_bid"
+    near_touch_tick_size: float = 0.01
+    near_touch_offset_ticks: int = 0
+    near_touch_max_spread_fraction: float = 1.0
+
+    def __post_init__(self) -> None:
+        placement = self.quote_placement.lower()
+        if placement not in {"passive_bid", "near_touch"}:
+            raise ValueError("quote_placement must be passive_bid or near_touch")
+        if self.near_touch_tick_size < 0:
+            raise ValueError("near_touch_tick_size must be non-negative")
+        if self.near_touch_offset_ticks < 0:
+            raise ValueError("near_touch_offset_ticks must be non-negative")
+        if not 0 <= self.near_touch_max_spread_fraction <= 1:
+            raise ValueError("near_touch_max_spread_fraction must be between 0 and 1")
 
 
 def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig()) -> None:
+    strategy = baseline_strategy(config)
+    model_version = baseline_model_version(config)
+    feature_version = baseline_feature_version(config)
+    price_expression = baseline_buy_price_expression(config)
+    size_depth_expression = baseline_buy_size_depth_expression(config)
     with duckdb.connect(str(db_path)) as conn:
         ensure_base_views(conn)
         ensure_adverse_selection_view(conn)
@@ -84,7 +107,7 @@ def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig
             left join adverse_selection_by_strategy adverse
               on adverse.market_id = book.market_id
              and adverse.side = 'BUY'
-             and adverse.strategy = '{duckdb_literal(BASELINE_STRATEGY)}'
+             and adverse.strategy = '{duckdb_literal(strategy)}'
             where book.event_timestamp_ms is not null
             """
         )
@@ -106,12 +129,12 @@ def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig
             f"""
             create or replace view baseline_signals as
             select
-                md5('{BASELINE_STRATEGY}' || ':' || market_id || ':' || asset_id || ':' || event_timestamp_ms::varchar || ':BUY') as signal_id,
+                md5('{duckdb_literal(strategy)}' || ':' || market_id || ':' || asset_id || ':' || event_timestamp_ms::varchar || ':BUY') as signal_id,
                 market_id,
                 asset_id,
                 'BUY' as side,
-                best_bid as price,
-                least({config.order_size}, bid_depth) as size,
+                {price_expression} as price,
+                least({config.order_size}, {size_depth_expression}) as size,
                 least(
                     0.99,
                     greatest(
@@ -121,10 +144,10 @@ def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig
                 ) as confidence,
                 event_timestamp_ms as timestamp_ms,
                 event_timestamp_ms as source_timestamp_ms,
-                '{BASELINE_STRATEGY}' as strategy,
-                '{BASELINE_MODEL_VERSION}' as model_version,
+                '{duckdb_literal(strategy)}' as strategy,
+                '{duckdb_literal(model_version)}' as model_version,
                 '{BASELINE_DATA_VERSION}' as data_version,
-                '{BASELINE_FEATURE_VERSION}' as feature_version
+                '{duckdb_literal(feature_version)}' as feature_version
             from baseline_filter_decisions
             where passes_spread
               and passes_depth
@@ -171,10 +194,10 @@ def export_baseline_report(
     report: dict[str, object] = {
         "counts": counts,
         "config": asdict(config),
-        "strategy": BASELINE_STRATEGY,
-        "model_version": BASELINE_MODEL_VERSION,
+        "strategy": baseline_strategy(config),
+        "model_version": baseline_model_version(config),
         "data_version": BASELINE_DATA_VERSION,
-        "feature_version": BASELINE_FEATURE_VERSION,
+        "feature_version": baseline_feature_version(config),
     }
     (output_dir / "baseline_summary.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -205,6 +228,48 @@ def ensure_adverse_selection_view(conn: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def baseline_strategy(config: BaselineConfig) -> str:
+    return (
+        NEAR_TOUCH_BASELINE_STRATEGY
+        if config.quote_placement.lower() == "near_touch"
+        else BASELINE_STRATEGY
+    )
+
+
+def baseline_model_version(config: BaselineConfig) -> str:
+    return (
+        NEAR_TOUCH_BASELINE_MODEL_VERSION
+        if config.quote_placement.lower() == "near_touch"
+        else BASELINE_MODEL_VERSION
+    )
+
+
+def baseline_feature_version(config: BaselineConfig) -> str:
+    return (
+        NEAR_TOUCH_BASELINE_FEATURE_VERSION
+        if config.quote_placement.lower() == "near_touch"
+        else BASELINE_FEATURE_VERSION
+    )
+
+
+def baseline_buy_price_expression(config: BaselineConfig) -> str:
+    if config.quote_placement.lower() == "passive_bid":
+        return "best_bid"
+    offset = config.near_touch_offset_ticks * config.near_touch_tick_size
+    return (
+        "greatest(best_bid, least("
+        f"best_ask - {offset}, "
+        f"best_bid + spread * {config.near_touch_max_spread_fraction}"
+        "))"
+    )
+
+
+def baseline_buy_size_depth_expression(config: BaselineConfig) -> str:
+    if config.quote_placement.lower() == "near_touch":
+        return "ask_depth"
+    return "bid_depth"
+
+
 def main() -> int:
     import argparse
 
@@ -220,6 +285,18 @@ def main() -> int:
     parser.add_argument("--max-stale-gap-ms", type=int, default=BaselineConfig.max_stale_gap_ms)
     parser.add_argument("--max-adverse-30s-rate", type=float, default=BaselineConfig.max_adverse_30s_rate)
     parser.add_argument("--order-size", type=float, default=BaselineConfig.order_size)
+    parser.add_argument(
+        "--quote-placement",
+        choices=("passive_bid", "near_touch"),
+        default=BaselineConfig.quote_placement,
+    )
+    parser.add_argument("--near-touch-tick-size", type=float, default=BaselineConfig.near_touch_tick_size)
+    parser.add_argument("--near-touch-offset-ticks", type=int, default=BaselineConfig.near_touch_offset_ticks)
+    parser.add_argument(
+        "--near-touch-max-spread-fraction",
+        type=float,
+        default=BaselineConfig.near_touch_max_spread_fraction,
+    )
     args = parser.parse_args()
 
     report = export_baseline_report(
@@ -235,6 +312,10 @@ def main() -> int:
             max_stale_gap_ms=args.max_stale_gap_ms,
             max_adverse_30s_rate=args.max_adverse_30s_rate,
             order_size=args.order_size,
+            quote_placement=args.quote_placement,
+            near_touch_tick_size=args.near_touch_tick_size,
+            near_touch_offset_ticks=args.near_touch_offset_ticks,
+            near_touch_max_spread_fraction=args.near_touch_max_spread_fraction,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

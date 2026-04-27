@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     predictor_min_spread: float = 0.03
     predictor_order_size: float = 1.0
     predictor_min_confidence: float = 0.55
+    predictor_quote_placement: str = "passive_bid"
+    predictor_near_touch_research_only: bool = True
+    predictor_near_touch_tick_size: float = 0.01
+    predictor_near_touch_offset_ticks: int = 0
+    predictor_near_touch_max_spread_fraction: float = 1.0
 
 settings = Settings()
 
@@ -60,6 +65,8 @@ def validate_production_settings() -> None:
                 "configuration missing required settings: " + ", ".join(missing)
             )
         return
+    if settings.predictor_quote_placement.lower() != "passive_bid":
+        missing.append("PREDICTOR_QUOTE_PLACEMENT=passive_bid")
     if settings.operator_read_token is None:
         missing.append("OPERATOR_READ_TOKEN")
     if settings.operator_control_token is None:

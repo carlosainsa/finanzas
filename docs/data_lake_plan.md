@@ -106,7 +106,9 @@ PYTHONPATH=python-service python -m src.research.deterministic_baseline \
   --output-dir data_lake/baseline
 ```
 
-It writes baseline features, filter decisions, synthetic baseline signals, and a summary for `deterministic_microstructure_baseline_v1`.
+It writes baseline features, filter decisions, synthetic baseline signals, and a summary for `deterministic_microstructure_baseline_v1`. The default quote placement is `passive_bid`, which preserves the conservative baseline. Research runs can opt into `--quote-placement near_touch` to evaluate whether near-touch quotes improve fill-rate; this emits separate near-touch model and feature versions so results are not mixed with the passive baseline.
+
+Real market dry-run research defaults the live predictor to `PREDICTOR_QUOTE_PLACEMENT=near_touch` with `EXECUTION_MODE=dry_run`. This mode is research-only and is blocked for production/live operation; it exists to produce fill evidence before any live policy change.
 
 Synthetic fills can be generated offline from future orderbook snapshots:
 
@@ -172,6 +174,9 @@ This writes `pre_live_promotion.json` plus Parquet tables for metrics, checks,
 drawdown, stale-data gaps, and reconciliation divergence. It combines realized
 edge, fill-rate, slippage, adverse selection, drawdown, stale-data rate,
 reconciliation divergence rate, and calibration quality into one offline gate.
+The promotion stage materializes its expensive DuckDB relations before reading
+checks and exports, so large dry-run samples do not repeatedly expand the
+backtest, game-theory, calibration, and stale-data view graph.
 
 Agent advisory diagnostics can be generated offline from the same DuckDB database:
 
