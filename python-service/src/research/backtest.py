@@ -123,6 +123,7 @@ def export_backtest_report(db_path: Path, output_dir: Path) -> dict[str, int]:
         / "observed_vs_synthetic_fill_summary.parquet",
         "unfilled_signal_reasons": output_dir / "unfilled_signal_reasons.parquet",
         "unfilled_reason_summary": output_dir / "unfilled_reason_summary.parquet",
+        "dry_run_simulator_quality": output_dir / "dry_run_simulator_quality.parquet",
     }
     counts: dict[str, int] = {}
     with duckdb.connect(str(db_path)) as conn:
@@ -417,6 +418,65 @@ def create_observed_vs_synthetic_fill_views(conn: duckdb.DuckDBPyConnection) -> 
         """
     )
     create_unfilled_reason_views(conn)
+    create_dry_run_simulator_quality_view(conn)
+
+
+def create_dry_run_simulator_quality_view(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        create or replace view dry_run_simulator_quality as
+        select
+            strategy,
+            coalesce(model_version, 'unknown') as model_version,
+            coalesce(data_version, 'unknown') as data_version,
+            coalesce(feature_version, 'unknown') as feature_version,
+            market_id,
+            side,
+            count(*) as signals,
+            sum(case when is_dry_run_order then 1 else 0 end) as dry_run_reports,
+            sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end) as dry_run_filled_signals,
+            avg(case when is_dry_run_order then observed_fill_rate else 0 end) as dry_run_observed_fill_rate,
+            avg(synthetic_fill_rate) as synthetic_fill_rate,
+            avg(case when is_dry_run_order then observed_fill_rate else 0 end) - avg(synthetic_fill_rate) as fill_rate_delta_vs_synthetic,
+            avg(case when is_dry_run_order then observed_slippage else null end) as dry_run_avg_slippage,
+            avg(synthetic_slippage) as synthetic_avg_slippage,
+            avg(case when is_dry_run_order then observed_slippage else null end) - avg(synthetic_slippage) as slippage_delta_vs_synthetic,
+            avg(case
+                when is_dry_run_order
+                 and observed_report_timestamp_ms is not null
+                 and signal_timestamp_ms is not null
+                    then observed_report_timestamp_ms - signal_timestamp_ms
+                else null
+            end) as avg_ms_to_dry_run_fill,
+            avg(case
+                when synthetic_report_timestamp_ms is not null
+                 and signal_timestamp_ms is not null
+                    then synthetic_report_timestamp_ms - signal_timestamp_ms
+                else null
+            end) as avg_ms_to_synthetic_fill,
+            sum(case when is_dry_run_order and observed_status = 'PARTIAL' then 1 else 0 end) as dry_run_partial_reports,
+            sum(case when is_dry_run_order and observed_status = 'MATCHED' then 1 else 0 end) as dry_run_matched_reports,
+            case
+                when sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end) > 0
+                    then sum(case when is_dry_run_order and observed_status = 'PARTIAL' then 1 else 0 end)::double
+                       / sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end)
+                else 0
+            end as dry_run_partial_rate,
+            case
+                when sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end) > 0
+                    then sum(case when is_dry_run_order and observed_status = 'MATCHED' then 1 else 0 end)::double
+                       / sum(case when is_dry_run_order and observed_fill_size > 0 then 1 else 0 end)
+                else 0
+            end as dry_run_matched_rate
+        from (
+            select
+                *,
+                coalesce(observed_order_id, '') like 'dry-run-%' as is_dry_run_order
+            from observed_vs_synthetic_fills
+        )
+        group by strategy, model_version, data_version, feature_version, market_id, side
+        """
+    )
 
 
 def create_unfilled_reason_views(conn: duckdb.DuckDBPyConnection) -> None:

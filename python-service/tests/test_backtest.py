@@ -191,12 +191,14 @@ def test_export_backtest_report_writes_outputs(tmp_path: Path) -> None:
         "observed_vs_synthetic_fill_summary": 1,
         "unfilled_signal_reasons": 0,
         "unfilled_reason_summary": 0,
+        "dry_run_simulator_quality": 1,
     }
     assert (output_dir / "backtest_trades.parquet").exists()
     assert (output_dir / "backtest_summary.parquet").exists()
     assert (output_dir / "observed_vs_synthetic_fill_summary.parquet").exists()
     assert (output_dir / "unfilled_signal_reasons.parquet").exists()
     assert (output_dir / "unfilled_reason_summary.parquet").exists()
+    assert (output_dir / "dry_run_simulator_quality.parquet").exists()
 
 
 def test_backtest_compares_observed_and_synthetic_fills(tmp_path: Path) -> None:
@@ -251,6 +253,50 @@ def test_backtest_classifies_unfilled_with_synthetic_fill_available(
         "no_observed_report_but_synthetic_fill",
         "synthetic_fill_available",
         1,
+    )
+
+
+def test_backtest_reports_dry_run_simulator_quality(tmp_path: Path) -> None:
+    db_path = seed_research_db(
+        tmp_path,
+        with_fill=True,
+        with_touching_book=True,
+        order_id="dry-run-signal-1",
+        report_status="MATCHED",
+    )
+
+    create_synthetic_fill_views(db_path)
+    create_backtest_views(db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select
+                signals,
+                dry_run_reports,
+                dry_run_filled_signals,
+                dry_run_observed_fill_rate,
+                synthetic_fill_rate,
+                fill_rate_delta_vs_synthetic,
+                dry_run_matched_reports,
+                dry_run_matched_rate,
+                avg_ms_to_dry_run_fill,
+                avg_ms_to_synthetic_fill
+            from dry_run_simulator_quality
+            """
+        ).fetchone()
+
+    assert row == (
+        1,
+        1,
+        1,
+        pytest.approx(0.5),
+        pytest.approx(1.0),
+        pytest.approx(-0.5),
+        1,
+        pytest.approx(1.0),
+        pytest.approx(10.0),
+        pytest.approx(20.0),
     )
 
 
@@ -355,6 +401,7 @@ def seed_research_db(
     with_touching_book: bool = False,
     touch_limit: bool = True,
     report_status: str | None = None,
+    order_id: str = "order-1",
 ) -> Path:
     redis = FakeRedis()
     redis.add_payload(
@@ -378,7 +425,7 @@ def seed_research_db(
             settings.execution_reports_stream,
             {
                 "signal_id": "signal-1",
-                "order_id": "order-1",
+                "order_id": order_id,
                 "status": status,
                 "filled_price": 0.47 if with_fill else None,
                 "filled_size": filled_size,

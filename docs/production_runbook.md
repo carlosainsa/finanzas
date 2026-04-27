@@ -101,7 +101,9 @@ Real dry-run research is isolated by default under `.tmp/real-dry-run-data-lake/
 Set `REAL_DRY_RUN_ISOLATED=0` only when intentionally writing into the shared
 `data_lake/` root.
 Review `unfilled_reason_summary` and `observed_vs_synthetic_fill_summary`
-before changing predictor thresholds or considering live mode.
+before changing predictor thresholds or considering live mode. Review
+`dry_run_simulator_quality` to verify fill-rate, slippage, time-to-fill, and
+`PARTIAL`/`MATCHED` mix from the dry-run simulator.
 
 ## Startup
 

@@ -172,6 +172,7 @@ Before live promotion, run:
 - synthetic offline fills for dry-run samples without observed fills;
 - observed-vs-synthetic fill comparison to measure synthetic fill optimism;
 - unfilled reason summary to separate model, market-data, and execution causes;
+- dry-run simulator quality summary for fill-rate, slippage, time-to-fill, and terminal status mix;
 - backtest report from [data_lake_plan.md](data_lake_plan.md);
 - game-theory report from [game_theory_plan.md](game_theory_plan.md);
 - walk-forward split by date;
@@ -208,6 +209,11 @@ if most misses are `future_book_never_touched_limit`, the issue is quote
 placement; if they are `observed_delayed` or `observed_unmatched`, the issue is
 execution/reconciliation behavior; if synthetic fills are available without
 observed fills, dry-run/live execution simulation needs review.
+
+Backtest exports `dry_run_simulator_quality` for real dry-run runs. This report
+is the simulator-quality gate: it compares observed dry-run fill-rate against
+synthetic fill-rate, simulated slippage, time-to-fill, and the `PARTIAL` vs
+`MATCHED` mix before model changes are evaluated.
 
 The offline agent advisory report is implemented as `src.research.agent_advisory`.
 It runs deterministic reviewers for edge, execution quality, adverse selection,

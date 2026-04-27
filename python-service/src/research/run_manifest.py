@@ -143,6 +143,7 @@ def manifest_counts(
         ),
         "unfilled_signal_reasons": backtest_exports.get("unfilled_signal_reasons"),
         "unfilled_reason_summary": backtest_exports.get("unfilled_reason_summary"),
+        "dry_run_simulator_quality": backtest_exports.get("dry_run_simulator_quality"),
         "pre_live_gate_signals": typed_dict(backtest.get("pre_live_gate")).get("signals"),
     }
 
@@ -228,6 +229,7 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         ),
         "unfilled_signal_reasons": counts.get("unfilled_signal_reasons"),
         "unfilled_reason_summary": counts.get("unfilled_reason_summary"),
+        "dry_run_simulator_quality": counts.get("dry_run_simulator_quality"),
         "pre_live_gate_signals": counts.get("pre_live_gate_signals"),
         "promotion_report_version": versions.get("promotion_report"),
         "advisory_report_version": versions.get("advisory_report"),

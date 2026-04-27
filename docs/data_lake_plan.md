@@ -88,9 +88,10 @@ PYTHONPATH=python-service python -m src.research.backtest \
 The report writes `backtest_trades.parquet`, `backtest_summary.parquet`,
 `observed_vs_synthetic_fills.parquet`,
 `observed_vs_synthetic_fill_summary.parquet`, `unfilled_signal_reasons.parquet`,
-`unfilled_reason_summary.parquet`, and optionally `pre_live_gate.json` with
-fill-rate, slippage, model edge, realized edge after slippage, total filled
-size, adverse-selection status when available, and error counts.
+`unfilled_reason_summary.parquet`, `dry_run_simulator_quality.parquet`, and
+optionally `pre_live_gate.json` with fill-rate, slippage, model edge, realized
+edge after slippage, total filled size, adverse-selection status when available,
+and error counts.
 `backtest_trades` is order-level, while `backtest_summary` counts unique signals
 separately from orders to avoid double-counting `PARTIAL -> MATCHED` report
 lifecycles. Treat these metrics as a pre-live gate:
@@ -132,6 +133,11 @@ The `unfilled_*` backtest outputs explain signals that had no observed fill.
 They separate execution statuses such as `ERROR`, `DELAYED`, and `UNMATCHED`
 from market-evidence reasons such as no future orderbook snapshot, no future
 limit touch, or synthetic fill available without an observed fill.
+
+The `dry_run_simulator_quality` output is the explicit simulator-quality report.
+It compares observed dry-run fills against synthetic offline fills by market and
+side, including fill-rate delta, slippage delta, average time-to-fill, and
+`PARTIAL` vs `MATCHED` mix.
 
 Game-theory reports can also be generated from the same DuckDB database:
 
