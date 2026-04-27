@@ -247,6 +247,24 @@ The comparison reports deltas for signals, fills, fill-rate, realized edge,
 drawdown, stale-data/reconciliation quality, simulator delta, blocked segment
 count, runtime blocklist count, segment-level improvements/regressions,
 new/removed segments, and newly blocked/unblocked segment keys.
+If segment exports are missing, segment keys differ, or required segment key
+columns are absent, the comparison verdict is `no_comparable`; aggregate metrics
+remain visible, but they must not be used as promotion evidence.
+
+The automatic comparative promotion gate can be run over the same reports:
+
+```bash
+PYTHONPATH=python-service python -m src.research.research_promotion_decision \
+  --baseline-report-root .tmp/real-dry-run-data-lake/<baseline>/reports/<baseline> \
+  --candidate-report-root .tmp/real-dry-run-data-lake/<candidate>/reports/<candidate> \
+  --json
+```
+
+It emits `PROMOTE`, `REJECT`, or `NEED_MORE_DATA`. The gate requires the
+candidate absolute run gate to have passed, a `candidate_improved` comparison
+verdict, comparable segment keys, no newly blocked segments, and objective
+deltas for realized edge, fill-rate, drawdown, simulator quality, stale data,
+and reconciliation divergence.
 
 ## Real Market Dry-Run Research
 

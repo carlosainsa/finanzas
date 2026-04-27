@@ -123,14 +123,95 @@ def test_compare_report_roots_reports_segment_and_blocklist_changes(
 
     comparison = cast(dict[str, Any], report["comparison"])
     summary = cast(dict[str, Any], comparison["segment_change_summary"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
     blocked = cast(dict[str, Any], comparison["blocked_segment_changes"])
     segment_table = format_segment_changes_table(report)
+    assert comparison["verdict"] == "no_comparable"
+    assert comparability["status"] == "no_comparable"
+    assert comparability["reason"] == "segment_key_mismatch"
     assert summary["improved_segments"] == 1
     assert summary["new_segments"] == 1
     assert summary["removed_segments"] == 1
     assert blocked["newly_blocked_count"] == 1
     assert blocked["unblocked_count"] == 1
     assert "improved" in segment_table
+
+
+def test_compare_report_roots_keeps_verdict_when_segments_match(tmp_path: Path) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(
+        baseline,
+        [segment_row("market-1", "asset-1", realized_edge=0.01, max_drawdown=0.05)],
+    )
+    write_segments(
+        candidate,
+        [segment_row("market-1", "asset-1", realized_edge=0.04, max_drawdown=0.02)],
+    )
+    override_metric(candidate, "realized_edge", 0.07)
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
+    assert comparison["verdict"] == "candidate_improved"
+    assert comparability["status"] == "comparable"
+    assert comparability["reason"] is None
+
+
+def test_compare_report_roots_marks_missing_candidate_segments(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(baseline, [segment_row("market-1", "asset-1", realized_edge=0.01)])
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
+    assert comparison["verdict"] == "no_comparable"
+    assert comparability["reason"] == "missing_candidate_segment_export"
+
+
+def test_compare_report_roots_marks_missing_segment_keys(tmp_path: Path) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(baseline, [segment_row("market-1", "asset-1", realized_edge=0.01)])
+    bad_candidate = segment_row("market-1", "asset-1", realized_edge=0.04)
+    del bad_candidate["model_version"]
+    write_segments(candidate, [bad_candidate])
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
+    assert comparison["verdict"] == "no_comparable"
+    assert comparability["reason"] == "missing_candidate_segment_keys"
 
 
 def test_compare_runs_requires_two_runs(tmp_path: Path) -> None:
@@ -157,6 +238,14 @@ def seed_manifest_index(tmp_path: Path) -> Path:
     override_metric(run_2, "filled_signals", 4)
     override_metric(run_2, "drawdown", 0.01)
     override_advisory(run_2, failed=1)
+    write_segments(
+        run_1,
+        [segment_row("market-1", "asset-1", realized_edge=0.04, max_drawdown=0.03)],
+    )
+    write_segments(
+        run_2,
+        [segment_row("market-1", "asset-1", realized_edge=0.07, max_drawdown=0.01)],
+    )
     create_run_manifest(run_1, manifest_root, run_id="run-1")
     create_run_manifest(run_2, manifest_root, run_id="run-2")
     return manifest_root

@@ -77,7 +77,9 @@ def compare_runs(
         baseline_run_id=str(baseline["run_id"]),
         candidate_run_id=str(candidate["run_id"]),
         metric_deltas=deltas,
-        verdict=comparison_verdict(deltas),
+        verdict=comparison_verdict_for(
+            deltas, report_root_from_row(baseline), report_root_from_row(candidate)
+        ),
     )
     return {
         "baseline": normalize_row(baseline),
@@ -91,6 +93,9 @@ def compare_runs(
                 report_root_from_row(baseline), report_root_from_row(candidate)
             ),
             "segment_change_summary": segment_change_summary(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
+            "segment_comparability": segment_comparability(
                 report_root_from_row(baseline), report_root_from_row(candidate)
             ),
             "blocked_segment_changes": blocked_segment_changes(
@@ -121,9 +126,14 @@ def compare_report_roots(
             "baseline_run_id": str(baseline.get("run_id")),
             "candidate_run_id": str(candidate.get("run_id")),
             "metric_deltas": deltas,
-            "verdict": comparison_verdict(deltas),
+            "verdict": comparison_verdict_for(
+                deltas, baseline_report_root, candidate_report_root
+            ),
             "segment_changes": segment_changes(baseline_report_root, candidate_report_root),
             "segment_change_summary": segment_change_summary(
+                baseline_report_root, candidate_report_root
+            ),
+            "segment_comparability": segment_comparability(
                 baseline_report_root, candidate_report_root
             ),
             "blocked_segment_changes": blocked_segment_changes(
@@ -252,6 +262,54 @@ def segment_change_summary(
     }
 
 
+def segment_comparability(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    if baseline_report_root is None or candidate_report_root is None:
+        return {
+            "status": "no_comparable",
+            "reason": "missing_report_root",
+            "baseline_segments_available": False,
+            "candidate_segments_available": False,
+            "missing_in_baseline": 0,
+            "missing_in_candidate": 0,
+        }
+    baseline_path = segment_path(baseline_report_root)
+    candidate_path = segment_path(candidate_report_root)
+    baseline_exists = baseline_path.exists()
+    candidate_exists = candidate_path.exists()
+    baseline = load_segments(baseline_report_root)
+    candidate = load_segments(candidate_report_root)
+    baseline_keys = key_set(baseline, segment_keys())
+    candidate_keys = key_set(candidate, segment_keys())
+    if not baseline_exists and not candidate_exists:
+        reason = "missing_both_segment_exports"
+    elif not baseline_exists:
+        reason = "missing_baseline_segment_export"
+    elif not candidate_exists:
+        reason = "missing_candidate_segment_export"
+    elif missing_segment_columns(baseline):
+        reason = "missing_baseline_segment_keys"
+    elif missing_segment_columns(candidate):
+        reason = "missing_candidate_segment_keys"
+    elif baseline_keys == candidate_keys:
+        reason = None
+    else:
+        reason = "segment_key_mismatch"
+    status = "comparable" if reason is None else "no_comparable"
+    return {
+        "status": status,
+        "reason": reason,
+        "baseline_segments_available": baseline_exists,
+        "candidate_segments_available": candidate_exists,
+        "baseline_segment_path": str(baseline_path),
+        "candidate_segment_path": str(candidate_path),
+        "missing_in_baseline": len(candidate_keys - baseline_keys),
+        "missing_in_candidate": len(baseline_keys - candidate_keys),
+    }
+
+
 def joined_segment_frame(
     baseline_report_root: Path | None,
     candidate_report_root: Path | None,
@@ -328,10 +386,18 @@ def segment_change_score(row: pd.Series) -> float:
 
 
 def load_segments(report_root: Path) -> pd.DataFrame:
-    path = report_root / "pre_live_promotion" / "pre_live_promotion_segments.parquet"
+    path = segment_path(report_root)
     if not path.exists():
         return pd.DataFrame()
     return pd.read_parquet(path)
+
+
+def missing_segment_columns(frame: pd.DataFrame) -> list[str]:
+    return [key for key in segment_keys() if key not in frame.columns]
+
+
+def segment_path(report_root: Path) -> Path:
+    return report_root / "pre_live_promotion" / "pre_live_promotion_segments.parquet"
 
 
 def blocked_segment_changes(
@@ -439,6 +505,17 @@ def comparison_verdict(deltas: list[dict[str, object]]) -> str:
     if worsened > improved:
         return "candidate_regressed"
     return "mixed"
+
+
+def comparison_verdict_for(
+    deltas: list[dict[str, object]],
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> str:
+    comparability = segment_comparability(baseline_report_root, candidate_report_root)
+    if comparability.get("status") != "comparable":
+        return "no_comparable"
+    return comparison_verdict(deltas)
 
 
 def normalize_row(row: dict[str, Any]) -> dict[str, object]:
