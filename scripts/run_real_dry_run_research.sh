@@ -63,6 +63,10 @@ if [[ "$DISABLE_MARKET_WS" == "1" || "$DISABLE_MARKET_WS" == "true" ]]; then
   echo "Refusing to run: DISABLE_MARKET_WS must be false to collect real market data." >&2
   exit 64
 fi
+if [[ -n "${PREDICTOR_BLOCKED_SEGMENTS_PATH:-}" && ! -f "$PREDICTOR_BLOCKED_SEGMENTS_PATH" ]]; then
+  echo "Refusing to run: PREDICTOR_BLOCKED_SEGMENTS_PATH does not exist: $PREDICTOR_BLOCKED_SEGMENTS_PATH" >&2
+  exit 64
+fi
 
 cat <<EOF
 real_dry_run_start
@@ -74,6 +78,7 @@ report_root=$RESEARCH_REPORT_ROOT
 manifest_root=${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}
 redis_url=$REDIS_URL
 capture_seconds=$REAL_DRY_RUN_SECONDS
+blocked_segments_path=${PREDICTOR_BLOCKED_SEGMENTS_PATH:-}
 EOF
 
 pids=()
@@ -251,6 +256,8 @@ async def main() -> None:
         "data_lake_root": os.environ["DATA_LAKE_ROOT"],
         "research_report_root": os.environ["RESEARCH_REPORT_ROOT"],
         "research_manifest_root": os.environ.get("RESEARCH_MANIFEST_ROOT"),
+        "blocked_segments_path": os.environ.get("PREDICTOR_BLOCKED_SEGMENTS_PATH"),
+        "blocked_segments_enabled": bool(os.environ.get("PREDICTOR_BLOCKED_SEGMENTS_PATH")),
     }
     report_root = Path(os.environ["RESEARCH_REPORT_ROOT"])
     report_root.mkdir(parents=True, exist_ok=True)

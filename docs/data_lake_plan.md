@@ -234,6 +234,20 @@ PYTHONPATH=python-service python -m src.research.compare_runs
 For automation, add `--json`. To compare specific runs, pass
 `--baseline-run-id` and `--candidate-run-id`.
 
+When comparing isolated report directories that have not been merged into a
+shared manifest index, compare report roots directly:
+
+```bash
+PYTHONPATH=python-service python -m src.research.compare_runs \
+  --baseline-report-root .tmp/real-dry-run-data-lake/<baseline>/reports/<baseline> \
+  --candidate-report-root .tmp/real-dry-run-data-lake/<candidate>/reports/<candidate>
+```
+
+The comparison reports deltas for signals, fills, fill-rate, realized edge,
+drawdown, stale-data/reconciliation quality, simulator delta, blocked segment
+count, runtime blocklist count, segment-level improvements/regressions,
+new/removed segments, and newly blocked/unblocked segment keys.
+
 ## Real Market Dry-Run Research
 
 To collect real public market data without live trading:
@@ -252,6 +266,19 @@ provided; waits for real orderbooks, signals, and dry-run execution reports;
 then runs the research loop. A short dry-run may fail promotion or calibration
 gates; that means the research data was collected but is not yet sufficient for
 live promotion.
+
+To run a restricted dry-run with a promotion-generated segment blocklist:
+
+```bash
+PREDICTOR_BLOCKED_SEGMENTS_PATH=/abs/path/to/blocked_segments.json \
+REAL_DRY_RUN_SECONDS=300 \
+scripts/run_real_dry_run_research.sh
+```
+
+The script validates that the blocklist path exists before starting services and
+records the path in `real_dry_run_evidence.json`. Use the report-root comparator
+above to compare the unrestricted and restricted runs before accepting a
+blocklist.
 
 Real dry-runs pass stricter promotion thresholds into the research loop by
 default:

@@ -139,6 +139,8 @@ These steps improve the trading platform before introducing heavier models. The 
    - Enforce explicit pre-live thresholds for capture duration, minimum signals, observed dry-run fill-rate, reconciliation divergence, and simulator-quality fill-rate delta.
    - Use `pre_live_promotion_segments` to identify failing markets/assets before changing global thresholds.
    - Export `blocked_segments.json` from promotion and load it explicitly with `PREDICTOR_BLOCKED_SEGMENTS_PATH` when running a restricted dry-run.
+   - Compare unrestricted vs restricted dry-runs with `compare_runs --baseline-report-root ... --candidate-report-root ...` before accepting a blocklist.
+   - Review segment-level improved/worsened/new/removed counts plus newly blocked/unblocked segment keys as the objective promotion evidence.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.

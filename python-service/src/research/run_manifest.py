@@ -26,6 +26,8 @@ def create_run_manifest(
     synthetic_fills = read_json(report_root / "synthetic_fills.json")
     calibration = read_json(report_root / "calibration.json")
     backtest = read_json(report_root / "backtest.json")
+    blocked_segments = read_json(report_root / "pre_live_promotion" / "blocked_segments.json")
+    real_dry_run_evidence = read_json(report_root / "real_dry_run_evidence.json")
 
     manifest: dict[str, object] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -53,7 +55,14 @@ def create_run_manifest(
             "synthetic_fill_feature": synthetic_fills.get("feature_version"),
         },
         "metrics": manifest_metrics(promotion, advisory, calibration, backtest),
-        "counts": manifest_counts(summary, baseline, synthetic_fills, backtest),
+        "counts": manifest_counts(
+            summary,
+            baseline,
+            synthetic_fills,
+            backtest,
+            blocked_segments,
+            real_dry_run_evidence,
+        ),
         "artifacts": artifact_metadata(report_root),
     }
     write_manifest(manifest_root, manifest)
@@ -100,6 +109,7 @@ def manifest_metrics(
     pre_live_gate = typed_dict(backtest.get("pre_live_gate"))
     return {
         "realized_edge": promotion_metrics.get("realized_edge"),
+        "filled_signals": promotion_metrics.get("filled_signals"),
         "fill_rate": promotion_metrics.get("fill_rate"),
         "slippage": promotion_metrics.get("slippage"),
         "capture_duration_ms": promotion_metrics.get("capture_duration_ms"),
@@ -134,6 +144,8 @@ def manifest_counts(
     baseline: dict[str, object],
     synthetic_fills: dict[str, object],
     backtest: dict[str, object],
+    blocked_segments: dict[str, object] | None = None,
+    real_dry_run_evidence: dict[str, object] | None = None,
 ) -> dict[str, object]:
     data_lake = typed_dict(summary.get("data_lake"))
     baseline_counts = typed_dict(baseline.get("counts"))
@@ -157,6 +169,8 @@ def manifest_counts(
         "unfilled_reason_summary": backtest_exports.get("unfilled_reason_summary"),
         "dry_run_simulator_quality": backtest_exports.get("dry_run_simulator_quality"),
         "pre_live_gate_signals": typed_dict(backtest.get("pre_live_gate")).get("signals"),
+        "blocked_segments": count_blocked_segments(blocked_segments),
+        "runtime_blocked_segments": count_runtime_blocked_segments(real_dry_run_evidence),
     }
 
 
@@ -171,6 +185,8 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "pre_live_promotion.json",
         "agent_advisory.json",
         "synthetic_fills.json",
+        "real_dry_run_evidence.json",
+        "pre_live_promotion/blocked_segments.json",
     )
     artifacts: list[dict[str, object]] = []
     for name in names:
@@ -217,6 +233,7 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "pre_live_promotion_passed": manifest.get("pre_live_promotion_passed"),
         "agent_advisory_acceptable": manifest.get("agent_advisory_acceptable"),
         "realized_edge": metrics.get("realized_edge"),
+        "filled_signals": metrics.get("filled_signals"),
         "fill_rate": metrics.get("fill_rate"),
         "slippage": metrics.get("slippage"),
         "capture_duration_ms": metrics.get("capture_duration_ms"),
@@ -251,6 +268,8 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "unfilled_reason_summary": counts.get("unfilled_reason_summary"),
         "dry_run_simulator_quality": counts.get("dry_run_simulator_quality"),
         "pre_live_gate_signals": counts.get("pre_live_gate_signals"),
+        "blocked_segments": counts.get("blocked_segments"),
+        "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
         "promotion_report_version": versions.get("promotion_report"),
         "advisory_report_version": versions.get("advisory_report"),
         "advisory_model_version": versions.get("advisory_model"),
@@ -281,6 +300,22 @@ def artifact_bytes_total(manifest: dict[str, object]) -> int:
         if isinstance(artifact, dict) and isinstance(artifact.get("bytes"), (int, float)):
             total += int(artifact["bytes"])
     return total
+
+
+def count_blocked_segments(blocked_segments: dict[str, object] | None) -> int:
+    if not blocked_segments:
+        return 0
+    segments = blocked_segments.get("segments")
+    return len(segments) if isinstance(segments, list) else 0
+
+
+def count_runtime_blocked_segments(evidence: dict[str, object] | None) -> int:
+    if not evidence:
+        return 0
+    path_value = evidence.get("blocked_segments_path")
+    if not isinstance(path_value, str) or not path_value:
+        return 0
+    return count_blocked_segments(read_json(Path(path_value)))
 
 
 def read_json(path: Path) -> dict[str, object]:

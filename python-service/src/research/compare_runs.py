@@ -7,10 +7,17 @@ import pandas as pd  # type: ignore[import-untyped]
 
 
 DEFAULT_METRICS = (
+    "signals",
+    "filled_signals",
+    "execution_reports",
     "realized_edge",
     "fill_rate",
+    "dry_run_observed_fill_rate",
     "slippage",
     "drawdown",
+    "max_abs_simulator_fill_rate_delta",
+    "blocked_segments",
+    "runtime_blocked_segments",
     "stale_data_rate",
     "reconciliation_divergence_rate",
     "test_brier_score",
@@ -19,11 +26,14 @@ DEFAULT_METRICS = (
 LOWER_IS_BETTER = {
     "slippage",
     "drawdown",
+    "max_abs_simulator_fill_rate_delta",
+    "blocked_segments",
     "stale_data_rate",
     "reconciliation_divergence_rate",
     "test_brier_score",
     "advisory_failed",
 }
+NEUTRAL_METRICS = {"runtime_blocked_segments"}
 
 
 @dataclass(frozen=True)
@@ -77,6 +87,48 @@ def compare_runs(
             "candidate_run_id": comparison.candidate_run_id,
             "metric_deltas": comparison.metric_deltas,
             "verdict": comparison.verdict,
+            "segment_changes": segment_changes(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
+            "segment_change_summary": segment_change_summary(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
+            "blocked_segment_changes": blocked_segment_changes(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
+        },
+    }
+
+
+def compare_report_roots(
+    baseline_report_root: Path,
+    candidate_report_root: Path,
+    metrics: tuple[str, ...] = DEFAULT_METRICS,
+) -> dict[str, object]:
+    baseline_manifest = load_report_manifest(baseline_report_root)
+    candidate_manifest = load_report_manifest(candidate_report_root)
+    baseline = normalize_row(flatten_manifest_like(baseline_manifest))
+    candidate = normalize_row(flatten_manifest_like(candidate_manifest))
+    deltas = [
+        metric_delta(metric, baseline.get(metric), candidate.get(metric))
+        for metric in metrics
+        if metric in baseline or metric in candidate
+    ]
+    return {
+        "baseline": baseline,
+        "candidate": candidate,
+        "comparison": {
+            "baseline_run_id": str(baseline.get("run_id")),
+            "candidate_run_id": str(candidate.get("run_id")),
+            "metric_deltas": deltas,
+            "verdict": comparison_verdict(deltas),
+            "segment_changes": segment_changes(baseline_report_root, candidate_report_root),
+            "segment_change_summary": segment_change_summary(
+                baseline_report_root, candidate_report_root
+            ),
+            "blocked_segment_changes": blocked_segment_changes(
+                baseline_report_root, candidate_report_root
+            ),
         },
     }
 
@@ -106,6 +158,242 @@ def run_by_id(frame: pd.DataFrame, run_id: str) -> dict[str, Any]:
     return matches.iloc[-1].to_dict()
 
 
+def load_report_manifest(report_root: Path) -> dict[str, object]:
+    manifest_path = report_root / "research_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"research manifest not found: {manifest_path}")
+    value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"research manifest must be an object: {manifest_path}")
+    return value
+
+
+def flatten_manifest_like(manifest: dict[str, object]) -> dict[str, object]:
+    metrics = typed_dict(manifest.get("metrics"))
+    counts = typed_dict(manifest.get("counts"))
+    row = {
+        "run_id": manifest.get("run_id"),
+        "source": manifest.get("source"),
+        "created_at": manifest.get("created_at"),
+        "report_root": manifest.get("report_root"),
+        "passed": manifest.get("passed"),
+    }
+    row.update(metrics)
+    row.update(counts)
+    return row
+
+
+def report_root_from_row(row: dict[str, object]) -> Path | None:
+    value = row.get("report_root")
+    return Path(value) if isinstance(value, str) and value else None
+
+
+def segment_changes(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+    limit: int = 20,
+) -> list[dict[str, object]]:
+    merged = joined_segment_frame(baseline_report_root, candidate_report_root)
+    if merged.empty:
+        return []
+    merged["classification"] = merged.apply(classify_segment_change, axis=1)
+    merged["score"] = merged.apply(segment_change_score, axis=1)
+    rows = merged.sort_values("score", ascending=False).head(limit).to_dict(orient="records")
+    return [normalize_row(row) for row in rows]
+
+
+def segment_change_summary(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    if baseline_report_root is None or candidate_report_root is None:
+        return {
+            "baseline_segments": 0,
+            "candidate_segments": 0,
+            "shared_segments": 0,
+            "new_segments": 0,
+            "removed_segments": 0,
+            "improved_segments": 0,
+            "worsened_segments": 0,
+        }
+    baseline = load_segments(baseline_report_root)
+    candidate = load_segments(candidate_report_root)
+    keys = segment_keys()
+    if baseline.empty and candidate.empty:
+        return {
+            "baseline_segments": 0,
+            "candidate_segments": 0,
+            "shared_segments": 0,
+            "new_segments": 0,
+            "removed_segments": 0,
+            "improved_segments": 0,
+            "worsened_segments": 0,
+        }
+    baseline_keys = key_set(baseline, keys)
+    candidate_keys = key_set(candidate, keys)
+    merged = joined_segment_frame(baseline_report_root, candidate_report_root)
+    improved = 0
+    worsened = 0
+    if not merged.empty:
+        classifications = [
+            classify_segment_change(row)
+            for _, row in merged.iterrows()
+        ]
+        improved = sum(1 for item in classifications if item == "improved")
+        worsened = sum(1 for item in classifications if item == "worsened")
+    return {
+        "baseline_segments": len(baseline_keys),
+        "candidate_segments": len(candidate_keys),
+        "shared_segments": len(baseline_keys & candidate_keys),
+        "new_segments": len(candidate_keys - baseline_keys),
+        "removed_segments": len(baseline_keys - candidate_keys),
+        "improved_segments": improved,
+        "worsened_segments": worsened,
+    }
+
+
+def joined_segment_frame(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> pd.DataFrame:
+    if baseline_report_root is None or candidate_report_root is None:
+        return pd.DataFrame()
+    baseline = load_segments(baseline_report_root)
+    candidate = load_segments(candidate_report_root)
+    if baseline.empty or candidate.empty:
+        return pd.DataFrame()
+    keys = segment_keys()
+    missing = [key for key in keys if key not in baseline.columns or key not in candidate.columns]
+    if missing:
+        return pd.DataFrame()
+    merged = baseline.merge(candidate, on=keys, suffixes=("_baseline", "_candidate"))
+    if merged.empty:
+        return pd.DataFrame()
+    for metric in (
+        "signals",
+        "filled_signals",
+        "realized_edge",
+        "pnl",
+        "max_drawdown",
+        "fill_rate",
+        "dry_run_observed_fill_rate",
+        "simulator_fill_rate_delta",
+        "abs_simulator_fill_rate_delta",
+    ):
+        baseline_metric = f"{metric}_baseline"
+        candidate_metric = f"{metric}_candidate"
+        if baseline_metric in merged.columns and candidate_metric in merged.columns:
+            merged[f"{metric}_delta"] = (
+                pd.to_numeric(merged[candidate_metric], errors="coerce")
+                - pd.to_numeric(merged[baseline_metric], errors="coerce")
+            )
+    return merged
+
+
+def classify_segment_change(row: pd.Series) -> str:
+    score = 0
+    for metric in ("realized_edge_delta", "pnl_delta", "fill_rate_delta"):
+        value = numeric_or_none(row.get(metric))
+        if value is not None and value != 0:
+            score += 1 if value > 0 else -1
+    for metric in (
+        "max_drawdown_delta",
+        "abs_simulator_fill_rate_delta_delta",
+        "simulator_fill_rate_delta_delta",
+    ):
+        value = numeric_or_none(row.get(metric))
+        if value is not None and value != 0:
+            score += 1 if value < 0 else -1
+    if score > 0:
+        return "improved"
+    if score < 0:
+        return "worsened"
+    return "mixed"
+
+
+def segment_change_score(row: pd.Series) -> float:
+    score = 0.0
+    for metric in (
+        "realized_edge_delta",
+        "pnl_delta",
+        "max_drawdown_delta",
+        "fill_rate_delta",
+        "dry_run_observed_fill_rate_delta",
+        "abs_simulator_fill_rate_delta_delta",
+    ):
+        value = numeric_or_none(row.get(metric))
+        if value is not None:
+            score += abs(value)
+    return score
+
+
+def load_segments(report_root: Path) -> pd.DataFrame:
+    path = report_root / "pre_live_promotion" / "pre_live_promotion_segments.parquet"
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(path)
+
+
+def blocked_segment_changes(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    baseline = load_blocked_segments(baseline_report_root)
+    candidate = load_blocked_segments(candidate_report_root)
+    newly_blocked = sorted(candidate - baseline)
+    unblocked = sorted(baseline - candidate)
+    still_blocked = sorted(baseline & candidate)
+    return {
+        "baseline_count": len(baseline),
+        "candidate_count": len(candidate),
+        "newly_blocked_count": len(newly_blocked),
+        "unblocked_count": len(unblocked),
+        "still_blocked_count": len(still_blocked),
+        "newly_blocked": [segment_key_to_dict(item) for item in newly_blocked],
+        "unblocked": [segment_key_to_dict(item) for item in unblocked],
+        "still_blocked": [segment_key_to_dict(item) for item in still_blocked],
+    }
+
+
+def load_blocked_segments(report_root: Path | None) -> set[tuple[str, str, str, str, str]]:
+    if report_root is None:
+        return set()
+    parquet_path = report_root / "pre_live_promotion" / "pre_live_blocked_segments.parquet"
+    if parquet_path.exists():
+        return key_set(pd.read_parquet(parquet_path), segment_keys())
+    json_path = report_root / "pre_live_promotion" / "blocked_segments.json"
+    if not json_path.exists():
+        return set()
+    try:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    segments = payload.get("segments")
+    if not isinstance(segments, list):
+        return set()
+    rows = [item for item in segments if isinstance(item, dict)]
+    return key_set(pd.DataFrame(rows), segment_keys())
+
+
+def segment_keys() -> list[str]:
+    return ["market_id", "asset_id", "side", "strategy", "model_version"]
+
+
+def key_set(frame: pd.DataFrame, keys: list[str]) -> set[tuple[str, str, str, str, str]]:
+    if frame.empty or any(key not in frame.columns for key in keys):
+        return set()
+    values: set[tuple[str, str, str, str, str]] = set()
+    for row in frame[keys].fillna("").to_dict(orient="records"):
+        values.add(tuple(str(row[key]) for key in keys))  # type: ignore[arg-type]
+    return values
+
+
+def segment_key_to_dict(key: tuple[str, str, str, str, str]) -> dict[str, str]:
+    return dict(zip(segment_keys(), key, strict=True))
+
+
 def metric_delta(metric: str, baseline: object, candidate: object) -> dict[str, object]:
     baseline_value = numeric_or_none(baseline)
     candidate_value = numeric_or_none(candidate)
@@ -119,13 +407,21 @@ def metric_delta(metric: str, baseline: object, candidate: object) -> dict[str, 
         "baseline": baseline_value,
         "candidate": candidate_value,
         "delta": delta,
-        "direction": "lower_is_better" if metric in LOWER_IS_BETTER else "higher_is_better",
+        "direction": metric_direction(metric),
         "improved": metric_improved(metric, delta),
     }
 
 
+def metric_direction(metric: str) -> str:
+    if metric in NEUTRAL_METRICS:
+        return "neutral"
+    if metric in LOWER_IS_BETTER:
+        return "lower_is_better"
+    return "higher_is_better"
+
+
 def metric_improved(metric: str, delta: float | None) -> bool | None:
-    if delta is None or delta == 0:
+    if metric in NEUTRAL_METRICS or delta is None or delta == 0:
         return None
     if metric in LOWER_IS_BETTER:
         return delta < 0
@@ -149,9 +445,18 @@ def normalize_row(row: dict[str, Any]) -> dict[str, object]:
     return {key: normalize_value(value) for key, value in row.items()}
 
 
+def typed_dict(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def normalize_value(value: object) -> object:
-    if pd.isna(value):
-        return None
+    if isinstance(value, (list, tuple)):
+        return [normalize_value(item) for item in value]
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     if hasattr(value, "item"):
         return value.item()  # type: ignore[no-any-return]
     return value
@@ -182,9 +487,28 @@ def format_comparison_table(report: dict[str, object]) -> str:
     )
 
 
+def format_segment_changes_table(report: dict[str, object]) -> str:
+    comparison = report["comparison"]
+    assert isinstance(comparison, dict)
+    rows = comparison.get("segment_changes", [])
+    assert isinstance(rows, list)
+    return format_table(
+        [row for row in rows if isinstance(row, dict)],
+        (
+            "market_id",
+            "asset_id",
+            "classification",
+            "realized_edge_delta",
+            "pnl_delta",
+            "max_drawdown_delta",
+            "fill_rate_delta",
+        ),
+    )
+
+
 def format_table(rows: list[dict[str, object]], columns: tuple[str, ...]) -> str:
     widths = {
-        column: max(len(column), *(len(format_cell(row.get(column))) for row in rows))
+        column: max([len(column), *[len(format_cell(row.get(column))) for row in rows]])
         for column in columns
     }
     header = "  ".join(column.ljust(widths[column]) for column in columns)
@@ -211,6 +535,8 @@ def main() -> int:
     parser.add_argument("--manifest-root", default="data_lake/research_runs")
     parser.add_argument("--baseline-run-id")
     parser.add_argument("--candidate-run-id")
+    parser.add_argument("--baseline-report-root")
+    parser.add_argument("--candidate-report-root")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
@@ -229,11 +555,19 @@ def main() -> int:
             print(format_summary_table(rows))
         return 0
 
-    report = compare_runs(
-        manifest_root,
-        baseline_run_id=args.baseline_run_id,
-        candidate_run_id=args.candidate_run_id,
-    )
+    if args.baseline_report_root or args.candidate_report_root:
+        if not args.baseline_report_root or not args.candidate_report_root:
+            raise SystemExit("--baseline-report-root and --candidate-report-root must be used together")
+        report = compare_report_roots(
+            Path(args.baseline_report_root),
+            Path(args.candidate_report_root),
+        )
+    else:
+        report = compare_runs(
+            manifest_root,
+            baseline_run_id=args.baseline_run_id,
+            candidate_run_id=args.candidate_run_id,
+        )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
@@ -244,6 +578,10 @@ def main() -> int:
             f"{comparison['verdict']}"
         )
         print(format_comparison_table(report))
+        segment_table = format_segment_changes_table(report)
+        if segment_table.strip():
+            print()
+            print(segment_table)
     return 0
 
 

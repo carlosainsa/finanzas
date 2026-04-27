@@ -3,10 +3,13 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import pandas as pd  # type: ignore[import-untyped]
 
 from src.research.compare_runs import (
+    compare_report_roots,
     compare_runs,
     format_comparison_table,
+    format_segment_changes_table,
     format_summary_table,
     summarize_runs,
 )
@@ -29,7 +32,12 @@ def test_compare_runs_detects_candidate_improvement(tmp_path: Path) -> None:
         for item in cast(list[dict[str, Any]], comparison["metric_deltas"])
     }
     assert comparison["verdict"] == "candidate_improved"
+    assert "segment_change_summary" in comparison
+    assert "blocked_segment_changes" in comparison
     assert deltas["realized_edge"]["delta"] == pytest.approx(0.03)
+    assert deltas["filled_signals"]["delta"] == pytest.approx(0.0)
+    assert deltas["runtime_blocked_segments"]["direction"] == "neutral"
+    assert deltas["runtime_blocked_segments"]["improved"] is None
     assert deltas["drawdown"]["improved"] is True
     assert deltas["advisory_failed"]["improved"] is False
 
@@ -59,12 +67,70 @@ def test_compare_runs_formats_tables(tmp_path: Path) -> None:
     report = compare_runs(manifest_root)
 
     comparison_table = format_comparison_table(report)
+    segment_table = format_segment_changes_table(report)
     summary_table = format_summary_table(summarize_runs(manifest_root))
 
     assert "realized_edge" in comparison_table
     assert "candidate_improved" not in comparison_table
+    assert "classification" in segment_table
     assert "run_id" in summary_table
     assert "run-2" in summary_table
+
+
+def test_compare_report_roots_reports_segment_and_blocklist_changes(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(
+        baseline,
+        [
+            segment_row("market-1", "asset-1", realized_edge=0.01, max_drawdown=0.05),
+            segment_row("market-removed", "asset-removed", realized_edge=0.02),
+        ],
+    )
+    write_segments(
+        candidate,
+        [
+            segment_row("market-1", "asset-1", realized_edge=0.04, max_drawdown=0.02),
+            segment_row("market-new", "asset-new", realized_edge=0.03),
+        ],
+    )
+    write_blocked_segments(
+        baseline,
+        [
+            blocked_segment("market-1", "asset-1"),
+            blocked_segment("market-unblocked", "asset-unblocked"),
+        ],
+    )
+    write_blocked_segments(
+        candidate,
+        [
+            blocked_segment("market-1", "asset-1"),
+            blocked_segment("market-newly-blocked", "asset-newly-blocked"),
+        ],
+    )
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    summary = cast(dict[str, Any], comparison["segment_change_summary"])
+    blocked = cast(dict[str, Any], comparison["blocked_segment_changes"])
+    segment_table = format_segment_changes_table(report)
+    assert summary["improved_segments"] == 1
+    assert summary["new_segments"] == 1
+    assert summary["removed_segments"] == 1
+    assert blocked["newly_blocked_count"] == 1
+    assert blocked["unblocked_count"] == 1
+    assert "improved" in segment_table
 
 
 def test_compare_runs_requires_two_runs(tmp_path: Path) -> None:
@@ -84,9 +150,11 @@ def seed_manifest_index(tmp_path: Path) -> Path:
     run_1 = seed_report_root(tmp_path / "reports" / "run-1")
     run_2 = seed_report_root(tmp_path / "reports" / "run-2")
     override_metric(run_1, "realized_edge", 0.04)
+    override_metric(run_1, "filled_signals", 4)
     override_metric(run_1, "drawdown", 0.03)
     override_advisory(run_1, failed=0)
     override_metric(run_2, "realized_edge", 0.07)
+    override_metric(run_2, "filled_signals", 4)
     override_metric(run_2, "drawdown", 0.01)
     override_advisory(run_2, failed=1)
     create_run_manifest(run_1, manifest_root, run_id="run-1")
@@ -107,3 +175,64 @@ def override_advisory(report_root: Path, failed: int) -> None:
     payload["summary"]["failed"] = failed
     payload["summary"]["advisory_acceptable"] = failed == 0
     path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_segments(report_root: Path, rows: list[dict[str, object]]) -> None:
+    output_dir = report_root / "pre_live_promotion"
+    output_dir.mkdir(exist_ok=True)
+    pd.DataFrame(rows).to_parquet(
+        output_dir / "pre_live_promotion_segments.parquet", index=False
+    )
+
+
+def write_blocked_segments(report_root: Path, rows: list[dict[str, object]]) -> None:
+    output_dir = report_root / "pre_live_promotion"
+    output_dir.mkdir(exist_ok=True)
+    payload = {
+        "version": "blocked_segments_v1",
+        "source_report_version": "pre_live_promotion_v1",
+        "segments": rows,
+    }
+    (output_dir / "blocked_segments.json").write_text(
+        json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def write_report_manifest(report_root: Path, manifest: dict[str, object]) -> None:
+    (report_root / "research_manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def segment_row(
+    market_id: str,
+    asset_id: str,
+    realized_edge: float,
+    max_drawdown: float = 0.0,
+) -> dict[str, object]:
+    return {
+        "market_id": market_id,
+        "asset_id": asset_id,
+        "side": "BUY",
+        "strategy": "near_touch",
+        "model_version": "predictor_v1",
+        "signals": 4,
+        "filled_signals": 2,
+        "realized_edge": realized_edge,
+        "pnl": realized_edge * 10,
+        "max_drawdown": max_drawdown,
+        "fill_rate": 0.5,
+        "dry_run_observed_fill_rate": 0.5,
+        "abs_simulator_fill_rate_delta": 0.1,
+    }
+
+
+def blocked_segment(market_id: str, asset_id: str) -> dict[str, object]:
+    return {
+        "market_id": market_id,
+        "asset_id": asset_id,
+        "side": "BUY",
+        "strategy": "near_touch",
+        "model_version": "predictor_v1",
+        "reason": "negative_edge",
+    }

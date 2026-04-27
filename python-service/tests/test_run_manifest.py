@@ -29,11 +29,14 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert manifest["source"] == "unit-test"
     assert manifest["passed"] is True
     assert metrics["realized_edge"] == 0.04
+    assert metrics["filled_signals"] == 4
     assert metrics["fill_rate"] == 1.0
     assert metrics["capture_duration_ms"] == 3000
     assert metrics["dry_run_observed_fill_rate"] == 0.75
     assert counts["orderbook_snapshots"] == 4
     assert counts["signals"] == 4
+    assert counts["blocked_segments"] == 1
+    assert counts["runtime_blocked_segments"] == 1
     assert versions["promotion_report"] == "pre_live_promotion_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
@@ -85,6 +88,7 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
 
     assert flat["run_id"] == "run-1"
     assert flat["realized_edge"] == 0.04
+    assert flat["filled_signals"] == 4
     assert flat["capture_duration_ms"] == 3000
     assert flat["dry_run_observed_fill_rate"] == 0.75
     assert flat["max_abs_simulator_fill_rate_delta"] == 0.10
@@ -100,6 +104,8 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["unfilled_reason_summary"] == 1
     assert flat["dry_run_simulator_quality"] == 1
     assert flat["pre_live_gate_signals"] == 4
+    assert flat["blocked_segments"] == 1
+    assert flat["runtime_blocked_segments"] == 1
     assert flat["synthetic_execution_reports"] == 3
     assert flat["synthetic_fill_model_version"] == "conservative_orderbook_fill_v1"
     assert isinstance(flat["artifact_count"], int)
@@ -141,6 +147,7 @@ def seed_report_root(report_root: Path) -> Path:
             "passed": True,
             "metrics": {
                 "realized_edge": 0.04,
+                "filled_signals": 4,
                 "fill_rate": 1.0,
                 "slippage": 0.01,
                 "capture_duration_ms": 3000,
@@ -184,6 +191,33 @@ def seed_report_root(report_root: Path) -> Path:
             "data_version": "orderbook_snapshots_v1",
             "feature_version": "limit_touch_after_signal_v1",
             "counts": {"synthetic_execution_reports": 3},
+        },
+    )
+    promotion_dir = report_root / "pre_live_promotion"
+    promotion_dir.mkdir()
+    write_json(
+        promotion_dir / "blocked_segments.json",
+        {
+            "version": "blocked_segments_v1",
+            "source_report_version": "pre_live_promotion_v1",
+            "segments": [
+                {
+                    "market_id": "market-1",
+                    "asset_id": "asset-1",
+                    "side": "BUY",
+                    "strategy": "near_touch",
+                    "model_version": "predictor_v1",
+                    "reason": "negative_edge",
+                }
+            ],
+        },
+    )
+    write_json(
+        report_root / "real_dry_run_evidence.json",
+        {
+            "status": "ok",
+            "blocked_segments_enabled": True,
+            "blocked_segments_path": str(promotion_dir / "blocked_segments.json"),
         },
     )
     write_json(report_root / "backtest.json", {"pre_live_gate": {"signals": 4}})
