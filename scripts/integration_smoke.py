@@ -21,7 +21,7 @@ import redis.asyncio as redis
 
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
-API_URL = os.getenv("OPERATOR_API_URL", "http://127.0.0.1:8000")
+API_URL = os.getenv("OPERATOR_API_URL", "http://127.0.0.1:18000")
 ORDERBOOK_STREAM = os.getenv("ORDERBOOK_STREAM", "orderbook:stream")
 SIGNALS_STREAM = os.getenv("SIGNALS_STREAM", "signals:stream")
 REPORTS_STREAM = os.getenv("EXECUTION_REPORTS_STREAM", "execution:reports:stream")

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:operator": "vite --host 127.0.0.1 --port 5174 --strictPort",
+    "dev:operator:vm": "vite --host 0.0.0.0 --port 5174 --strictPort",
     "generate:types": "PYTHONPATH=../python-service python3 ../scripts/export_openapi.py src/generated/openapi.json && openapi-typescript src/generated/openapi.json -o src/generated/openapi.ts",
     "build": "tsc -b && vite build",
     "test:e2e": "playwright test",

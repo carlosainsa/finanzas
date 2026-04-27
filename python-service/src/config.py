@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     private_key: str | None = None
     app_env: str = "development"
     host: str = "0.0.0.0"
-    port: int = 8000
-    operator_api_url: str = "http://127.0.0.1:8000"
+    port: int = 18000
+    operator_api_url: str = "http://127.0.0.1:18000"
     operator_api_token: str | None = None
     operator_read_token: str | None = None
     operator_control_token: str | None = None

@@ -107,21 +107,110 @@ before changing predictor thresholds or considering live mode. Review
 
 ## Startup
 
-Run Redis and Postgres first, then start services:
+Run Redis and Postgres first, then start services from separate terminals:
 
 ```bash
 set -a
 . ./.env.production
 set +a
 
-cd rust-engine
-cargo run
+(cd rust-engine && cargo run)
+```
 
-PYTHONPATH=python-service uvicorn src.api.app:app --app-dir python-service --host 127.0.0.1 --port 8000
+```bash
+set -a
+. ./.env.production
+set +a
+
+scripts/run_operator_api.sh
+```
+
+```bash
+set -a
+. ./.env.production
+set +a
+
 PYTHONPATH=python-service python -m src.data.consumer
 ```
 
 Expose FastAPI only through a reverse proxy with TLS. The application should listen on localhost or a private network interface. Do not expose the raw Uvicorn port publicly.
+
+## VM Network, Reverse Proxy, And Firewall
+
+The standard non-conflicting VM ports for this project are:
+
+- Operator API: `127.0.0.1:18000`.
+- Operator dashboard dev/preview server: `127.0.0.1:5174`.
+
+Start the Operator API:
+
+```bash
+scripts/run_operator_api.sh
+```
+
+Start the dashboard against that API:
+
+```bash
+scripts/run_operator_frontend.sh
+```
+
+For temporary VM testing without a reverse proxy, bind the dashboard to all interfaces:
+
+```bash
+OPERATOR_FRONTEND_HOST=0.0.0.0 scripts/run_operator_frontend.sh
+```
+
+Then open `http://<vm-public-ip>:5174/`. A private VM address such as `10.x.x.x` is not reachable from outside its private network. If the public URL times out, the cloud firewall or security group is still blocking `5174/tcp`.
+
+Production should expose only the reverse proxy publicly on `80` and `443`; keep raw Vite and Uvicorn ports private.
+
+Nginx example:
+
+```nginx
+server {
+    listen 80;
+    server_name example.com;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:18000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5174/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Firewall baseline:
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw deny 5174/tcp
+sudo ufw deny 18000/tcp
+sudo ufw enable
+sudo ufw status verbose
+```
+
+Local checks on the VM:
+
+```bash
+curl http://127.0.0.1:18000/health
+curl http://127.0.0.1:5174/
+```
 
 ## Operator CLI
 
@@ -169,7 +258,7 @@ PYTHONPATH=python-service python -m src.cli --read-token "$OPERATOR_READ_TOKEN" 
 Prometheus endpoint:
 
 ```bash
-curl -H "Authorization: Bearer $OPERATOR_READ_TOKEN" http://127.0.0.1:8000/metrics/prometheus
+curl -H "Authorization: Bearer $OPERATOR_READ_TOKEN" http://127.0.0.1:18000/metrics/prometheus
 ```
 
 Rust emits JSON logs. Keep `command_id`, `signal_id`, and `order_id` in incident notes.

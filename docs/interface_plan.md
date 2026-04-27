@@ -101,6 +101,15 @@ npm install
 npm run dev
 ```
 
+Run the VM operator dashboard on the non-conflicting project ports:
+
+```bash
+scripts/run_operator_api.sh
+scripts/run_operator_frontend.sh
+```
+
+The dashboard listens on `127.0.0.1:5174` by default and proxies `/api/*` to `127.0.0.1:18000`. For temporary remote testing, set `OPERATOR_FRONTEND_HOST=0.0.0.0` and open `http://<vm-public-ip>:5174/`; keep raw `5174` and `18000` closed in production and publish the dashboard/API through a TLS reverse proxy.
+
 Serve through FastAPI after building:
 
 ```bash
