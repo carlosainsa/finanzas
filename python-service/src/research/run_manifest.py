@@ -32,6 +32,7 @@ def create_run_manifest(
     feature_blocklist_candidates = read_json(
         report_root / "feature_blocklist_candidates.json"
     )
+    feature_research_decision = read_json(report_root / "feature_research_decision.json")
     blocked_segments = read_json(report_root / "pre_live_promotion" / "blocked_segments.json")
     real_dry_run_evidence = read_json(report_root / "real_dry_run_evidence.json")
 
@@ -47,6 +48,8 @@ def create_run_manifest(
         "calibration_passed": bool(summary.get("calibration_passed", False)),
         "pre_live_promotion_passed": bool(summary.get("pre_live_promotion_passed", False)),
         "agent_advisory_acceptable": bool(summary.get("agent_advisory_acceptable", False)),
+        "feature_research_decision": feature_research_decision.get("decision"),
+        "feature_research_status": feature_research_decision.get("status"),
         "versions": {
             "promotion_report": promotion.get("report_version"),
             "advisory_report": advisory.get("report_version"),
@@ -59,6 +62,7 @@ def create_run_manifest(
             "synthetic_fill_model": synthetic_fills.get("model_version"),
             "synthetic_fill_data": synthetic_fills.get("data_version"),
             "synthetic_fill_feature": synthetic_fills.get("feature_version"),
+            "feature_decision_report": feature_research_decision.get("report_version"),
         },
         "metrics": manifest_metrics(promotion, advisory, calibration, backtest),
         "counts": manifest_counts(
@@ -230,6 +234,7 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "sentiment_features.json",
         "sentiment_lift.json",
         "feature_blocklist_candidates.json",
+        "feature_research_decision.json",
         "calibration.json",
         "pre_live_promotion.json",
         "agent_advisory.json",
@@ -281,6 +286,8 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "calibration_passed": manifest.get("calibration_passed"),
         "pre_live_promotion_passed": manifest.get("pre_live_promotion_passed"),
         "agent_advisory_acceptable": manifest.get("agent_advisory_acceptable"),
+        "feature_research_decision": manifest.get("feature_research_decision"),
+        "feature_research_status": manifest.get("feature_research_status"),
         "realized_edge": metrics.get("realized_edge"),
         "filled_signals": metrics.get("filled_signals"),
         "fill_rate": metrics.get("fill_rate"),
@@ -347,6 +354,7 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "synthetic_fill_model_version": versions.get("synthetic_fill_model"),
         "synthetic_fill_data_version": versions.get("synthetic_fill_data"),
         "synthetic_fill_feature_version": versions.get("synthetic_fill_feature"),
+        "feature_decision_report_version": versions.get("feature_decision_report"),
         "artifact_count": artifact_count(manifest),
         "artifact_bytes_total": artifact_bytes_total(manifest),
     }

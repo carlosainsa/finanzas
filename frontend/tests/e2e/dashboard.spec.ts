@@ -4,7 +4,7 @@ const READ_TOKEN_KEY = 'polymarket.operator.readToken';
 const CONTROL_TOKEN_KEY = 'polymarket.operator.controlToken';
 
 test('read-only operators can inspect dashboard but not run controls', async ({ page }) => {
-  const requests: Array<{ method: string; authorization: string | null }> = [];
+  const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
   await mockOperatorApi(page, { requests });
   await page.addInitScript(([readKey]) => {
     window.sessionStorage.setItem(readKey, 'read-token');
@@ -23,7 +23,7 @@ test('read-only operators can inspect dashboard but not run controls', async ({ 
 });
 
 test('control operators can cancel bot open orders and see control result', async ({ page }) => {
-  const state = { controlResults: [] as Array<Record<string, unknown>> };
+  const state = initialOperatorState();
   await mockOperatorApi(page, { state });
   await page.addInitScript(([readKey, controlKey]) => {
     window.sessionStorage.setItem(readKey, 'read-token');
@@ -42,6 +42,53 @@ test('control operators can cancel bot open orders and see control result', asyn
   await expect(page.getByRole('cell', { name: 'CANCEL_BOT_OPEN' })).toBeVisible();
 });
 
+test('control operators can pause and resume the kill switch', async ({ page }) => {
+  const state = initialOperatorState();
+  await mockOperatorApi(page, { state });
+  await page.addInitScript(([readKey, controlKey]) => {
+    window.sessionStorage.setItem(readKey, 'read-token');
+    window.sessionStorage.setItem(controlKey, 'control-token');
+  }, [READ_TOKEN_KEY, CONTROL_TOKEN_KEY]);
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Executor accepting valid signals' })).toBeVisible();
+  await page.getByRole('button', { name: 'Pause' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Trading paused by operator' })).toBeVisible();
+  await expect(page.getByText('Enabled')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Resume' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Executor accepting valid signals' })).toBeVisible();
+  await expect(page.getByText('Clear')).toBeVisible();
+});
+
+test('cancel-all requires exact confirmation before sending command', async ({ page }) => {
+  const state = initialOperatorState();
+  const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
+  await mockOperatorApi(page, { requests, state });
+  await page.addInitScript(([readKey, controlKey]) => {
+    window.sessionStorage.setItem(readKey, 'read-token');
+    window.sessionStorage.setItem(controlKey, 'control-token');
+  }, [READ_TOKEN_KEY, CONTROL_TOKEN_KEY]);
+
+  let promptCount = 0;
+  page.on('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('prompt');
+    promptCount += 1;
+    await dialog.accept(promptCount === 1 ? 'wrong phrase' : 'CANCEL ALL OPEN ORDERS');
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Cancel all' }).click();
+  expect(requests.some((request) => request.path === '/api/orders/cancel-all')).toBe(false);
+
+  await page.getByRole('button', { name: 'Cancel all' }).click();
+
+  await expect(page.getByText('Last command cmd-cancel-all: SENT')).toBeVisible();
+  expect(requests.filter((request) => request.path === '/api/orders/cancel-all')).toHaveLength(1);
+});
+
 test('orders are grouped into open partial and closed sections', async ({ page }) => {
   await mockOperatorApi(page);
 
@@ -56,19 +103,48 @@ test('orders are grouped into open partial and closed sections', async ({ page }
   await expect(page.getByRole('cell', { name: 'order-error' })).toBeVisible();
 });
 
+test('dashboard renders core controls on mobile without console errors', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockOperatorApi(page);
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Trading control surface' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Refresh dashboard' })).toBeVisible();
+  await expect(page.getByText('Runtime Control')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Runtime Metrics' })).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+});
+
+type OperatorState = {
+  controlResults: Array<Record<string, unknown>>;
+  killSwitch: boolean;
+};
+
+function initialOperatorState(): OperatorState {
+  return { controlResults: [], killSwitch: false };
+}
+
 async function mockOperatorApi(
   page: Page,
   options: {
-    requests?: Array<{ method: string; authorization: string | null }>;
-    state?: { controlResults: Array<Record<string, unknown>> };
+    requests?: Array<{ method: string; path: string; authorization: string | null }>;
+    state?: OperatorState;
   } = {},
 ): Promise<void> {
-  const state = options.state ?? { controlResults: [] };
+  const state = options.state ?? initialOperatorState();
   await page.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     options.requests?.push({
       method: request.method(),
+      path,
       authorization: request.headers().authorization ?? null,
     });
 
@@ -88,6 +164,22 @@ async function mockOperatorApi(
       return fulfillJson(route, { command });
     }
 
+    if (request.method() === 'POST' && path === '/api/orders/cancel-all') {
+      const command = {
+        command_id: 'cmd-cancel-all',
+        command_type: 'CANCEL_ALL',
+        type: 'CANCEL_ALL',
+        status: 'SENT',
+        operator: 'dashboard',
+        reason: 'dashboard emergency cancel all',
+        canceled_count: 2,
+        canceled: ['order-open', 'order-partial'],
+        error: null,
+      };
+      state.controlResults.unshift(command);
+      return fulfillJson(route, { command });
+    }
+
     if (request.method() === 'POST' && path === '/api/control/preview/cancel-bot-open') {
       return fulfillJson(route, { affected_count: 1, warnings: [] });
     }
@@ -95,28 +187,52 @@ async function mockOperatorApi(
       return fulfillJson(route, { affected_count: 2, warnings: ['Emergency account-wide command.'] });
     }
     if (request.method() === 'POST' && path === '/api/control/kill-switch') {
+      state.killSwitch = true;
+      state.controlResults.unshift({
+        command_id: 'cmd-pause',
+        command_type: 'KILL_SWITCH_ON',
+        type: 'KILL_SWITCH_ON',
+        status: 'SENT',
+        operator: 'dashboard',
+        reason: 'dashboard operator pause',
+        canceled_count: 0,
+        canceled: [],
+        error: null,
+      });
       return fulfillJson(route, { command: { command_id: 'cmd-pause', status: 'SENT' } });
     }
     if (request.method() === 'POST' && path === '/api/control/resume') {
+      state.killSwitch = false;
+      state.controlResults.unshift({
+        command_id: 'cmd-resume',
+        command_type: 'RESUME',
+        type: 'RESUME',
+        status: 'SENT',
+        operator: 'dashboard',
+        reason: 'dashboard resume',
+        canceled_count: 0,
+        canceled: [],
+        error: null,
+      });
       return fulfillJson(route, { command: { command_id: 'cmd-resume', status: 'SENT' } });
     }
 
-    return fulfillJson(route, responseFor(path, state.controlResults));
+    return fulfillJson(route, responseFor(path, state));
   });
 }
 
-function responseFor(path: string, controlResults: Array<Record<string, unknown>>): Record<string, unknown> {
+function responseFor(path: string, state: OperatorState): Record<string, unknown> {
   switch (path) {
     case '/api/status':
       return {
         status: 'ok',
-        kill_switch: false,
+        kill_switch: state.killSwitch,
         streams: ['orderbook:stream', 'signals:stream'],
         predictor: { min_spread: 0.03, order_size: 1, min_confidence: 0.55 },
       };
     case '/api/risk':
       return {
-        kill_switch: false,
+        kill_switch: state.killSwitch,
         source: 'postgres',
         execution_mode: 'dry_run',
         limits: {
@@ -169,7 +285,7 @@ function responseFor(path: string, controlResults: Array<Record<string, unknown>
         source: 'execution:reports:stream',
       };
     case '/api/control/results':
-      return { results: controlResults };
+      return { results: state.controlResults };
     case '/api/reconciliation/status':
       return {
         status: 'healthy',
@@ -193,8 +309,8 @@ function responseFor(path: string, controlResults: Array<Record<string, unknown>
         clob_errors_by_type: { rejected: 1 },
         execution_reports: 3,
         execution_reports_by_status: { PARTIAL: 1, CANCELLED: 1, ERROR: 1 },
-        control_results: controlResults.length,
-        control_results_by_type: { CANCEL_BOT_OPEN: controlResults.length },
+        control_results: state.controlResults.length,
+        control_results_by_type: { CANCEL_BOT_OPEN: state.controlResults.length },
         ws_to_report_latency_ms: 180,
         ws_to_signal_latency_ms: 40,
         signal_to_order_latency_ms: 60,

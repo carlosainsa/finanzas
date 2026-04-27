@@ -40,6 +40,34 @@ def compare_feature_research_runs(
     )
 
 
+def create_missing_baseline_report(candidate_report_root: Path) -> dict[str, object]:
+    report: dict[str, object] = {
+        "report_version": FEATURE_DECISION_REPORT_VERSION,
+        "decision_policy": "offline_diagnostics_only",
+        "can_apply_live": False,
+        "status": "skipped",
+        "reason": "no_prior_research_run",
+        "baseline_run_id": None,
+        "candidate_run_id": candidate_report_root.name,
+        "sentiment_lift_comparison": {
+            "status": "missing_baseline",
+            "shared_buckets": 0,
+            "missing_baseline": True,
+            "missing_candidate": False,
+        },
+        "feature_blocklist_candidate_comparison": {
+            "status": "missing_baseline",
+            "shared_candidates": 0,
+            "missing_baseline": True,
+            "missing_candidate": False,
+            "candidate_payload_can_apply_live": False,
+        },
+        "thresholds": FeatureDecisionThresholds().__dict__,
+    }
+    report.update(decide_feature_research(report))
+    return report
+
+
 def compare_feature_research_report_roots(
     baseline_report_root: Path,
     candidate_report_root: Path,

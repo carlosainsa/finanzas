@@ -285,6 +285,11 @@ The decision is limited to `PROMOTE_FEATURE`, `KEEP_DIAGNOSTIC`, or
 blocklist candidate churn, and confirms candidate payloads remain
 `can_apply_live=false`.
 
+`scripts/run_research_loop.sh` now writes `feature_research_decision.json` for
+each run before `research_manifest.json` is generated. On the first run, or any
+run without a prior indexed baseline, the report stays advisory and returns
+`KEEP_DIAGNOSTIC` instead of failing the research loop.
+
 ## Research Run Manifest
 
 `research_summary.json` is the gate summary for one run. `research_manifest.json`

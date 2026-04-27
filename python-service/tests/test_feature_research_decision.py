@@ -7,6 +7,7 @@ import pandas as pd  # type: ignore[import-untyped]
 from src.research.feature_research_decision import (
     compare_feature_research_report_roots,
     compare_feature_research_runs,
+    create_missing_baseline_report,
 )
 from src.research.run_manifest import create_run_manifest
 from test_compare_runs import write_report_manifest
@@ -81,6 +82,22 @@ def test_feature_research_decision_selects_runs_from_manifest(tmp_path: Path) ->
     assert report["baseline_run_id"] == "run-1"
     assert report["candidate_run_id"] == "run-2"
     assert report["decision"] == "PROMOTE_FEATURE"
+
+
+def test_feature_research_decision_keeps_diagnostic_without_prior_run(
+    tmp_path: Path,
+) -> None:
+    candidate = seed_report_root(tmp_path / "reports" / "run-1")
+
+    report = create_missing_baseline_report(candidate)
+
+    assert report["decision"] == "KEEP_DIAGNOSTIC"
+    assert report["can_apply_live"] is False
+    assert report["status"] == "skipped"
+    assert report["reason"] == "no_prior_research_run"
+    checks = checks_by_name(report)
+    assert checks["shared_sentiment_buckets"]["status"] == "MISSING"
+    assert checks["shared_feature_candidates"]["status"] == "MISSING"
 
 
 def seed_feature_reports(tmp_path: Path) -> tuple[Path, Path]:

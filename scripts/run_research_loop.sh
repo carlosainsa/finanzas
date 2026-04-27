@@ -97,6 +97,54 @@ PYTHONPATH=python-service python3 -m src.research.agent_advisory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"
 
+python3 - "$REPORT_ROOT" "$MANIFEST_ROOT" <<'PY' > "$REPORT_ROOT/feature_research_decision.json"
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+report_root = Path(sys.argv[1])
+manifest_root = Path(sys.argv[2])
+root_dir = Path.cwd()
+sys.path.insert(0, str(root_dir / "python-service"))
+index_path = manifest_root / "research_runs.jsonl"
+
+previous_report_root = None
+if index_path.exists():
+    for line in index_path.read_text(encoding="utf-8").splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        value = item.get("report_root")
+        if isinstance(value, str) and value and Path(value) != report_root:
+            previous_report_root = Path(value)
+
+if previous_report_root and previous_report_root.exists():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.research.feature_research_decision",
+            "--baseline-report-root",
+            str(previous_report_root),
+            "--candidate-report-root",
+            str(report_root),
+            "--json",
+        ],
+        check=True,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(root_dir / "python-service")},
+        text=True,
+    )
+    print(completed.stdout.strip())
+else:
+    from src.research.feature_research_decision import create_missing_baseline_report
+
+    print(json.dumps(create_missing_baseline_report(report_root), indent=2, sort_keys=True))
+PY
+
 python3 - "$REPORT_ROOT" <<'PY'
 import json
 import sys
@@ -115,6 +163,7 @@ calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 advisory = read_json("agent_advisory.json")
 synthetic_fills = read_json("synthetic_fills.json")
+feature_research_decision = read_json("feature_research_decision.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
 advisory_summary = advisory.get("summary") if isinstance(advisory.get("summary"), dict) else {}
 summary = {
@@ -134,6 +183,7 @@ summary = {
     "agent_advisory_acceptable": advisory_summary.get("advisory_acceptable", False),
     "pre_live_promotion": promotion,
     "agent_advisory": advisory,
+    "feature_research_decision": feature_research_decision,
 }
 summary["passed"] = bool(
     summary["pre_live_gate_passed"]

@@ -47,7 +47,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["blocked_segment_candidates"] == 1
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
+    assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
     assert versions["promotion_report"] == "pre_live_promotion_v1"
+    assert versions["feature_decision_report"] == "feature_research_decision_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
     assert (manifest_root / "research_runs.parquet").exists()
@@ -65,9 +67,14 @@ def test_run_manifest_records_artifact_hashes(tmp_path: Path) -> None:
     summary_artifact = [
         item for item in artifacts if item["relative_path"] == "research_summary.json"
     ][0]
+    feature_decision_artifact = [
+        item for item in artifacts if item["relative_path"] == "feature_research_decision.json"
+    ][0]
     assert summary_artifact["kind"] == "json"
     assert summary_artifact["bytes"] > 0
     assert summary_artifact["sha256"] == sha256_file(report_root / "research_summary.json")
+    assert feature_decision_artifact["kind"] == "json"
+    assert feature_decision_artifact["bytes"] > 0
 
 
 def test_run_manifest_index_contains_multiple_runs(tmp_path: Path) -> None:
@@ -126,6 +133,8 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["blocked_segment_candidates"] == 1
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
+    assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
+    assert flat["feature_decision_report_version"] == "feature_research_decision_v1"
     assert flat["synthetic_execution_reports"] == 3
     assert flat["synthetic_fill_model_version"] == "conservative_orderbook_fill_v1"
     assert isinstance(flat["artifact_count"], int)
@@ -254,6 +263,16 @@ def seed_report_root(report_root: Path) -> Path:
                 "research_feature_blocklist_candidates": 3,
                 "blocked_segment_candidates": 1,
             },
+        },
+    )
+    write_json(
+        report_root / "feature_research_decision.json",
+        {
+            "report_version": "feature_research_decision_v1",
+            "decision_policy": "offline_diagnostics_only",
+            "can_apply_live": False,
+            "decision": "PROMOTE_FEATURE",
+            "summary": {"passed": 8, "failed": 0, "missing": 0},
         },
     )
     write_json(
