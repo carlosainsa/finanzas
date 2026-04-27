@@ -129,6 +129,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - A committee of agents is acceptable only as an offline/advisory layer for model review, bias detection, feature proposals, and signal audits.
    - Live trading decisions must not depend on free-form agent consensus; they must remain deterministic, versioned, reproducible, and gated by Rust risk controls.
    - Agent outputs can become scores or diagnostics only after they are converted into versioned, testable inputs with clear promotion metrics.
+   - NVIDIA NIM is acceptable only as an optional offline/advisory inference layer for evidence summaries, contradiction checks, feature proposals, and research diagnostics; it must not enter the live predictor or publish Redis signals.
    - Run [game_theory_plan.md](game_theory_plan.md) reports over real dry-run/live-like data before promoting any strategy.
    - Use the pre-live gate and calibration reports as promotion checks; walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by confidence bucket are now generated offline.
    - Pre-live promotion report `pre_live_promotion_v1` is implemented offline and combines realized edge, fill-rate, slippage, adverse selection, drawdown, stale-data rate, reconciliation divergence rate, and calibration quality.

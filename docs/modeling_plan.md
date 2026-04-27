@@ -169,6 +169,19 @@ The sentiment roadmap is defined in
 features must be timestamped, evaluated walk-forward, and compared against
 price/liquidity behavior before they can influence the predictor.
 
+### NVIDIA NIM Offline Advisory
+
+NVIDIA NIM may be used as an optional offline/advisory inference layer for
+evidence summaries, contradiction checks, feature proposals, and research
+diagnostics. The implementation boundary is documented in
+[nim_research_plan.md](nim_research_plan.md).
+
+NIM outputs are not live predictor outputs. They must not publish Redis
+messages, create trade signals, modify runtime blocklists, or call execution
+controls. Any useful NIM output must first become deterministic, timestamped,
+versioned features and then pass the same walk-forward, calibration, comparison,
+and pre-live promotion gates as every other model input.
+
 ### Fractal Risk and Extreme Regimes
 
 Mandelbrot-style diagnostics are treated as risk and regime features, not as a

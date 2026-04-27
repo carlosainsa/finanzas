@@ -202,6 +202,14 @@ reconciliation quality, and adverse-selection checks. They do not publish to
 Redis, do not create live signals, and do not decide trades. Their output is
 advisory evidence for comparing model versions against realized offline metrics.
 
+NVIDIA NIM advisory outputs are planned as optional offline artifacts described
+in [nim_research_plan.md](nim_research_plan.md). When added to the data lake,
+they should be stored as `nim_advisory.json`,
+`nim_advisory_annotations.parquet`, and `nim_advisory_summary.parquet`, with
+`can_execute_trades=false`, model name, prompt version, and input/output hashes.
+They must not write Redis Streams, runtime blocklists, execution reports, or
+live predictor state.
+
 Market-regime diagnostics can also be generated from the same DuckDB database:
 
 ```bash

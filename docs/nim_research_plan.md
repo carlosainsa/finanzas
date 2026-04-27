@@ -1,0 +1,71 @@
+# NVIDIA NIM Research Plan
+
+NVIDIA NIM is an optional offline/advisory inference layer for research. It is
+not part of the live predictor, executor, Redis Streams transport, or Rust risk
+gate.
+
+## Allowed Uses
+
+- Summarize external evidence already available before a signal timestamp.
+- Classify evidence direction, uncertainty, contradiction, and source quality.
+- Produce advisory notes for model review, feature proposals, and bias checks.
+- Explain research reports such as calibration, adverse selection, and
+  feature-blocklist candidates.
+
+## Prohibited Uses
+
+- Publishing to `signals:stream`.
+- Calling Operator API control endpoints.
+- Modifying runtime blocklists.
+- Choosing live `side`, `price`, `size`, or market exposure.
+- Being imported by `python-service/src/ml/predictor.py`.
+- Replacing deterministic promotion gates or Rust risk controls.
+
+Every NIM artifact must carry:
+
+- `decision_policy = offline_advisory_only`;
+- `can_execute_trades = false`;
+- model and prompt version fields;
+- input/output hashes when persisted;
+- point-in-time evidence timestamps.
+
+## Configuration
+
+Use environment variables or a secret manager. Never commit real NVIDIA API
+keys.
+
+```bash
+ENABLE_NIM_ADVISORY=false
+NVIDIA_NIM_API_KEY=
+NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+NIM_MODEL=deepseek-ai/deepseek-r1
+NIM_TIMEOUT_SECONDS=30
+```
+
+The default is disabled. Enabling NIM only allows explicit research callers to
+make advisory requests.
+
+## Implementation Boundary
+
+The client lives under:
+
+```text
+python-service/src/research/llm/nim_client.py
+```
+
+This path is intentionally under `research/llm/`, not `ml/` or `data/`, so it
+does not enter runtime signal generation. The client uses the OpenAI-compatible
+`/chat/completions` endpoint through `httpx`.
+
+Future persisted outputs should be separate research artifacts, for example:
+
+```text
+nim_advisory.json
+nim_advisory_annotations.parquet
+nim_advisory_summary.parquet
+```
+
+These artifacts may be registered in research manifests after they have stable
+schemas and tests. They must remain advisory until converted into deterministic,
+timestamped, versioned features and promoted through existing backtest,
+calibration, comparison, and pre-live gates.

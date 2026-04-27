@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     polymarket_api_url: str = "https://clob.polymarket.com"
     gamma_api_url: str = "https://gamma-api.polymarket.com"
+    nvidia_nim_api_key: str | None = None
+    nim_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nim_model: str = "deepseek-ai/deepseek-r1"
+    enable_nim_advisory: bool = False
+    nim_timeout_seconds: float = 30.0
     private_key: str | None = None
     app_env: str = "development"
     host: str = "0.0.0.0"

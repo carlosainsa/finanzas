@@ -90,6 +90,33 @@ aggregates already-loaded `external_evidence` rows into
 `sentiment_feature_candidates` over a configurable lookback window. It performs
 no scraping and does not enter the live predictor.
 
+## NVIDIA NIM Advisory Annotations
+
+NVIDIA NIM can optionally annotate external evidence for offline research only.
+It should produce structured advisory annotations such as:
+
+- `advisory_id`;
+- `source_evidence_ids_hash`;
+- `market_id`;
+- `asset_id`;
+- `observed_at_ms`;
+- `available_at_ms`;
+- `nim_model`;
+- `prompt_version`;
+- `output_hash`;
+- `direction`;
+- `confidence`;
+- `contradiction_score`;
+- `rationale_reference_hash`;
+- `data_version`;
+- `feature_version`;
+- `can_execute_trades = false`.
+
+When evaluated against signals or trades, NIM annotations must obey
+`available_at_ms <= signal_timestamp_ms`. They must not publish to
+`signals:stream`, change runtime blocklists, or bypass the deterministic
+predictor and Rust risk gate. See [nim_research_plan.md](nim_research_plan.md).
+
 ## Whale and Flow Detection
 
 Whale detection means large-flow and market-impact diagnostics. It must not try
