@@ -1,7 +1,9 @@
 import pytest
+from pathlib import Path
 
 from src.config import settings
 from src.ml.predictor import Predictor
+from src.ml.segment_blocklist import BlockedSegment, SegmentBlocklist
 from src.schemas import OrderBook
 
 
@@ -32,6 +34,58 @@ def test_predictor_returns_valid_signal_for_wide_spread() -> None:
     assert signal.model_version == "passive_spread_capture_v1"
     assert signal.data_version == "redis_orderbook_v1"
     assert signal.feature_version == "orderbook_top_of_book_v1"
+
+
+def test_predictor_skips_blocked_segment() -> None:
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                model_version="passive_spread_capture_v1",
+                reason="bounded_drawdown",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
+
+
+def test_predictor_loads_blocked_segments_file(tmp_path: Path) -> None:
+    blocklist_path = tmp_path / "blocked_segments.json"
+    blocklist_path.write_text(
+        """
+        {
+          "version": "blocked_segments_v1",
+          "segments": [
+            {
+              "market_id": "0xabc",
+              "asset_id": "123",
+              "side": "BUY",
+              "model_version": "passive_spread_capture_v1",
+              "reason": "positive_realized_edge"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    predictor = Predictor(blocklist=SegmentBlocklist.from_file(blocklist_path))
+
+    assert predictor.predict(make_book(0.45, 0.50)) is None
+
+
+def test_blocked_segments_rejects_unknown_version(tmp_path: Path) -> None:
+    blocklist_path = tmp_path / "blocked_segments.json"
+    blocklist_path.write_text(
+        '{"version": "blocked_segments_v0", "segments": []}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unsupported blocked segments version"):
+        SegmentBlocklist.from_file(blocklist_path)
 
 
 def test_predictor_near_touch_quote_is_dry_run_only(

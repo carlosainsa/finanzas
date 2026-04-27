@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     predictor_near_touch_tick_size: float = 0.01
     predictor_near_touch_offset_ticks: int = 0
     predictor_near_touch_max_spread_fraction: float = 1.0
+    predictor_blocked_segments_path: str | None = None
 
 settings = Settings()
 

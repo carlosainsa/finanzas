@@ -171,16 +171,21 @@ PYTHONPATH=python-service python -m src.research.pre_live_promotion \
 ```
 
 This writes `pre_live_promotion.json` plus Parquet tables for metrics, checks,
-segments, segment checks, segment summary, drawdown, stale-data gaps, and
-reconciliation divergence. It combines observed realized edge, observed
-fill-rate, slippage, adverse selection, drawdown, stale-data rate,
-reconciliation divergence rate, simulator-quality delta, and calibration quality
-into one offline gate.
+segments, segment checks, segment summary, blocked segments, drawdown,
+stale-data gaps, and reconciliation divergence. It also writes
+`blocked_segments.json`, a runtime-friendly artifact that the predictor can load
+through `PREDICTOR_BLOCKED_SEGMENTS_PATH` to suppress weak market/asset
+segments. It combines observed realized edge, observed fill-rate, slippage,
+adverse selection, drawdown, stale-data rate, reconciliation divergence rate,
+simulator-quality delta, and calibration quality into one offline gate.
 The promotion stage materializes its expensive DuckDB relations before reading
 checks and exports, so large dry-run samples do not repeatedly expand the
 backtest, game-theory, calibration, and stale-data view graph.
 Synthetic fills remain comparison evidence only; promotion PnL and drawdown use
-observed trades.
+observed trades. Segment exports include normalized diagnostics such as
+`pnl_per_signal`, `pnl_per_filled_notional`, `drawdown_per_signal`, and
+`drawdown_per_filled_notional`; these are diagnostics until thresholds are
+calibrated across repeated dry-runs.
 
 Agent advisory diagnostics can be generated offline from the same DuckDB database:
 

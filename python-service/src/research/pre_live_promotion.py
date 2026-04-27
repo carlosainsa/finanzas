@@ -1,7 +1,8 @@
 import json
 import math
-from decimal import Decimal
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -12,6 +13,7 @@ from src.research.game_theory import create_game_theory_views, relation_exists
 
 
 PROMOTION_REPORT_VERSION = "pre_live_promotion_v1"
+BLOCKED_SEGMENTS_VERSION = "blocked_segments_v1"
 
 
 @dataclass(frozen=True)
@@ -469,6 +471,7 @@ def create_promotion_views(
                     coalesce(avg(fill_rate), 0) as fill_rate,
                     avg(slippage) as avg_slippage,
                     avg(realized_edge_after_slippage) as realized_edge,
+                    coalesce(sum(filled_notional), 0) as filled_notional,
                     sum(coalesce(realized_edge_after_slippage, 0) * coalesce(filled_size, 0)) as pnl
                 from pre_live_observed_trades
                 group by market_id, asset_id, side, strategy, model_version
@@ -563,14 +566,30 @@ def create_promotion_views(
                 trades.fill_rate,
                 trades.avg_slippage,
                 trades.realized_edge,
+                trades.filled_notional,
                 trades.pnl,
+                case when trades.signals > 0 then trades.pnl / trades.signals else null end as pnl_per_signal,
+                case when trades.filled_signals > 0 then trades.pnl / trades.filled_signals else null end as pnl_per_filled_signal,
+                case when trades.filled_notional > 0 then trades.pnl / trades.filled_notional else null end as pnl_per_filled_notional,
                 coalesce(quality.dry_run_reports, 0) as dry_run_reports,
                 coalesce(quality.dry_run_filled_signals, 0) as dry_run_filled_signals,
                     quality.dry_run_observed_fill_rate,
                     coalesce(quality.synthetic_fill_rate, 0) as synthetic_fill_rate,
                     quality.simulator_fill_rate_delta,
                     abs(quality.simulator_fill_rate_delta) as abs_simulator_fill_rate_delta,
-                    coalesce(drawdown.max_drawdown, 0) as max_drawdown
+                coalesce(drawdown.max_drawdown, 0) as max_drawdown,
+                case
+                    when trades.signals > 0 then coalesce(drawdown.max_drawdown, 0) / trades.signals
+                    else null
+                end as drawdown_per_signal,
+                case
+                    when trades.filled_signals > 0 then coalesce(drawdown.max_drawdown, 0) / trades.filled_signals
+                    else null
+                end as drawdown_per_filled_signal,
+                case
+                    when trades.filled_notional > 0 then coalesce(drawdown.max_drawdown, 0) / trades.filled_notional
+                    else null
+                end as drawdown_per_filled_notional
             from segment_trades trades
             left join segment_quality quality
               on quality.market_id = trades.market_id
@@ -600,7 +619,9 @@ def create_promotion_views(
                     'positive_realized_edge' as check_name,
                     realized_edge as metric_value,
                     {config.min_realized_edge} as threshold,
-                    realized_edge is not null and realized_edge > {config.min_realized_edge} as passed
+                    filled_signals = 0 or (
+                        realized_edge is not null and realized_edge > {config.min_realized_edge}
+                    ) as passed
                 from pre_live_promotion_segments
                 union all
                 select
@@ -669,6 +690,58 @@ def create_promotion_views(
             )
             """
         )
+        conn.execute(
+            f"""
+            create or replace table pre_live_blocked_segments as
+            select
+                segments.market_id,
+                segments.asset_id,
+                segments.side,
+                segments.strategy,
+                segments.model_version,
+                checks.failed_checks,
+                segments.signals,
+                segments.filled_signals,
+                segments.fill_rate,
+                segments.realized_edge,
+                segments.pnl,
+                segments.pnl_per_signal,
+                segments.pnl_per_filled_signal,
+                segments.pnl_per_filled_notional,
+                segments.max_drawdown,
+                segments.drawdown_per_signal,
+                segments.drawdown_per_filled_signal,
+                segments.drawdown_per_filled_notional,
+                segments.dry_run_reports,
+                segments.dry_run_observed_fill_rate,
+                segments.abs_simulator_fill_rate_delta,
+                array_to_string(checks.failed_checks, ',') as block_reason
+            from pre_live_promotion_segments segments
+            join (
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    list(check_name order by check_name) filter (
+                        where not passed
+                          and check_name in (
+                            'positive_realized_edge',
+                            'acceptable_dry_run_observed_fill_rate',
+                            'bounded_simulator_fill_rate_delta',
+                            'bounded_drawdown'
+                          )
+                    ) as failed_checks
+                from pre_live_promotion_segment_checks
+                group by market_id, asset_id, side, strategy, model_version
+            ) checks using (market_id, asset_id, side, strategy, model_version)
+            where segments.signals >= {config.min_signals}
+              and checks.failed_checks is not null
+              and len(checks.failed_checks) > 0
+            order by segments.market_id, segments.asset_id, segments.side, segments.strategy, segments.model_version
+            """
+        )
 
 
 def create_promotion_report(
@@ -721,6 +794,7 @@ def export_promotion_report(
             "pre_live_promotion_segments",
             "pre_live_promotion_segment_checks",
             "pre_live_promotion_segment_summary",
+            "pre_live_blocked_segments",
             "pre_live_drawdown",
             "pre_live_stale_data",
             "pre_live_reconciliation_divergence",
@@ -729,10 +803,85 @@ def export_promotion_report(
             conn.execute(
                 f"copy (select * from {view_name}) to '{duckdb_literal(target.as_posix())}' (format parquet)"
             )
+        export_blocked_segments_json(conn, output_dir, config)
     (output_dir / "pre_live_promotion.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return report
+
+
+def export_blocked_segments_json(
+    conn: duckdb.DuckDBPyConnection,
+    output_dir: Path,
+    config: PromotionConfig,
+) -> None:
+    rows = conn.execute(
+        """
+        select
+            market_id,
+            asset_id,
+            side,
+            strategy,
+            model_version,
+            block_reason,
+            signals,
+            filled_signals,
+            fill_rate,
+            realized_edge,
+            pnl,
+            pnl_per_signal,
+            pnl_per_filled_signal,
+            pnl_per_filled_notional,
+            max_drawdown,
+            drawdown_per_signal,
+            drawdown_per_filled_signal,
+            drawdown_per_filled_notional,
+            dry_run_reports,
+            dry_run_observed_fill_rate,
+            abs_simulator_fill_rate_delta
+        from pre_live_blocked_segments
+        order by market_id, asset_id, side, strategy, model_version
+        """
+    ).fetchall()
+    segments = [
+        {
+            "market_id": str(row[0]),
+            "asset_id": str(row[1]),
+            "side": str(row[2]),
+            "strategy": str(row[3]),
+            "model_version": str(row[4]),
+            "reason": str(row[5]),
+            "metrics": {
+                "signals": finite_float(row[6]),
+                "filled_signals": finite_float(row[7]),
+                "fill_rate": finite_float(row[8]),
+                "realized_edge": finite_float(row[9]),
+                "pnl": finite_float(row[10]),
+                "pnl_per_signal": finite_float(row[11]),
+                "pnl_per_filled_signal": finite_float(row[12]),
+                "pnl_per_filled_notional": finite_float(row[13]),
+                "max_drawdown": finite_float(row[14]),
+                "drawdown_per_signal": finite_float(row[15]),
+                "drawdown_per_filled_signal": finite_float(row[16]),
+                "drawdown_per_filled_notional": finite_float(row[17]),
+                "dry_run_reports": finite_float(row[18]),
+                "dry_run_observed_fill_rate": finite_float(row[19]),
+                "abs_simulator_fill_rate_delta": finite_float(row[20]),
+            },
+        }
+        for row in rows
+    ]
+    payload = {
+        "version": BLOCKED_SEGMENTS_VERSION,
+        "source_report_version": PROMOTION_REPORT_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "config": asdict(config),
+        "segments": segments,
+    }
+    target = output_dir / "blocked_segments.json"
+    tmp = output_dir / "blocked_segments.json.tmp"
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(target)
 
 
 def ensure_optional_views(conn: duckdb.DuckDBPyConnection) -> None:
@@ -940,6 +1089,7 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
 def drop_promotion_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         for relation_name in (
+            "pre_live_blocked_segments",
             "pre_live_promotion_segment_summary",
             "pre_live_promotion_segment_checks",
             "pre_live_promotion_segments",

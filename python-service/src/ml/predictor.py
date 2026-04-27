@@ -2,6 +2,7 @@ import time
 import uuid
 
 from src.config import settings
+from src.ml.segment_blocklist import SegmentBlocklist
 from src.schemas import OrderBook, TradeSignal
 
 MODEL_VERSION = "passive_spread_capture_v1"
@@ -19,6 +20,11 @@ class Predictor:
     el umbral configurado. El modelo ML real puede reemplazar esta clase sin
     cambiar el contrato Redis.
     """
+
+    def __init__(self, blocklist: SegmentBlocklist | None = None) -> None:
+        self.blocklist = blocklist or SegmentBlocklist.from_file(
+            settings.predictor_blocked_segments_path
+        )
 
     def predict(self, orderbook: OrderBook) -> TradeSignal | None:
         best_bid = orderbook.best_bid
@@ -38,6 +44,13 @@ class Predictor:
             best_bid.price,
             best_ask.price,
         )
+        if self.blocklist.is_blocked(
+            orderbook.market_id,
+            orderbook.asset_id,
+            "BUY",
+            model_version,
+        ):
+            return None
         quote_depth = best_ask.size if model_version == NEAR_TOUCH_MODEL_VERSION else best_bid.size
 
         return TradeSignal(

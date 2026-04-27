@@ -138,6 +138,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Require `dry_run_simulator_quality` review before using dry-run results as execution-quality evidence.
    - Enforce explicit pre-live thresholds for capture duration, minimum signals, observed dry-run fill-rate, reconciliation divergence, and simulator-quality fill-rate delta.
    - Use `pre_live_promotion_segments` to identify failing markets/assets before changing global thresholds.
+   - Export `blocked_segments.json` from promotion and load it explicitly with `PREDICTOR_BLOCKED_SEGMENTS_PATH` when running a restricted dry-run.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.

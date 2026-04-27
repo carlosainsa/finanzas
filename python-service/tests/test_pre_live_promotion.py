@@ -132,7 +132,15 @@ def test_promotion_views_expose_drawdown_and_stale_data(tmp_path: Path) -> None:
                 filled_signals,
                 fill_rate,
                 realized_edge,
-                max_drawdown
+                filled_notional,
+                pnl,
+                pnl_per_signal,
+                pnl_per_filled_signal,
+                pnl_per_filled_notional,
+                max_drawdown,
+                drawdown_per_signal,
+                drawdown_per_filled_signal,
+                drawdown_per_filled_notional
             from pre_live_promotion_segments
             where market_id = 'market-1'
               and asset_id = 'asset-1'
@@ -154,7 +162,21 @@ def test_promotion_views_expose_drawdown_and_stale_data(tmp_path: Path) -> None:
 
     assert drawdown == (pytest.approx(0.26),)
     assert stale == (4, pytest.approx(0.0))
-    assert segment == (4, 4, pytest.approx(1.0), pytest.approx(0.04), pytest.approx(0.26))
+    assert segment == (
+        4,
+        4,
+        pytest.approx(1.0),
+        pytest.approx(0.04),
+        pytest.approx(1.84),
+        pytest.approx(0.16),
+        pytest.approx(0.04),
+        pytest.approx(0.04),
+        pytest.approx(0.0869565),
+        pytest.approx(0.26),
+        pytest.approx(0.065),
+        pytest.approx(0.065),
+        pytest.approx(0.1413043),
+    )
     assert segment_checks["positive_realized_edge"] is True
     assert segment_checks["bounded_drawdown"] is True
     assert relation_types == {
@@ -181,6 +203,29 @@ def test_export_promotion_report_writes_json_and_parquet(tmp_path: Path) -> None
     assert (output_dir / "pre_live_promotion_metrics.parquet").exists()
     assert (output_dir / "pre_live_promotion_checks.parquet").exists()
     assert (output_dir / "pre_live_promotion_segments.parquet").exists()
+    assert (output_dir / "pre_live_blocked_segments.parquet").exists()
+    assert (output_dir / "blocked_segments.json").exists()
+
+
+def test_export_promotion_report_writes_blocked_segments_json(tmp_path: Path) -> None:
+    db_path = seed_promotion_db(tmp_path)
+    output_dir = tmp_path / "promotion"
+
+    export_promotion_report(
+        db_path, output_dir, PromotionConfig(max_drawdown=0.10, max_stale_data_rate=1.0)
+    )
+
+    payload = json.loads((output_dir / "blocked_segments.json").read_text())
+
+    assert payload["version"] == "blocked_segments_v1"
+    assert payload["source_report_version"] == PROMOTION_REPORT_VERSION
+    assert len(payload["segments"]) == 1
+    segment = payload["segments"][0]
+    assert segment["market_id"] == "market-1"
+    assert segment["asset_id"] == "asset-1"
+    assert segment["side"] == "BUY"
+    assert segment["reason"] == "bounded_drawdown"
+    assert segment["metrics"]["drawdown_per_signal"] == pytest.approx(0.065)
 
 
 def test_promotion_report_handles_missing_data_without_crashing(tmp_path: Path) -> None:

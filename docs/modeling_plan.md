@@ -199,6 +199,10 @@ It also exports segment-level metrics by `market_id`, `asset_id`, `side`,
 `strategy`, and `model_version`, so a weak market can be blocked without hiding
 the rest of the strategy. Promotion PnL and drawdown are computed from observed
 trades; synthetic fills are used only for simulator-quality comparison.
+`blocked_segments.json` is the runtime artifact for those blocks. It restricts
+future signals but does not authorize trades, and Rust risk remains the final
+execution gate. Normalized segment ratios are exported for diagnosis, not yet as
+hard gates.
 
 Synthetic fills are implemented as `src.research.synthetic_fills`. They are
 research-only estimates from future orderbook snapshots and are useful when
