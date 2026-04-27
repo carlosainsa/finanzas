@@ -244,6 +244,18 @@ then runs the research loop. A short dry-run may fail promotion or calibration
 gates; that means the research data was collected but is not yet sufficient for
 live promotion.
 
+Real dry-runs pass stricter promotion thresholds into the research loop by
+default:
+
+- `PRE_LIVE_MIN_CAPTURE_DURATION_MS`, defaulting to half the capture window;
+- `PRE_LIVE_MIN_SIGNALS=10`;
+- `PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE=0.01`;
+- `PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA=0.75`.
+
+These thresholds use observed dry-run execution evidence and simulator-quality
+delta, not only synthetic fills. Tune them per market class after repeated runs;
+do not loosen them to make a single short run pass.
+
 For longer isolated runs that should not mix with the default `data_lake/`, use:
 
 ```bash

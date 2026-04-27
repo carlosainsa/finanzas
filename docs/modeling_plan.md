@@ -185,6 +185,9 @@ Minimum promotion gates:
 
 - positive realized edge after slippage;
 - acceptable fill-rate;
+- minimum real dry-run capture duration and signal count;
+- acceptable observed dry-run fill-rate;
+- bounded simulator-quality fill-rate delta versus synthetic fills;
 - no persistent adverse selection;
 - stable calibration;
 - bounded drawdown in dry-run.

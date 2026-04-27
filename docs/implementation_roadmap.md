@@ -136,6 +136,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Require `observed_vs_synthetic_fill_summary` review for real dry-run samples before treating synthetic fills as a reliable baseline.
    - Require `unfilled_reason_summary` review before tuning predictor thresholds or risk limits.
    - Require `dry_run_simulator_quality` review before using dry-run results as execution-quality evidence.
+   - Enforce explicit pre-live thresholds for capture duration, minimum signals, observed dry-run fill-rate, reconciliation divergence, and simulator-quality fill-rate delta.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.

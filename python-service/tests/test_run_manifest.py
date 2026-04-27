@@ -30,6 +30,8 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert manifest["passed"] is True
     assert metrics["realized_edge"] == 0.04
     assert metrics["fill_rate"] == 1.0
+    assert metrics["capture_duration_ms"] == 3000
+    assert metrics["dry_run_observed_fill_rate"] == 0.75
     assert counts["orderbook_snapshots"] == 4
     assert counts["signals"] == 4
     assert versions["promotion_report"] == "pre_live_promotion_v1"
@@ -83,6 +85,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
 
     assert flat["run_id"] == "run-1"
     assert flat["realized_edge"] == 0.04
+    assert flat["capture_duration_ms"] == 3000
+    assert flat["dry_run_observed_fill_rate"] == 0.75
+    assert flat["max_abs_simulator_fill_rate_delta"] == 0.10
     assert flat["baseline_model_version"] == "deterministic_microstructure_baseline_v1"
     assert flat["baseline_data_version"] == "research_orderbook_snapshots_v1"
     assert flat["promotion_report_version"] == "pre_live_promotion_v1"
@@ -138,6 +143,12 @@ def seed_report_root(report_root: Path) -> Path:
                 "realized_edge": 0.04,
                 "fill_rate": 1.0,
                 "slippage": 0.01,
+                "capture_duration_ms": 3000,
+                "dry_run_observed_fill_rate": 0.75,
+                "simulator_fill_rate_delta": -0.05,
+                "max_abs_simulator_fill_rate_delta": 0.10,
+                "dry_run_avg_slippage": 0.0,
+                "avg_ms_to_dry_run_fill": 20.0,
                 "adverse_selection": None,
                 "drawdown": 0.0,
                 "stale_data_rate": 0.0,

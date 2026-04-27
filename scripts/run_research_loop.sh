@@ -10,6 +10,31 @@ BASELINE_QUOTE_PLACEMENT="${BASELINE_QUOTE_PLACEMENT:-passive_bid}"
 BASELINE_NEAR_TOUCH_TICK_SIZE="${BASELINE_NEAR_TOUCH_TICK_SIZE:-0.01}"
 BASELINE_NEAR_TOUCH_OFFSET_TICKS="${BASELINE_NEAR_TOUCH_OFFSET_TICKS:-0}"
 BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION="${BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION:-1.0}"
+PRE_LIVE_PROMOTION_ARGS=()
+if [[ -n "${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--min-capture-duration-ms "$PRE_LIVE_MIN_CAPTURE_DURATION_MS")
+fi
+if [[ -n "${PRE_LIVE_MIN_SIGNALS:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--min-signals "$PRE_LIVE_MIN_SIGNALS")
+fi
+if [[ -n "${PRE_LIVE_MIN_REALIZED_EDGE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--min-realized-edge "$PRE_LIVE_MIN_REALIZED_EDGE")
+fi
+if [[ -n "${PRE_LIVE_MIN_FILL_RATE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--min-fill-rate "$PRE_LIVE_MIN_FILL_RATE")
+fi
+if [[ -n "${PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--min-dry-run-observed-fill-rate "$PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE")
+fi
+if [[ -n "${PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-abs-simulator-fill-rate-delta "$PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA")
+fi
+if [[ -n "${PRE_LIVE_MAX_ABS_SLIPPAGE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-abs-slippage "$PRE_LIVE_MAX_ABS_SLIPPAGE")
+fi
+if [[ -n "${PRE_LIVE_MAX_RECONCILIATION_DIVERGENCE_RATE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-reconciliation-divergence-rate "$PRE_LIVE_MAX_RECONCILIATION_DIVERGENCE_RATE")
+fi
 REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 REPORT_ROOT="${RESEARCH_REPORT_ROOT:-$DATA_LAKE_ROOT/reports/$REPORT_TIMESTAMP}"
 MANIFEST_ROOT="${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}"
@@ -54,7 +79,8 @@ PYTHONPATH=python-service python3 -m src.research.calibration \
   --train-fraction "$TRAIN_FRACTION" > "$REPORT_ROOT/calibration.json"
 PYTHONPATH=python-service python3 -m src.research.pre_live_promotion \
   --duckdb "$DUCKDB_PATH" \
-  --output-dir "$REPORT_ROOT/pre_live_promotion" > "$REPORT_ROOT/pre_live_promotion.json"
+  --output-dir "$REPORT_ROOT/pre_live_promotion" \
+  "${PRE_LIVE_PROMOTION_ARGS[@]}" > "$REPORT_ROOT/pre_live_promotion.json"
 PYTHONPATH=python-service python3 -m src.research.agent_advisory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"

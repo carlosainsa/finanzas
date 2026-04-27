@@ -53,10 +53,43 @@ def test_promotion_report_combines_required_pre_live_metrics(tmp_path: Path) -> 
     assert metrics["filled_signals"] == 4.0
     assert metrics["fill_rate"] == pytest.approx(1.0)
     assert metrics["realized_edge"] == pytest.approx(0.04)
+    assert metrics["capture_duration_ms"] == 3000.0
+    assert metrics["dry_run_observed_fill_rate"] == 0.0
+    assert metrics["max_abs_simulator_fill_rate_delta"] == 0.0
     assert metrics["reconciliation_divergence_rate"] == pytest.approx(0.0)
+    assert checks["has_signals"] is True
+    assert checks["sufficient_capture_duration"] is True
+    assert checks["acceptable_dry_run_observed_fill_rate"] is True
+    assert checks["bounded_simulator_fill_rate_delta"] is True
     assert checks["positive_realized_edge"] is True
     assert checks["calibration_available"] is True
     assert report["passed"] is True
+
+
+def test_promotion_report_enforces_explicit_real_dry_run_gates(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_promotion_db(tmp_path)
+
+    report = create_promotion_report(
+        db_path,
+        PromotionConfig(
+            min_capture_duration_ms=10_000,
+            min_signals=10,
+            min_dry_run_observed_fill_rate=0.50,
+            max_drawdown=1.0,
+            max_stale_data_rate=1.0,
+        ),
+    )
+
+    checks = {
+        str(item["check_name"]): bool(item["passed"])
+        for item in cast(list[dict[str, Any]], report["checks"])
+    }
+    assert checks["sufficient_capture_duration"] is False
+    assert checks["has_signals"] is False
+    assert checks["acceptable_dry_run_observed_fill_rate"] is False
+    assert report["passed"] is False
 
 
 def test_promotion_views_expose_drawdown_and_stale_data(tmp_path: Path) -> None:

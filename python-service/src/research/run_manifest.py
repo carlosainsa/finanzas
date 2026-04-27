@@ -102,6 +102,18 @@ def manifest_metrics(
         "realized_edge": promotion_metrics.get("realized_edge"),
         "fill_rate": promotion_metrics.get("fill_rate"),
         "slippage": promotion_metrics.get("slippage"),
+        "capture_duration_ms": promotion_metrics.get("capture_duration_ms"),
+        "dry_run_observed_fill_rate": promotion_metrics.get(
+            "dry_run_observed_fill_rate"
+        ),
+        "simulator_fill_rate_delta": promotion_metrics.get(
+            "simulator_fill_rate_delta"
+        ),
+        "max_abs_simulator_fill_rate_delta": promotion_metrics.get(
+            "max_abs_simulator_fill_rate_delta"
+        ),
+        "dry_run_avg_slippage": promotion_metrics.get("dry_run_avg_slippage"),
+        "avg_ms_to_dry_run_fill": promotion_metrics.get("avg_ms_to_dry_run_fill"),
         "adverse_selection": promotion_metrics.get("adverse_selection"),
         "drawdown": promotion_metrics.get("drawdown"),
         "stale_data_rate": promotion_metrics.get("stale_data_rate"),
@@ -207,6 +219,14 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "realized_edge": metrics.get("realized_edge"),
         "fill_rate": metrics.get("fill_rate"),
         "slippage": metrics.get("slippage"),
+        "capture_duration_ms": metrics.get("capture_duration_ms"),
+        "dry_run_observed_fill_rate": metrics.get("dry_run_observed_fill_rate"),
+        "simulator_fill_rate_delta": metrics.get("simulator_fill_rate_delta"),
+        "max_abs_simulator_fill_rate_delta": metrics.get(
+            "max_abs_simulator_fill_rate_delta"
+        ),
+        "dry_run_avg_slippage": metrics.get("dry_run_avg_slippage"),
+        "avg_ms_to_dry_run_fill": metrics.get("avg_ms_to_dry_run_fill"),
         "adverse_selection": metrics.get("adverse_selection"),
         "drawdown": metrics.get("drawdown"),
         "stale_data_rate": metrics.get("stale_data_rate"),

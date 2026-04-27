@@ -16,8 +16,12 @@ PROMOTION_REPORT_VERSION = "pre_live_promotion_v1"
 
 @dataclass(frozen=True)
 class PromotionConfig:
+    min_capture_duration_ms: int = 0
+    min_signals: int = 1
     min_realized_edge: float = 0.0
     min_fill_rate: float = 0.10
+    min_dry_run_observed_fill_rate: float = 0.0
+    max_abs_simulator_fill_rate_delta: float = 1.0
     max_abs_slippage: float = 0.05
     max_adverse_selection_rate: float = 0.50
     max_drawdown: float = 0.10
@@ -49,6 +53,7 @@ def create_promotion_views(
             ensure_empty_game_theory_views(db_path)
     with duckdb.connect(str(db_path)) as conn:
         ensure_optional_views(conn)
+        ensure_optional_dry_run_simulator_quality_view(conn)
         conn.execute(
             f"""
             create or replace table pre_live_equity_curve as
@@ -163,7 +168,18 @@ def create_promotion_views(
         conn.execute(
             f"""
             create or replace table pre_live_promotion_metrics as
-            with trade_metrics as (
+            with capture_metrics as (
+                select
+                    min(event_timestamp_ms) as first_orderbook_timestamp_ms,
+                    max(event_timestamp_ms) as last_orderbook_timestamp_ms,
+                    case
+                        when min(event_timestamp_ms) is not null and max(event_timestamp_ms) is not null
+                        then max(event_timestamp_ms) - min(event_timestamp_ms)
+                        else 0
+                    end as capture_duration_ms
+                from orderbook_snapshots
+            ),
+            trade_metrics as (
                 select
                     count(distinct signal_id) as signals,
                     count(distinct case when filled_size > 0 then signal_id else null end) as filled_signals,
@@ -192,6 +208,22 @@ def create_promotion_views(
                     coalesce(avg(case when is_divergent then 1.0 else 0.0 end), 0) as reconciliation_divergence_rate
                 from pre_live_reconciliation_divergence
             ),
+            simulator_quality_metrics as (
+                select
+                    coalesce(sum(signals), 0) as dry_run_quality_signals,
+                    coalesce(sum(dry_run_reports), 0) as dry_run_reports,
+                    coalesce(sum(dry_run_filled_signals), 0) as dry_run_filled_signals,
+                    case
+                        when coalesce(sum(signals), 0) > 0
+                        then coalesce(sum(dry_run_filled_signals), 0)::double / sum(signals)
+                        else 0
+                    end as dry_run_observed_fill_rate,
+                    coalesce(avg(fill_rate_delta_vs_synthetic), 0) as simulator_fill_rate_delta,
+                    coalesce(max(abs(fill_rate_delta_vs_synthetic)), 0) as max_abs_simulator_fill_rate_delta,
+                    avg(dry_run_avg_slippage) as dry_run_avg_slippage,
+                    avg(avg_ms_to_dry_run_fill) as avg_ms_to_dry_run_fill
+                from dry_run_simulator_quality
+            ),
             calibration_metrics as (
                 select
                     avg(case when split = 'test' then brier_score else null end) as test_brier_score,
@@ -200,11 +232,22 @@ def create_promotion_views(
             )
             select
                 '{PROMOTION_REPORT_VERSION}' as report_version,
+                capture_metrics.first_orderbook_timestamp_ms,
+                capture_metrics.last_orderbook_timestamp_ms,
+                capture_metrics.capture_duration_ms,
                 trade_metrics.signals,
                 trade_metrics.filled_signals,
                 trade_metrics.fill_rate,
                 trade_metrics.avg_slippage,
                 trade_metrics.realized_edge,
+                simulator_quality_metrics.dry_run_quality_signals,
+                simulator_quality_metrics.dry_run_reports,
+                simulator_quality_metrics.dry_run_filled_signals,
+                simulator_quality_metrics.dry_run_observed_fill_rate,
+                simulator_quality_metrics.simulator_fill_rate_delta,
+                simulator_quality_metrics.max_abs_simulator_fill_rate_delta,
+                simulator_quality_metrics.dry_run_avg_slippage,
+                simulator_quality_metrics.avg_ms_to_dry_run_fill,
                 adverse_metrics.adverse_selection_rate,
                 drawdown_metrics.max_drawdown,
                 stale_metrics.orderbook_snapshots,
@@ -214,10 +257,12 @@ def create_promotion_views(
                 calibration_metrics.test_brier_score,
                 calibration_metrics.test_log_loss
             from trade_metrics
+            cross join capture_metrics
             cross join adverse_metrics
             cross join drawdown_metrics
             cross join stale_metrics
             cross join reconciliation_metrics
+            cross join simulator_quality_metrics
             cross join calibration_metrics
             """
         )
@@ -233,8 +278,15 @@ def create_promotion_views(
                 select
                     'has_signals' as check_name,
                     signals::double as metric_value,
-                    1.0 as threshold,
-                    signals > 0 as passed
+                    {config.min_signals}::double as threshold,
+                    signals >= {config.min_signals} as passed
+                from metrics
+                union all
+                select
+                    'sufficient_capture_duration',
+                    capture_duration_ms::double,
+                    {config.min_capture_duration_ms}::double,
+                    capture_duration_ms >= {config.min_capture_duration_ms}
                 from metrics
                 union all
                 select
@@ -256,6 +308,20 @@ def create_promotion_views(
                     fill_rate,
                     {config.min_fill_rate},
                     fill_rate >= {config.min_fill_rate}
+                from metrics
+                union all
+                select
+                    'acceptable_dry_run_observed_fill_rate',
+                    dry_run_observed_fill_rate,
+                    {config.min_dry_run_observed_fill_rate},
+                    dry_run_observed_fill_rate >= {config.min_dry_run_observed_fill_rate}
+                from metrics
+                union all
+                select
+                    'bounded_simulator_fill_rate_delta',
+                    max_abs_simulator_fill_rate_delta,
+                    {config.max_abs_simulator_fill_rate_delta},
+                    max_abs_simulator_fill_rate_delta <= {config.max_abs_simulator_fill_rate_delta}
                 from metrics
                 union all
                 select
@@ -401,6 +467,41 @@ def ensure_optional_views(conn: duckdb.DuckDBPyConnection) -> None:
         )
 
 
+def ensure_optional_dry_run_simulator_quality_view(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    if relation_exists(conn, "dry_run_simulator_quality"):
+        return
+    conn.execute(
+        """
+        create or replace view dry_run_simulator_quality as
+        select
+            cast(null as varchar) as strategy,
+            cast(null as varchar) as model_version,
+            cast(null as varchar) as data_version,
+            cast(null as varchar) as feature_version,
+            cast(null as varchar) as market_id,
+            cast(null as varchar) as side,
+            cast(0 as bigint) as signals,
+            cast(0 as bigint) as dry_run_reports,
+            cast(0 as bigint) as dry_run_filled_signals,
+            cast(null as double) as dry_run_observed_fill_rate,
+            cast(null as double) as synthetic_fill_rate,
+            cast(null as double) as fill_rate_delta_vs_synthetic,
+            cast(null as double) as dry_run_avg_slippage,
+            cast(null as double) as synthetic_avg_slippage,
+            cast(null as double) as slippage_delta_vs_synthetic,
+            cast(null as double) as avg_ms_to_dry_run_fill,
+            cast(null as double) as avg_ms_to_synthetic_fill,
+            cast(0 as bigint) as dry_run_partial_reports,
+            cast(0 as bigint) as dry_run_matched_reports,
+            cast(null as double) as dry_run_partial_rate,
+            cast(null as double) as dry_run_matched_rate
+        where false
+        """
+    )
+
+
 def ensure_minimal_input_views(db_path: Path) -> None:
     with duckdb.connect(str(db_path)) as conn:
         if not relation_exists(conn, "signals"):
@@ -451,6 +552,34 @@ def ensure_empty_backtest_views(db_path: Path) -> None:
                 cast(null as double) as model_edge,
                 cast(null as double) as realized_edge_after_slippage,
                 cast(null as varchar) as error
+            where false
+            """
+        )
+        conn.execute(
+            """
+            create or replace view dry_run_simulator_quality as
+            select
+                cast(null as varchar) as strategy,
+                cast(null as varchar) as model_version,
+                cast(null as varchar) as data_version,
+                cast(null as varchar) as feature_version,
+                cast(null as varchar) as market_id,
+                cast(null as varchar) as side,
+                cast(0 as bigint) as signals,
+                cast(0 as bigint) as dry_run_reports,
+                cast(0 as bigint) as dry_run_filled_signals,
+                cast(null as double) as dry_run_observed_fill_rate,
+                cast(null as double) as synthetic_fill_rate,
+                cast(null as double) as fill_rate_delta_vs_synthetic,
+                cast(null as double) as dry_run_avg_slippage,
+                cast(null as double) as synthetic_avg_slippage,
+                cast(null as double) as slippage_delta_vs_synthetic,
+                cast(null as double) as avg_ms_to_dry_run_fill,
+                cast(null as double) as avg_ms_to_synthetic_fill,
+                cast(0 as bigint) as dry_run_partial_reports,
+                cast(0 as bigint) as dry_run_matched_reports,
+                cast(null as double) as dry_run_partial_rate,
+                cast(null as double) as dry_run_matched_rate
             where false
             """
         )
@@ -578,12 +707,49 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="research-pre-live-promotion")
     parser.add_argument("--duckdb", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--min-capture-duration-ms",
+        type=int,
+        default=PromotionConfig.min_capture_duration_ms,
+    )
+    parser.add_argument("--min-signals", type=int, default=PromotionConfig.min_signals)
+    parser.add_argument(
+        "--min-realized-edge",
+        type=float,
+        default=PromotionConfig.min_realized_edge,
+    )
     parser.add_argument("--min-fill-rate", type=float, default=PromotionConfig.min_fill_rate)
+    parser.add_argument(
+        "--min-dry-run-observed-fill-rate",
+        type=float,
+        default=PromotionConfig.min_dry_run_observed_fill_rate,
+    )
+    parser.add_argument(
+        "--max-abs-simulator-fill-rate-delta",
+        type=float,
+        default=PromotionConfig.max_abs_simulator_fill_rate_delta,
+    )
+    parser.add_argument(
+        "--max-abs-slippage",
+        type=float,
+        default=PromotionConfig.max_abs_slippage,
+    )
+    parser.add_argument(
+        "--max-adverse-selection-rate",
+        type=float,
+        default=PromotionConfig.max_adverse_selection_rate,
+    )
+    parser.add_argument("--max-drawdown", type=float, default=PromotionConfig.max_drawdown)
     parser.add_argument("--max-stale-data-rate", type=float, default=PromotionConfig.max_stale_data_rate)
     parser.add_argument(
         "--max-reconciliation-divergence-rate",
         type=float,
         default=PromotionConfig.max_reconciliation_divergence_rate,
+    )
+    parser.add_argument(
+        "--max-brier-score",
+        type=float,
+        default=PromotionConfig.max_brier_score,
     )
     parser.add_argument("--stale-gap-ms", type=int, default=PromotionConfig.stale_gap_ms)
     args = parser.parse_args()
@@ -592,9 +758,18 @@ def main() -> int:
         Path(args.duckdb),
         Path(args.output_dir),
         PromotionConfig(
+            min_capture_duration_ms=args.min_capture_duration_ms,
+            min_signals=args.min_signals,
+            min_realized_edge=args.min_realized_edge,
             min_fill_rate=args.min_fill_rate,
+            min_dry_run_observed_fill_rate=args.min_dry_run_observed_fill_rate,
+            max_abs_simulator_fill_rate_delta=args.max_abs_simulator_fill_rate_delta,
+            max_abs_slippage=args.max_abs_slippage,
+            max_adverse_selection_rate=args.max_adverse_selection_rate,
+            max_drawdown=args.max_drawdown,
             max_stale_data_rate=args.max_stale_data_rate,
             max_reconciliation_divergence_rate=args.max_reconciliation_divergence_rate,
+            max_brier_score=args.max_brier_score,
             stale_gap_ms=args.stale_gap_ms,
         ),
     )
