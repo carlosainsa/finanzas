@@ -12,7 +12,13 @@ from src.research.nim_advisory import (
 
 
 class FakeNIMClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        prompt_tokens: int = 10,
+        completion_tokens: int = 3,
+        latency_ms: float = 12.5,
+    ) -> None:
         self.config = NIMResearchConfig(
             enabled=True,
             api_key="test",
@@ -20,6 +26,9 @@ class FakeNIMClient:
             base_url="https://nim.test/v1",
         )
         self.calls: list[tuple[str, str, float, int]] = []
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.latency_ms = latency_ms
 
     def generate(
         self,
@@ -36,9 +45,13 @@ class FakeNIMClient:
             model_version="nvidia_nim_research_client_v1",
             decision_policy="offline_advisory_only",
             can_execute_trades=False,
-            usage={"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+            usage={
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+                "total_tokens": self.prompt_tokens + self.completion_tokens,
+            },
             finish_reason="stop",
-            latency_ms=12.5,
+            latency_ms=self.latency_ms,
         )
 
 
@@ -198,8 +211,81 @@ def test_nim_advisory_applies_max_evidence_per_run_cap(tmp_path: Path) -> None:
     assert report["limits"] == {
         "requested_limit": 10,
         "max_evidence_per_run": 1,
+        "max_requests_per_run": 25,
+        "max_tokens_per_run": 0,
+        "max_latency_ms_per_run": 0.0,
+        "max_cost_per_run": 0.0,
         "effective_limit": 1,
     }
+
+
+def test_nim_advisory_applies_max_requests_before_calling_client(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_evidence_db(tmp_path)
+    output_dir = tmp_path / "nim_advisory"
+    fake = FakeNIMClient()
+
+    report = export_nim_advisory_report(
+        db_path,
+        output_dir,
+        NIMAdvisoryConfig(
+            enabled=True,
+            limit=10,
+            max_evidence_per_run=10,
+            max_requests_per_run=1,
+        ),
+        client=fake,
+    )
+
+    assert len(fake.calls) == 1
+    assert report["limits"] == {
+        "requested_limit": 10,
+        "max_evidence_per_run": 10,
+        "max_requests_per_run": 1,
+        "max_tokens_per_run": 0,
+        "max_latency_ms_per_run": 0.0,
+        "max_cost_per_run": 0.0,
+        "effective_limit": 1,
+    }
+
+
+def test_nim_advisory_marks_budget_exceeded_without_live_authority(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_evidence_db(tmp_path)
+    output_dir = tmp_path / "nim_advisory"
+    fake = FakeNIMClient(prompt_tokens=20, completion_tokens=5, latency_ms=50.0)
+
+    report = export_nim_advisory_report(
+        db_path,
+        output_dir,
+        NIMAdvisoryConfig(
+            enabled=True,
+            limit=2,
+            max_tokens_per_run=10,
+            max_latency_ms_per_run=40,
+            max_cost_per_run=0.00001,
+            input_cost_per_million_tokens=100.0,
+            output_cost_per_million_tokens=100.0,
+        ),
+        client=fake,
+    )
+
+    summary = report["summary"]
+    cost_summary = report["cost_summary"]
+    assert isinstance(summary, dict)
+    assert isinstance(cost_summary, dict)
+    assert report["status"] == "budget_exceeded"
+    assert summary["budget_status"] == "BUDGET_EXCEEDED"
+    assert summary["advisory_acceptable"] is False
+    assert cost_summary["budget_status"] == "BUDGET_EXCEEDED"
+    assert cost_summary["budget_violations"] == [
+        "max_tokens_per_run",
+        "max_latency_ms_per_run",
+        "max_cost_per_run",
+    ]
+    assert report["can_execute_trades"] is False
 
 
 def seed_evidence_db(tmp_path: Path) -> Path:

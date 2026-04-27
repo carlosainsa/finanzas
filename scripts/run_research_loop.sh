@@ -101,10 +101,16 @@ NIM_ADVISORY_ARGS=(
   --duckdb "$DUCKDB_PATH"
   --output-dir "$REPORT_ROOT/nim_advisory"
 )
+if [[ -n "${NIM_ADVISORY_LIMIT:-}" ]]; then
+  NIM_ADVISORY_ARGS+=(--limit "$NIM_ADVISORY_LIMIT")
+fi
 if [[ "${ENABLE_NIM_ADVISORY:-0}" == "1" || "${ENABLE_NIM_ADVISORY:-0}" == "true" ]]; then
   NIM_ADVISORY_ARGS+=(--enabled)
 fi
+set +e
 PYTHONPATH=python-service python3 "${NIM_ADVISORY_ARGS[@]}" > "$REPORT_ROOT/nim_advisory.json"
+NIM_ADVISORY_EXIT_CODE="$?"
+set -e
 
 python3 - "$REPORT_ROOT" "$MANIFEST_ROOT" <<'PY' > "$REPORT_ROOT/feature_research_decision.json"
 import json
@@ -154,8 +160,9 @@ else:
     print(json.dumps(create_missing_baseline_report(report_root), indent=2, sort_keys=True))
 PY
 
-python3 - "$REPORT_ROOT" <<'PY'
+NIM_ADVISORY_EXIT_CODE="$NIM_ADVISORY_EXIT_CODE" python3 - "$REPORT_ROOT" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -172,6 +179,7 @@ calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 advisory = read_json("agent_advisory.json")
 nim_advisory = read_json("nim_advisory.json")
+nim_advisory_exit_code = int(os.environ.get("NIM_ADVISORY_EXIT_CODE", "0"))
 synthetic_fills = read_json("synthetic_fills.json")
 feature_research_decision = read_json("feature_research_decision.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
@@ -194,6 +202,7 @@ summary = {
     "pre_live_promotion": promotion,
     "agent_advisory": advisory,
     "nim_advisory": nim_advisory,
+    "nim_advisory_exit_code": nim_advisory_exit_code,
     "feature_research_decision": feature_research_decision,
 }
 summary["passed"] = bool(
@@ -201,13 +210,14 @@ summary["passed"] = bool(
     and summary["calibration_passed"]
     and summary["pre_live_promotion_passed"]
     and summary["agent_advisory_acceptable"]
+    and nim_advisory_exit_code == 0
 )
 (root / "research_summary.json").write_text(
     json.dumps(summary, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
 )
 (root / "research_exit_code.txt").write_text(
-    "0\n" if summary["passed"] else "2\n",
+    "0\n" if summary["passed"] else f"{nim_advisory_exit_code or 2}\n",
     encoding="utf-8",
 )
 print(json.dumps(summary, indent=2, sort_keys=True))

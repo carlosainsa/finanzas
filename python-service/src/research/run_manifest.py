@@ -228,6 +228,10 @@ def manifest_counts(
         "nim_advisory_total_tokens": nim_summary.get("total_tokens"),
         "nim_advisory_latency_ms_avg": nim_summary.get("latency_ms_avg"),
         "nim_advisory_estimated_cost": nim_summary.get("estimated_cost"),
+        "nim_advisory_budget_status": nim_summary.get("budget_status"),
+        "nim_advisory_budget_violations": stable_json_list(
+            nim_summary.get("budget_violations")
+        ),
         "research_feature_bucket_performance": feature_blocklist_counts.get(
             "research_feature_bucket_performance"
         ),
@@ -364,6 +368,8 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "nim_advisory_total_tokens": counts.get("nim_advisory_total_tokens"),
         "nim_advisory_latency_ms_avg": counts.get("nim_advisory_latency_ms_avg"),
         "nim_advisory_estimated_cost": counts.get("nim_advisory_estimated_cost"),
+        "nim_advisory_budget_status": counts.get("nim_advisory_budget_status"),
+        "nim_advisory_budget_violations": counts.get("nim_advisory_budget_violations"),
         "research_feature_bucket_performance": counts.get(
             "research_feature_bucket_performance"
         ),
@@ -438,6 +444,12 @@ def read_json(path: Path) -> dict[str, object]:
 
 def typed_dict(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def stable_json_list(value: object) -> str:
+    if isinstance(value, list):
+        return json.dumps(value, sort_keys=True)
+    return "[]"
 
 
 def git_commit(path: Path) -> str | None:

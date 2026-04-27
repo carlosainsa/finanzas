@@ -42,6 +42,11 @@ NIM_BASE_URL=https://integrate.api.nvidia.com/v1
 NIM_MODEL=deepseek-ai/deepseek-v3.2
 NIM_TIMEOUT_SECONDS=30
 NIM_MAX_EVIDENCE_PER_RUN=25
+NIM_MAX_REQUESTS_PER_RUN=25
+NIM_MAX_TOKENS_PER_RUN=0
+NIM_MAX_LATENCY_MS_PER_RUN=0
+NIM_MAX_COST_PER_RUN=0
+NIM_FAIL_ON_BUDGET_EXCEEDED=false
 NIM_INPUT_COST_PER_MILLION_TOKENS=0
 NIM_OUTPUT_COST_PER_MILLION_TOKENS=0
 NIM_COST_CURRENCY=USD
@@ -95,6 +100,12 @@ These artifacts are registered in research manifests as diagnostics. They must
 remain advisory until converted into deterministic, timestamped, versioned
 features and promoted through existing backtest, calibration, comparison, and
 pre-live gates.
+
+The advisory exporter applies a hard request cap before calling NIM and records
+`budget_status = OK | BUDGET_EXCEEDED | DISABLED`. Token, latency, and cost
+limits use `0` as disabled. Set `NIM_FAIL_ON_BUDGET_EXCEEDED=true` only when
+the research loop should fail immediately instead of recording the over-budget
+run as a diagnostic artifact.
 
 ## Real Smoke And Model Inventory
 

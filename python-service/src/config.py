@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     enable_nim_advisory: bool = False
     nim_timeout_seconds: float = 30.0
     nim_max_evidence_per_run: int = 25
+    nim_max_requests_per_run: int = 25
+    nim_max_tokens_per_run: int = 0
+    nim_max_latency_ms_per_run: float = 0.0
+    nim_max_cost_per_run: float = 0.0
+    nim_fail_on_budget_exceeded: bool = False
     nim_input_cost_per_million_tokens: float = 0.0
     nim_output_cost_per_million_tokens: float = 0.0
     nim_cost_currency: str = "USD"

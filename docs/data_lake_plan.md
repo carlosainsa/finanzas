@@ -212,8 +212,10 @@ When `ENABLE_NIM_ADVISORY=false`, the exporter writes disabled/empty artifacts
 without calling NVIDIA. NIM artifacts are registered in run manifests, but they
 must not write Redis Streams, runtime blocklists, execution reports, or live
 predictor state. The cost summary records request counts, token usage, latency,
-and configured cost estimates so a run cannot silently exceed its research
-budget.
+configured cost estimates, and `budget_status = OK | BUDGET_EXCEEDED |
+DISABLED` so a run cannot silently exceed its research budget. `max_requests`
+is enforced before NIM calls are made; token, latency, and cost limits are
+validated from the returned usage metadata.
 
 Market-regime diagnostics can also be generated from the same DuckDB database:
 

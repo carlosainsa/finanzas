@@ -45,6 +45,11 @@ class NIMAdvisoryConfig:
     enabled: bool = False
     limit: int = 25
     max_evidence_per_run: int = 25
+    max_requests_per_run: int = 25
+    max_tokens_per_run: int = 0
+    max_latency_ms_per_run: float = 0.0
+    max_cost_per_run: float = 0.0
+    fail_on_budget_exceeded: bool = False
     prompt_version: str = DEFAULT_PROMPT_VERSION
     input_cost_per_million_tokens: float = 0.0
     output_cost_per_million_tokens: float = 0.0
@@ -62,6 +67,8 @@ def export_nim_advisory_report(
         raise ValueError("limit must be positive")
     if resolved_config.max_evidence_per_run <= 0:
         raise ValueError("max_evidence_per_run must be positive")
+    if resolved_config.max_requests_per_run <= 0:
+        raise ValueError("max_requests_per_run must be positive")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not resolved_config.enabled:
@@ -82,7 +89,7 @@ def export_nim_advisory_report(
         )
 
     resolved_client = client or NIMResearchClient()
-    effective_limit = min(resolved_config.limit, resolved_config.max_evidence_per_run)
+    effective_limit = effective_evidence_limit(resolved_config)
     evidence_rows = load_evidence_rows(db_path, effective_limit)
     annotations: list[dict[str, object]] = []
     failures = 0
@@ -100,10 +107,11 @@ def export_nim_advisory_report(
             continue
         annotations.append(result_annotation(row, resolved_config, result))
 
-    status = "ok" if failures == 0 else "partial"
     cost_summary = build_cost_summary(
         resolved_config, resolved_client.config.model, annotations, len(evidence_rows)
     )
+    budget_status = str(cost_summary["budget_status"])
+    status = report_status(failures, budget_status)
     report = base_report(
         resolved_config,
         status=status,
@@ -272,6 +280,7 @@ def write_outputs(
         "nim_model": report["nim_model"],
         "annotations": counts.get("nim_advisory_annotations"),
         "failures": report_summary.get("failures"),
+        "budget_status": report_summary.get("budget_status"),
         "can_execute_trades": False,
         "decision_policy": "offline_advisory_only",
     }
@@ -323,7 +332,10 @@ def base_report(
             "total_tokens": cost_summary.get("total_tokens"),
             "latency_ms_avg": cost_summary.get("latency_ms_avg"),
             "estimated_cost": cost_summary.get("total_cost_estimate"),
-            "advisory_acceptable": failures == 0,
+            "budget_status": cost_summary.get("budget_status"),
+            "budget_violations": cost_summary.get("budget_violations"),
+            "advisory_acceptable": failures == 0
+            and cost_summary.get("budget_status") in ("OK", "DISABLED"),
             "can_execute_trades": False,
         },
         "counts": {
@@ -333,7 +345,11 @@ def base_report(
         "limits": {
             "requested_limit": config.limit,
             "max_evidence_per_run": config.max_evidence_per_run,
-            "effective_limit": min(config.limit, config.max_evidence_per_run),
+            "max_requests_per_run": config.max_requests_per_run,
+            "max_tokens_per_run": config.max_tokens_per_run,
+            "max_latency_ms_per_run": config.max_latency_ms_per_run,
+            "max_cost_per_run": config.max_cost_per_run,
+            "effective_limit": effective_evidence_limit(config),
         },
         "cost_summary": cost_summary,
     }
@@ -360,6 +376,15 @@ def build_cost_summary(
     output_cost = (
         completion_tokens / 1_000_000
     ) * config.output_cost_per_million_tokens
+    total_cost = input_cost + output_cost
+    latency_total = round(sum(latencies), 3) if latencies else 0.0
+    budget = evaluate_budget(
+        config=config,
+        requests_attempted=len(rows),
+        total_tokens=total_tokens,
+        latency_ms_total=latency_total,
+        total_cost=total_cost,
+    )
     return {
         "nim_model": nim_model,
         "requests_attempted": len(rows),
@@ -368,11 +393,12 @@ def build_cost_summary(
         "evidence_rows": evidence_rows,
         "evidence_requested_limit": config.limit,
         "evidence_max_per_run": config.max_evidence_per_run,
-        "evidence_effective_limit": min(config.limit, config.max_evidence_per_run),
+        "requests_max_per_run": config.max_requests_per_run,
+        "evidence_effective_limit": effective_evidence_limit(config),
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
-        "latency_ms_total": round(sum(latencies), 3) if latencies else 0.0,
+        "latency_ms_total": latency_total,
         "latency_ms_avg": round(mean(latencies), 3) if latencies else None,
         "latency_ms_p50": round(median(latencies), 3) if latencies else None,
         "latency_ms_p95": round(percentile_95(latencies), 3) if latencies else None,
@@ -380,11 +406,54 @@ def build_cost_summary(
         "cost_currency": config.cost_currency,
         "input_cost_estimate": input_cost,
         "output_cost_estimate": output_cost,
-        "total_cost_estimate": input_cost + output_cost,
+        "total_cost_estimate": total_cost,
         "cost_pricing_source": "env:NIM_INPUT_COST_PER_MILLION_TOKENS,NIM_OUTPUT_COST_PER_MILLION_TOKENS",
+        "max_tokens_per_run": config.max_tokens_per_run,
+        "max_latency_ms_per_run": config.max_latency_ms_per_run,
+        "max_cost_per_run": config.max_cost_per_run,
+        "budget_status": budget["status"],
+        "budget_violations": budget["violations"],
         "decision_policy": "offline_advisory_only",
         "can_execute_trades": False,
     }
+
+
+def effective_evidence_limit(config: NIMAdvisoryConfig) -> int:
+    return min(config.limit, config.max_evidence_per_run, config.max_requests_per_run)
+
+
+def evaluate_budget(
+    *,
+    config: NIMAdvisoryConfig,
+    requests_attempted: int,
+    total_tokens: int,
+    latency_ms_total: float,
+    total_cost: float,
+) -> dict[str, object]:
+    if not config.enabled:
+        return {"status": "DISABLED", "violations": []}
+    violations: list[str] = []
+    if requests_attempted > config.max_requests_per_run:
+        violations.append("max_requests_per_run")
+    if config.max_tokens_per_run > 0 and total_tokens > config.max_tokens_per_run:
+        violations.append("max_tokens_per_run")
+    if (
+        config.max_latency_ms_per_run > 0
+        and latency_ms_total > config.max_latency_ms_per_run
+    ):
+        violations.append("max_latency_ms_per_run")
+    if config.max_cost_per_run > 0 and total_cost > config.max_cost_per_run:
+        violations.append("max_cost_per_run")
+    return {
+        "status": "BUDGET_EXCEEDED" if violations else "OK",
+        "violations": violations,
+    }
+
+
+def report_status(failures: int, budget_status: str) -> str:
+    if budget_status == "BUDGET_EXCEEDED":
+        return "budget_exceeded"
+    return "ok" if failures == 0 else "partial"
 
 
 def percentile_95(values: list[float]) -> float:
@@ -485,12 +554,23 @@ def main() -> int:
             enabled=enabled,
             limit=args.limit,
             max_evidence_per_run=settings.nim_max_evidence_per_run,
+            max_requests_per_run=settings.nim_max_requests_per_run,
+            max_tokens_per_run=settings.nim_max_tokens_per_run,
+            max_latency_ms_per_run=settings.nim_max_latency_ms_per_run,
+            max_cost_per_run=settings.nim_max_cost_per_run,
+            fail_on_budget_exceeded=settings.nim_fail_on_budget_exceeded,
             input_cost_per_million_tokens=settings.nim_input_cost_per_million_tokens,
             output_cost_per_million_tokens=settings.nim_output_cost_per_million_tokens,
             cost_currency=settings.nim_cost_currency,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
+    summary = typed_dict(report.get("summary"))
+    if (
+        settings.nim_fail_on_budget_exceeded
+        and summary.get("budget_status") == "BUDGET_EXCEEDED"
+    ):
+        return 3
     return 0
 
 
