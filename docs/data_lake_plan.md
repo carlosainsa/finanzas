@@ -290,6 +290,20 @@ each run before `research_manifest.json` is generated. On the first run, or any
 run without a prior indexed baseline, the report stays advisory and returns
 `KEEP_DIAGNOSTIC` instead of failing the research loop.
 
+To review feature stability across many runs:
+
+```bash
+PYTHONPATH=python-service python -m src.research.feature_decision_history \
+  --manifest-root data_lake/research_runs \
+  --output-dir data_lake/feature_decision_history \
+  --latest 20 \
+  --json
+```
+
+This exports run-level decision history, bucket-level history, and bucket
+stability Parquet files. It is still offline diagnostics only and cannot apply
+runtime blocklists.
+
 ## Research Run Manifest
 
 `research_summary.json` is the gate summary for one run. `research_manifest.json`

@@ -122,6 +122,84 @@ test('dashboard renders core controls on mobile without console errors', async (
   expect(consoleErrors).toEqual([]);
 });
 
+test('dashboard shows fallback and disables controls when status endpoint fails', async ({ page }) => {
+  const browserErrors = collectBrowserErrors(page);
+  await mockOperatorApi(page, {
+    fail: (method, path) => method === 'GET' && path === '/api/status' ? 503 : null,
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Trading control surface' })).toBeVisible();
+  await expect(page.getByText('/api/status failed')).toBeVisible();
+  await expect(page.getByText('offline')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Resume' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Cancel bot' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Cancel all' })).toBeDisabled();
+  expect(browserErrors).toEqual([]);
+});
+
+test('dashboard keeps last successful state when a later refresh fails', async ({ page }) => {
+  let failMetrics = false;
+  await mockOperatorApi(page, {
+    fail: (method, path) => method === 'GET' && path === '/api/metrics' && failMetrics ? 500 : null,
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('cell', { name: 'order-open' })).toBeVisible();
+
+  failMetrics = true;
+  await page.getByRole('button', { name: 'Refresh dashboard' }).click();
+
+  await expect(page.getByText('/api/metrics failed')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'order-open' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Runtime Metrics' })).toBeVisible();
+});
+
+test('cancel-all preview failure does not submit destructive command', async ({ page }) => {
+  const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
+  await mockOperatorApi(page, {
+    requests,
+    fail: (method, path) => method === 'POST' && path === '/api/control/preview/cancel-all' ? 500 : null,
+  });
+  await page.addInitScript(([readKey, controlKey]) => {
+    window.sessionStorage.setItem(readKey, 'read-token');
+    window.sessionStorage.setItem(controlKey, 'control-token');
+  }, [READ_TOKEN_KEY, CONTROL_TOKEN_KEY]);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Cancel all' }).click();
+
+  await expect(page.getByText('/api/control/preview/cancel-all failed')).toBeVisible();
+  expect(requests.some((request) => request.path === '/api/orders/cancel-all')).toBe(false);
+  await expect(page.getByText('Last command cmd-cancel-all: SENT')).not.toBeVisible();
+});
+
+test('cancel-bot rejection preserves visible order state', async ({ page }) => {
+  const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
+  await mockOperatorApi(page, {
+    requests,
+    fail: (method, path) => method === 'POST' && path === '/api/orders/cancel-bot-open' ? 403 : null,
+  });
+  await page.addInitScript(([readKey, controlKey]) => {
+    window.sessionStorage.setItem(readKey, 'read-token');
+    window.sessionStorage.setItem(controlKey, 'control-token');
+  }, [READ_TOKEN_KEY, CONTROL_TOKEN_KEY]);
+  page.on('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    await dialog.accept();
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Cancel bot' }).click();
+
+  await expect(page.getByText('/api/orders/cancel-bot-open failed')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'order-open' })).toBeVisible();
+  await expect(page.getByText('Last command cmd-cancel-bot-open: SENT')).not.toBeVisible();
+  expect(requests.filter((request) => request.path === '/api/orders/cancel-bot-open')).toHaveLength(1);
+});
+
 type OperatorState = {
   controlResults: Array<Record<string, unknown>>;
   killSwitch: boolean;
@@ -136,6 +214,7 @@ async function mockOperatorApi(
   options: {
     requests?: Array<{ method: string; path: string; authorization: string | null }>;
     state?: OperatorState;
+    fail?: (method: string, path: string) => number | null;
   } = {},
 ): Promise<void> {
   const state = options.state ?? initialOperatorState();
@@ -147,6 +226,10 @@ async function mockOperatorApi(
       path,
       authorization: request.headers().authorization ?? null,
     });
+    const failureStatus = options.fail?.(request.method(), path);
+    if (failureStatus) {
+      return fulfillApiError(route, failureStatus);
+    }
 
     if (request.method() === 'POST' && path === '/api/orders/cancel-bot-open') {
       const command = {
@@ -349,4 +432,25 @@ async function fulfillJson(route: Route, body: Record<string, unknown>): Promise
     contentType: 'application/json',
     body: JSON.stringify(body),
   });
+}
+
+async function fulfillApiError(route: Route, status: number): Promise<void> {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify({ detail: 'forced test failure' }),
+  });
+}
+
+function collectBrowserErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) {
+      errors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => {
+    errors.push(error.message);
+  });
+  return errors;
 }
