@@ -136,8 +136,12 @@ Not allowed:
 ## Promotion Path
 
 1. Export sentiment/whale features into DuckDB with explicit timestamps.
-2. Add walk-forward reports that prove no leakage.
-3. Compare against the deterministic baseline.
-4. Pass `research_promotion_decision`.
-5. Convert useful features into versioned predictor inputs.
-6. Keep Rust as final risk and execution authority.
+2. Run `src.research.sentiment_lift` to measure sentiment value using only
+   `available_at_ms <= signal_timestamp_ms` point-in-time joins.
+3. Export candidate-only feature blocks with
+   `src.research.feature_blocklist_candidates`; do not apply them automatically.
+4. Add walk-forward reports that prove no leakage.
+5. Compare against the deterministic baseline.
+6. Pass `research_promotion_decision`.
+7. Convert useful features into versioned predictor inputs.
+8. Keep Rust as final risk and execution authority.

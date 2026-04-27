@@ -41,6 +41,10 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["market_regime_trade_context"] == 1
     assert counts["market_regime_bucket_performance"] == 4
     assert counts["sentiment_feature_candidates"] == 2
+    assert counts["sentiment_lift_trade_context"] == 2
+    assert counts["sentiment_lift_summary"] == 2
+    assert counts["research_feature_blocklist_candidates"] == 3
+    assert counts["blocked_segment_candidates"] == 1
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
     assert versions["promotion_report"] == "pre_live_promotion_v1"
@@ -116,6 +120,10 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["market_regime_trade_context"] == 1
     assert flat["market_regime_bucket_performance"] == 4
     assert flat["sentiment_feature_candidates"] == 2
+    assert flat["sentiment_lift_trade_context"] == 2
+    assert flat["sentiment_lift_summary"] == 2
+    assert flat["research_feature_blocklist_candidates"] == 3
+    assert flat["blocked_segment_candidates"] == 1
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
     assert flat["synthetic_execution_reports"] == 3
@@ -218,6 +226,34 @@ def seed_report_root(report_root: Path) -> Path:
             "decision_policy": "offline_feature_builder_only",
             "can_execute_trades": False,
             "counts": {"sentiment_feature_candidates": 2},
+        },
+    )
+    write_json(
+        report_root / "sentiment_lift.json",
+        {
+            "report_version": "sentiment_lift_evaluation_v1",
+            "decision_policy": "offline_diagnostics_only",
+            "can_execute_trades": False,
+            "counts": {
+                "sentiment_lift_trade_context": 2,
+                "sentiment_lift_bucket_performance": 2,
+                "sentiment_lift_drawdown": 2,
+                "sentiment_lift_summary": 2,
+            },
+        },
+    )
+    write_json(
+        report_root / "feature_blocklist_candidates.json",
+        {
+            "report_version": "feature_blocklist_candidates_v1",
+            "decision_policy": "offline_diagnostics_only",
+            "can_execute_trades": False,
+            "can_apply_live": False,
+            "counts": {
+                "research_feature_bucket_performance": 3,
+                "research_feature_blocklist_candidates": 3,
+                "blocked_segment_candidates": 1,
+            },
         },
     )
     write_json(

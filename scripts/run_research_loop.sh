@@ -79,6 +79,12 @@ PYTHONPATH=python-service python3 -m src.research.market_regime \
 PYTHONPATH=python-service python3 -m src.research.sentiment_features \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/sentiment_features" > "$REPORT_ROOT/sentiment_features.json"
+PYTHONPATH=python-service python3 -m src.research.sentiment_lift \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/sentiment_lift" > "$REPORT_ROOT/sentiment_lift.json"
+PYTHONPATH=python-service python3 -m src.research.feature_blocklist_candidates \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/feature_blocklist_candidates" > "$REPORT_ROOT/feature_blocklist_candidates.json"
 PYTHONPATH=python-service python3 -m src.research.calibration \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/calibration" \
@@ -120,6 +126,8 @@ summary = {
     "game_theory_exports": read_json("game_theory.json"),
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
+    "sentiment_lift": read_json("sentiment_lift.json"),
+    "feature_blocklist_candidates": read_json("feature_blocklist_candidates.json"),
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
     "calibration_passed": calibration.get("passed", False),
     "pre_live_promotion_passed": promotion.get("passed", False),

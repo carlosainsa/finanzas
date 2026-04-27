@@ -242,6 +242,35 @@ It reads only loaded `external_evidence` rows and writes
 `sentiment_feature_candidates.parquet`; it performs no scraping and has no live
 execution authority.
 
+Sentiment lift can then be evaluated against realized backtest trades:
+
+```bash
+PYTHONPATH=python-service python -m src.research.sentiment_lift \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/sentiment_lift
+```
+
+This writes point-in-time trade context and lift summaries. The join condition
+uses `sentiment_feature_candidates.available_at_ms <=
+backtest_trades.signal_timestamp_ms`, so evidence that was observed but not yet
+available to the pipeline is not used. Metrics include realized edge after
+slippage, fill-rate, adverse edge rate, drawdown, and lift versus the same
+strategy/side baseline without sentiment buckets.
+
+Feature blocklist candidates can be exported from regime and sentiment reports:
+
+```bash
+PYTHONPATH=python-service python -m src.research.feature_blocklist_candidates \
+  --duckdb data_lake/research.duckdb \
+  --output-dir data_lake/feature_blocklist_candidates
+```
+
+This writes `research_feature_blocklist_candidates.parquet` and
+`blocked_segments_candidates.json`. These outputs are candidate-only. They are
+not runtime blocklists and must not be loaded into live execution without a
+separate promotion step, comparable restricted dry-run, and Rust risk-gate
+approval.
+
 ## Research Run Manifest
 
 `research_summary.json` is the gate summary for one run. `research_manifest.json`

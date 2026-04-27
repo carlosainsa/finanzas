@@ -123,7 +123,9 @@ These steps improve the trading platform before introducing heavier models. The 
    - Unfilled reason reports are implemented in backtest outputs to explain whether missing observed fills came from execution state, missing market data, or lack of limit touch.
    - Dry-run simulator quality reports are implemented in backtest outputs to compare observed dry-run fill-rate, synthetic fill-rate, slippage, time-to-fill, and `PARTIAL`/`MATCHED` mix.
    - Market-regime diagnostics are implemented offline for fractal/tail-risk metrics and whale-pressure features.
-   - Sentiment inputs remain planned as timestamped external evidence features; they are not in the live signal path.
+   - Sentiment inputs are implemented as timestamped external evidence features; they are not in the live signal path.
+   - Sentiment lift evaluation is implemented offline with point-in-time joins against `backtest_trades` and reports realized edge, fill-rate, adverse edge rate, drawdown, and baseline lift.
+   - Feature blocklist candidates are implemented offline from regime/sentiment buckets and exported as candidate-only diagnostics, not runtime rules.
    - A committee of agents is acceptable only as an offline/advisory layer for model review, bias detection, feature proposals, and signal audits.
    - Live trading decisions must not depend on free-form agent consensus; they must remain deterministic, versioned, reproducible, and gated by Rust risk controls.
    - Agent outputs can become scores or diagnostics only after they are converted into versioned, testable inputs with clear promotion metrics.
