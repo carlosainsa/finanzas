@@ -1,7 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
-from src.schemas import ExecutionReport, OrderBook, TradeSignal
+from src.schemas import (
+    ExecutionReport,
+    ExternalEvidence,
+    OrderBook,
+    SentimentFeature,
+    TradeSignal,
+)
 
 
 def test_orderbook_rejects_extra_fields() -> None:
@@ -88,3 +94,42 @@ def test_execution_report_contract() -> None:
 
     assert report.status == "PARTIAL"
     assert report.remaining_size == 8.0
+
+
+def test_external_evidence_rejects_future_observation_leakage() -> None:
+    with pytest.raises(ValidationError):
+        ExternalEvidence.model_validate(
+            {
+                "evidence_id": "evidence-1",
+                "source": "newswire",
+                "source_type": "news",
+                "published_at_ms": 2_000,
+                "observed_at_ms": 1_000,
+                "market_id": "market-1",
+                "raw_reference_hash": "sha256:abc",
+                "data_version": "external_evidence_v1",
+            }
+        )
+
+
+def test_sentiment_feature_contract() -> None:
+    feature = SentimentFeature.model_validate(
+        {
+            "feature_id": "sentiment-1",
+            "evidence_id": "evidence-1",
+            "market_id": "market-1",
+            "asset_id": "asset-yes",
+            "observed_at_ms": 1_000,
+            "feature_timestamp_ms": 1_100,
+            "direction": "YES",
+            "sentiment_score": 0.5,
+            "source_quality": 0.8,
+            "confidence": 0.7,
+            "model_version": "sentiment_baseline_v1",
+            "data_version": "external_evidence_v1",
+            "feature_version": "sentiment_features_v1",
+        }
+    )
+
+    assert feature.direction == "YES"
+    assert feature.sentiment_score == 0.5

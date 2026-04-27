@@ -3,6 +3,7 @@ from pathlib import Path
 
 import duckdb
 
+from src.research.backtest import create_backtest_views
 from src.research.game_theory import duckdb_literal, ensure_base_views, relation_exists
 
 
@@ -10,10 +11,15 @@ MARKET_REGIME_OUTPUTS = (
     "market_regime_summary",
     "market_tail_risk",
     "whale_pressure",
+    "market_regime_trade_context",
+    "market_regime_trade_buckets",
+    "market_regime_bucket_drawdown",
+    "market_regime_bucket_performance",
 )
 
 
 def create_market_regime_views(db_path: Path) -> None:
+    create_backtest_views(db_path)
     with duckdb.connect(str(db_path)) as conn:
         ensure_base_views(conn)
         ensure_orderbook_levels_view(conn)
@@ -241,6 +247,164 @@ def create_market_regime_views(db_path: Path) -> None:
                 ) as whale_pressure_score
             from pressure_inputs
             group by market_id, asset_id
+            """
+        )
+        conn.execute(
+            """
+            create or replace view market_regime_trade_context as
+            select
+                t.signal_id,
+                t.market_id,
+                t.asset_id,
+                t.side,
+                t.strategy,
+                t.model_version::varchar as model_version,
+                t.signal_timestamp_ms,
+                t.signal_price,
+                t.signal_size,
+                t.confidence,
+                t.status,
+                t.filled_price,
+                t.filled_size,
+                t.fill_rate,
+                t.slippage,
+                t.model_edge,
+                t.realized_edge_after_slippage,
+                t.filled_notional,
+                r.realized_volatility,
+                r.volatility_cluster_score,
+                r.hurst_proxy,
+                r.fractal_dimension_proxy,
+                r.max_mid_drawdown,
+                r.hill_tail_index,
+                r.tail_events,
+                w.whale_pressure_score,
+                w.large_order_ratio,
+                w.depth_withdrawal_rate,
+                case
+                    when r.hill_tail_index is null then 'unknown'
+                    when r.hill_tail_index < 2 then 'heavy_tail'
+                    when r.hill_tail_index < 4 then 'moderate_tail'
+                    else 'thin_tail'
+                end as tail_risk_bucket,
+                case
+                    when r.volatility_cluster_score is null then 'unknown'
+                    when r.volatility_cluster_score >= 0.5 then 'high_cluster'
+                    when r.volatility_cluster_score >= 0.1 then 'medium_cluster'
+                    else 'low_cluster'
+                end as volatility_cluster_bucket,
+                case
+                    when r.hurst_proxy is null then 'unknown'
+                    when r.hurst_proxy >= 0.55 then 'persistent'
+                    when r.hurst_proxy <= 0.45 then 'mean_reverting'
+                    else 'diffusive'
+                end as hurst_bucket,
+                case
+                    when w.whale_pressure_score is null then 'unknown'
+                    when w.whale_pressure_score >= 0.5 then 'high_whale_pressure'
+                    when w.whale_pressure_score >= 0.2 then 'medium_whale_pressure'
+                    else 'low_whale_pressure'
+                end as whale_pressure_bucket,
+                case
+                    when coalesce(t.realized_edge_after_slippage, 0) < 0 then 1
+                    else 0
+                end as adverse_edge_event
+            from backtest_trades t
+            left join market_regime_summary r using (market_id, asset_id)
+            left join whale_pressure w using (market_id, asset_id)
+            """
+        )
+        conn.execute(
+            """
+            create or replace view market_regime_trade_buckets as
+                select 'tail_risk' as bucket_type, tail_risk_bucket as bucket, * from market_regime_trade_context
+                union all
+                select 'volatility_cluster' as bucket_type, volatility_cluster_bucket as bucket, * from market_regime_trade_context
+                union all
+                select 'hurst' as bucket_type, hurst_bucket as bucket, * from market_regime_trade_context
+                union all
+                select 'whale_pressure' as bucket_type, whale_pressure_bucket as bucket, * from market_regime_trade_context
+            """
+        )
+        conn.execute(
+            """
+            create or replace view market_regime_bucket_drawdown as
+            with bucket_pnl as (
+                select
+                    bucket_type,
+                    bucket,
+                    coalesce(strategy, 'unknown') as strategy,
+                    side,
+                    signal_timestamp_ms,
+                    signal_id,
+                    coalesce(realized_edge_after_slippage, 0) * coalesce(filled_size, 0) as pnl
+                from market_regime_trade_buckets
+            ),
+            equity as (
+                select
+                    *,
+                    sum(pnl) over (
+                        partition by bucket_type, bucket, strategy, side
+                        order by signal_timestamp_ms nulls last, signal_id
+                        rows between unbounded preceding and current row
+                    ) as cumulative_pnl
+                from bucket_pnl
+            ),
+            drawdowns as (
+                select
+                    *,
+                    max(cumulative_pnl) over (
+                        partition by bucket_type, bucket, strategy, side
+                        order by signal_timestamp_ms nulls last, signal_id
+                        rows between unbounded preceding and current row
+                    ) - cumulative_pnl as drawdown
+                from equity
+            )
+            select
+                bucket_type,
+                bucket,
+                strategy,
+                side,
+                max(drawdown) as max_drawdown
+            from drawdowns
+            group by bucket_type, bucket, strategy, side
+            """
+        )
+        conn.execute(
+            """
+            create or replace view market_regime_bucket_performance as
+            with aggregates as (
+                select
+                    bucket_type,
+                    bucket,
+                    coalesce(strategy, 'unknown') as strategy,
+                    side,
+                    count(distinct signal_id) as signals,
+                    count(distinct case when filled_size > 0 then signal_id else null end) as filled_signals,
+                    avg(fill_rate) as avg_fill_rate,
+                    avg(realized_edge_after_slippage) as avg_realized_edge_after_slippage,
+                    sum(coalesce(realized_edge_after_slippage, 0) * coalesce(filled_size, 0)) as realized_edge_pnl,
+                    avg(adverse_edge_event) as adverse_edge_rate,
+                    avg(slippage) as avg_slippage,
+                    avg(whale_pressure_score) as avg_whale_pressure_score,
+                    avg(realized_volatility) as avg_realized_volatility,
+                    avg(max_mid_drawdown) as avg_mid_drawdown
+                from market_regime_trade_buckets
+                group by bucket_type, bucket, strategy, side
+            )
+            select
+                a.*,
+                coalesce(d.max_drawdown, 0) as max_drawdown,
+                case
+                    when a.signals > 0 then a.realized_edge_pnl / a.signals
+                    else null
+                end as pnl_per_signal
+            from aggregates a
+            left join market_regime_bucket_drawdown d
+              on d.bucket_type = a.bucket_type
+             and d.bucket = a.bucket
+             and d.strategy = a.strategy
+             and d.side = a.side
             """
         )
 

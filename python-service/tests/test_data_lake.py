@@ -10,7 +10,9 @@ from src.research.data_lake import (
     STREAM_DATASETS,
     create_duckdb_views,
     export_data_lake,
+    export_external_evidence,
     export_market_metadata,
+    export_sentiment_features,
     market_metadata_rows,
 )
 
@@ -176,3 +178,59 @@ def test_market_metadata_exports_asset_outcome_mapping(tmp_path: Path) -> None:
             """
         ).fetchall()
     assert db_rows == [("asset-z-yes", "Yes", 0.48), ("asset-a-no", "No", 0.52)]
+
+
+def test_sentiment_contract_exports_timestamped_offline_features(tmp_path: Path) -> None:
+    evidence_count = export_external_evidence(
+        tmp_path,
+        [
+            {
+                "evidence_id": "evidence-1",
+                "source": "newswire",
+                "source_type": "news",
+                "published_at_ms": 1_000,
+                "observed_at_ms": 1_100,
+                "market_id": "market-1",
+                "asset_id": "asset-yes",
+                "raw_reference_hash": "sha256:abc",
+                "data_version": "external_evidence_v1",
+            }
+        ],
+    )
+    feature_count = export_sentiment_features(
+        tmp_path,
+        [
+            {
+                "feature_id": "sentiment-1",
+                "evidence_id": "evidence-1",
+                "market_id": "market-1",
+                "asset_id": "asset-yes",
+                "observed_at_ms": 1_100,
+                "feature_timestamp_ms": 1_200,
+                "direction": "YES",
+                "sentiment_score": 0.4,
+                "source_quality": 0.8,
+                "confidence": 0.7,
+                "model_version": "sentiment_baseline_v1",
+                "data_version": "external_evidence_v1",
+                "feature_version": "sentiment_features_v1",
+            }
+        ],
+    )
+    db_path = tmp_path / "research.duckdb"
+    create_duckdb_views(tmp_path, db_path)
+
+    assert evidence_count == 1
+    assert feature_count == 1
+    with duckdb.connect(str(db_path)) as conn:
+        evidence = conn.execute(
+            "select evidence_id, observed_at_ms >= published_at_ms from external_evidence"
+        ).fetchone()
+        feature = conn.execute(
+            """
+            select feature_id, feature_timestamp_ms >= observed_at_ms, sentiment_score
+            from sentiment_features
+            """
+        ).fetchone()
+    assert evidence == ("evidence-1", True)
+    assert feature == ("sentiment-1", True, 0.4)

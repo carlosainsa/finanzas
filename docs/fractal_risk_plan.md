@@ -71,4 +71,19 @@ Outputs:
 - `market_regime_summary.parquet`;
 - `market_tail_risk.parquet`;
 - `whale_pressure.parquet`;
+- `market_regime_trade_context.parquet`;
+- `market_regime_trade_buckets.parquet`;
+- `market_regime_bucket_drawdown.parquet`;
+- `market_regime_bucket_performance.parquet`;
 - `market_regime.json`.
+
+`market_regime_bucket_performance.parquet` joins regime diagnostics with
+`backtest_trades` and reports realized edge, fill-rate, slippage, adverse edge
+rate, trade-level max drawdown, and PnL per signal by tail-risk,
+volatility-cluster, Hurst, and whale-pressure buckets. This is the first
+evidence layer for deciding whether a regime metric should become a blocklist
+rule, a sizing reducer, or only a diagnostic label.
+
+The current attribution is post-run explanatory. It uses run-level regime
+summaries, so it must not be treated as point-in-time training evidence until a
+future view joins only features available before `signal_timestamp_ms`.

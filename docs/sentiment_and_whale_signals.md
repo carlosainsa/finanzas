@@ -36,6 +36,43 @@ Evaluation rules:
   or market-discovery precision;
 - sentiment cannot directly issue trades.
 
+## Data Contracts
+
+Initial contracts are defined in `shared/schemas/external_evidence.json`,
+`shared/schemas/sentiment_feature.json`, and `python-service/src/schemas.py`.
+
+`external_evidence` rows contain:
+
+- `evidence_id`;
+- `source`;
+- `source_type`;
+- `published_at_ms`;
+- `observed_at_ms`;
+- `market_id`;
+- `asset_id`;
+- `raw_reference_hash`;
+- `data_version`.
+
+`sentiment_features` rows contain:
+
+- `feature_id`;
+- `evidence_id`;
+- `market_id`;
+- `asset_id`;
+- `observed_at_ms`;
+- `feature_timestamp_ms`;
+- `direction`;
+- `sentiment_score`;
+- `source_quality`;
+- `confidence`;
+- `model_version`;
+- `data_version`;
+- `feature_version`.
+
+The first anti-leakage rules are enforced at schema validation time:
+`observed_at_ms >= published_at_ms` for evidence and
+`feature_timestamp_ms >= observed_at_ms` for derived sentiment features.
+
 ## Whale and Flow Detection
 
 Whale detection means large-flow and market-impact diagnostics. It must not try

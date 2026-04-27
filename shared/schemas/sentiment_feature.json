@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": ["string", "null"]
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "data_version": {
+      "type": "string"
+    },
+    "direction": {
+      "enum": ["YES", "NO", "NEUTRAL", "UNKNOWN"],
+      "type": "string"
+    },
+    "evidence_id": {
+      "type": "string"
+    },
+    "feature_id": {
+      "type": "string"
+    },
+    "feature_timestamp_ms": {
+      "type": "integer"
+    },
+    "feature_version": {
+      "type": "string"
+    },
+    "market_id": {
+      "type": "string"
+    },
+    "model_version": {
+      "type": "string"
+    },
+    "observed_at_ms": {
+      "type": "integer"
+    },
+    "sentiment_disagreement": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": ["number", "null"]
+    },
+    "sentiment_momentum": {
+      "type": ["number", "null"]
+    },
+    "sentiment_score": {
+      "maximum": 1,
+      "minimum": -1,
+      "type": "number"
+    },
+    "source_quality": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "feature_id",
+    "evidence_id",
+    "market_id",
+    "observed_at_ms",
+    "feature_timestamp_ms",
+    "direction",
+    "sentiment_score",
+    "source_quality",
+    "confidence",
+    "model_version",
+    "data_version",
+    "feature_version"
+  ],
+  "title": "SentimentFeature",
+  "type": "object"
+}

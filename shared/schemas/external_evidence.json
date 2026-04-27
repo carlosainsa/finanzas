@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "type": ["string", "null"]
+    },
+    "data_version": {
+      "type": "string"
+    },
+    "evidence_id": {
+      "type": "string"
+    },
+    "language": {
+      "type": ["string", "null"]
+    },
+    "market_id": {
+      "type": "string"
+    },
+    "observed_at_ms": {
+      "type": "integer"
+    },
+    "published_at_ms": {
+      "type": "integer"
+    },
+    "raw_reference_hash": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "source_type": {
+      "enum": ["news", "social", "search", "market_comment", "official", "other"],
+      "type": "string"
+    },
+    "text_hash": {
+      "type": ["string", "null"]
+    },
+    "title": {
+      "type": ["string", "null"]
+    },
+    "url": {
+      "type": ["string", "null"]
+    }
+  },
+  "required": [
+    "evidence_id",
+    "source",
+    "source_type",
+    "published_at_ms",
+    "observed_at_ms",
+    "market_id",
+    "raw_reference_hash",
+    "data_version"
+  ],
+  "title": "ExternalEvidence",
+  "type": "object"
+}

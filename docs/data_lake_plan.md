@@ -213,7 +213,21 @@ PYTHONPATH=python-service python -m src.research.market_regime \
 This writes `market_regime.json` plus Parquet outputs for fractal/tail-risk
 diagnostics and whale-pressure features. These outputs are offline diagnostics:
 they can explain drawdowns, propose segment blocks, and inform future risk
-rules, but they do not authorize live trades.
+rules, but they do not authorize live trades. The report also exports
+`market_regime_bucket_performance.parquet`, which joins regime and whale
+diagnostics to `backtest_trades` so realized edge, fill-rate, adverse edge
+rate, slippage, trade-level drawdown, and PnL per signal can be reviewed by
+risk bucket. This attribution is explanatory post-run until a point-in-time
+feature view is added.
+
+External sentiment contracts are available as offline data-lake datasets:
+
+- `external_evidence`, validated by `external_evidence.json`;
+- `sentiment_features`, validated by `sentiment_feature.json`.
+
+These datasets are not Redis streams and are not part of the live predictor.
+They exist so future ingestion jobs can write timestamped evidence and derived
+features without creating leakage-prone ad hoc JSON.
 
 ## Research Run Manifest
 

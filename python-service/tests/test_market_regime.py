@@ -48,6 +48,19 @@ def test_market_regime_views_measure_tail_fractal_and_whale_pressure(
             where asset_id = 'asset-yes'
             """
         ).fetchone()
+        performance = conn.execute(
+            """
+            select
+                bucket_type,
+                bucket,
+                signals,
+                filled_signals,
+                avg_realized_edge_after_slippage,
+                max_drawdown
+            from market_regime_bucket_performance
+            where bucket_type = 'whale_pressure'
+            """
+        ).fetchone()
 
     assert summary is not None
     assert tail is not None
@@ -62,6 +75,12 @@ def test_market_regime_views_measure_tail_fractal_and_whale_pressure(
     assert whale[0] >= 1
     assert whale[1] >= 1
     assert whale[2] > 0
+    assert performance is not None
+    assert performance[0] == "whale_pressure"
+    assert performance[2] == 1
+    assert performance[3] == 1
+    assert performance[4] == pytest.approx(0.10)
+    assert performance[5] == pytest.approx(0.0)
 
 
 def test_export_market_regime_report_writes_parquet_outputs(tmp_path: Path) -> None:
@@ -75,10 +94,18 @@ def test_export_market_regime_report_writes_parquet_outputs(tmp_path: Path) -> N
     assert counts["market_regime_summary"] == 1
     assert counts["market_tail_risk"] == 1
     assert counts["whale_pressure"] == 1
+    assert counts["market_regime_trade_context"] == 1
+    assert counts["market_regime_trade_buckets"] >= 4
+    assert counts["market_regime_bucket_drawdown"] >= 4
+    assert counts["market_regime_bucket_performance"] >= 4
     assert report["can_execute_trades"] is False
     assert (output_dir / "market_regime_summary.parquet").exists()
     assert (output_dir / "market_tail_risk.parquet").exists()
     assert (output_dir / "whale_pressure.parquet").exists()
+    assert (output_dir / "market_regime_trade_context.parquet").exists()
+    assert (output_dir / "market_regime_trade_buckets.parquet").exists()
+    assert (output_dir / "market_regime_bucket_drawdown.parquet").exists()
+    assert (output_dir / "market_regime_bucket_performance.parquet").exists()
     assert (output_dir / "market_regime.json").exists()
 
 
@@ -109,6 +136,33 @@ def seed_market_regime_db(tmp_path: Path) -> Path:
                 "timestamp_ms": timestamp_ms,
             },
         )
+    redis.add_payload(
+        settings.signals_stream,
+        {
+            "signal_id": "signal-1",
+            "market_id": "market-1",
+            "asset_id": "asset-yes",
+            "side": "BUY",
+            "price": 0.50,
+            "size": 1.0,
+            "confidence": 0.60,
+            "timestamp_ms": 3_000,
+            "strategy": "regime-test",
+        },
+    )
+    redis.add_payload(
+        settings.execution_reports_stream,
+        {
+            "signal_id": "signal-1",
+            "order_id": "order-1",
+            "status": "MATCHED",
+            "filled_price": 0.50,
+            "filled_size": 1.0,
+            "cumulative_filled_size": 1.0,
+            "remaining_size": 0.0,
+            "timestamp_ms": 3_100,
+        },
+    )
     asyncio.run(export_data_lake(redis, tmp_path, count=100))
     db_path = tmp_path / "research.duckdb"
     from src.research.data_lake import create_duckdb_views

@@ -59,6 +59,8 @@ Research data lake:
 | `orderbook_deadletter` | `orderbook:deadletter` |
 | `signals_deadletter` | `signals:deadletter` |
 | `operator_commands` | `operator:commands:stream` |
+| `external_evidence` | timestamped external evidence snapshots; offline only |
+| `sentiment_features` | derived sentiment features; offline only |
 
 See `docs/data_lake_plan.md` for the Parquet/DuckDB layout.
 

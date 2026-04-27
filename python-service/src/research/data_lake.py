@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from src.config import settings
 from src.data.redis_client import get_redis
 from src.discovery.markets import MarketCandidate, fetch_gamma_markets, normalize_gamma_market
-from src.schemas import ExecutionReport, OrderBook, TradeSignal
+from src.schemas import ExecutionReport, ExternalEvidence, OrderBook, SentimentFeature, TradeSignal
 
 
 class RedisRangeReader(Protocol):
@@ -48,7 +48,12 @@ STREAM_DATASETS: tuple[StreamDataset, ...] = (
     StreamDataset(settings.signals_deadletter_stream, "signals_deadletter", "deadletter"),
     StreamDataset(settings.operator_commands_stream, "operator_commands", "operator_command"),
 )
-DERIVED_DATASETS = ("orderbook_levels", "market_metadata")
+DERIVED_DATASETS = (
+    "orderbook_levels",
+    "market_metadata",
+    "external_evidence",
+    "sentiment_features",
+)
 DATASET_NAMES = tuple(dataset.dataset for dataset in STREAM_DATASETS) + DERIVED_DATASETS
 
 
@@ -80,6 +85,22 @@ async def export_data_lake(
 
 def export_market_metadata(root: Path, markets: list[MarketCandidate]) -> int:
     return write_named_dataset(root, "market_metadata", market_metadata_rows(markets))
+
+
+def export_external_evidence(root: Path, rows: list[dict[str, object]]) -> int:
+    validated = [
+        ExternalEvidence.model_validate(row).model_dump(mode="json")
+        for row in rows
+    ]
+    return write_named_dataset(root, "external_evidence", validated)
+
+
+def export_sentiment_features(root: Path, rows: list[dict[str, object]]) -> int:
+    validated = [
+        SentimentFeature.model_validate(row).model_dump(mode="json")
+        for row in rows
+    ]
+    return write_named_dataset(root, "sentiment_features", validated)
 
 
 def market_metadata_rows(markets: list[MarketCandidate]) -> list[dict[str, object]]:
