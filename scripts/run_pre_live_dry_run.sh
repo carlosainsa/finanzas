@@ -71,6 +71,9 @@ export PRE_LIVE_MIN_CAPTURE_DURATION_MS="${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-$((
 export PRE_LIVE_MIN_SIGNALS="${PRE_LIVE_MIN_SIGNALS:-250}"
 export REAL_DRY_RUN_ISOLATED="${REAL_DRY_RUN_ISOLATED:-1}"
 export ALLOW_RESEARCH_GATE_FAILURE="${ALLOW_RESEARCH_GATE_FAILURE:-1}"
+export RESEARCH_RESOURCE_MODE="${RESEARCH_RESOURCE_MODE:-resource_limited}"
+export MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET="${MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET:-250}"
+export MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS="${MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS:-2000}"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
   python3 - <<'PY'
@@ -88,6 +91,11 @@ print(json.dumps({
     "pre_live_min_signals": int(os.environ["PRE_LIVE_MIN_SIGNALS"]),
     "isolated": os.environ["REAL_DRY_RUN_ISOLATED"],
     "allow_research_gate_failure": os.environ["ALLOW_RESEARCH_GATE_FAILURE"],
+    "resource_mode": os.environ["RESEARCH_RESOURCE_MODE"],
+    "market_regime_limits": {
+        "max_snapshots_per_asset": int(os.environ["MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET"]),
+        "max_trade_context_rows": int(os.environ["MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS"]),
+    },
 }, indent=2, sort_keys=True))
 PY
   exit 0

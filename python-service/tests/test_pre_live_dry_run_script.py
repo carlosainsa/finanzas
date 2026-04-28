@@ -37,6 +37,11 @@ def test_pre_live_dry_run_print_plan_is_safe_and_pinned() -> None:
     assert plan["real_dry_run_seconds"] == 900
     assert plan["pre_live_min_capture_duration_ms"] == 900_000
     assert plan["pre_live_min_signals"] == 250
+    assert plan["resource_mode"] == "resource_limited"
+    assert plan["market_regime_limits"] == {
+        "max_snapshots_per_asset": 250,
+        "max_trade_context_rows": 2000,
+    }
 
 
 def test_pre_live_dry_run_refuses_live_mode() -> None:
@@ -64,6 +69,14 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
     assert "ALLOW_RESEARCH_GATE_FAILURE" in script
     assert "src.research.real_dry_run_preflight" in script
     assert "real_dry_run_preflight.json" in script
+    assert "while True:" in script
+    assert "count=1000" in script
+    assert 'next_max = f"({last_id}"' in script
+    assert 'RESEARCH_RESOURCE_MODE="${RESEARCH_RESOURCE_MODE:-resource_limited}"' in script
+    assert (
+        'MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET="${MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET:-250}"'
+        in script
+    )
     api_ready = 'raise SystemExit("operator API did not become ready")'
     assert script.index(api_ready) < script.index(
         "\nrun_preflight_with_service_monitoring\ncapture_with_service_monitoring"
@@ -73,6 +86,23 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
         in script
     )
     assert '"market_asset_ids_sha256"' in script
+
+
+def test_research_loop_passes_market_regime_resource_limits() -> None:
+    script = (ROOT_DIR / "scripts" / "run_research_loop.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'MARKET_REGIME_ARGS=(--resource-mode "$RESEARCH_RESOURCE_MODE")' in script
+    assert (
+        'MARKET_REGIME_ARGS+=(--max-snapshots-per-asset "$MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET")'
+        in script
+    )
+    assert (
+        'MARKET_REGIME_ARGS+=(--max-trade-context-rows "$MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS")'
+        in script
+    )
+    assert '"${MARKET_REGIME_ARGS[@]}" > "$REPORT_ROOT/market_regime.json"' in script
 
 
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:

@@ -31,6 +31,10 @@ export PREDICTOR_NEAR_TOUCH_TICK_SIZE="${PREDICTOR_NEAR_TOUCH_TICK_SIZE:-0.01}"
 export PREDICTOR_NEAR_TOUCH_OFFSET_TICKS="${PREDICTOR_NEAR_TOUCH_OFFSET_TICKS:-0}"
 export PREDICTOR_NEAR_TOUCH_MAX_SPREAD_FRACTION="${PREDICTOR_NEAR_TOUCH_MAX_SPREAD_FRACTION:-1.0}"
 export DATA_LAKE_EXPORT_COUNT="${DATA_LAKE_EXPORT_COUNT:-50000}"
+export RESEARCH_RESOURCE_MODE="${RESEARCH_RESOURCE_MODE:-resource_limited}"
+export MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET="${MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET:-250}"
+export MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS="${MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS:-2000}"
+export MARKET_REGIME_DUCKDB_THREADS="${MARKET_REGIME_DUCKDB_THREADS:-2}"
 export GO_NO_GO_PROFILE="${GO_NO_GO_PROFILE:-pre_live}"
 export PRE_LIVE_MIN_CAPTURE_DURATION_MS="${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-$((REAL_DRY_RUN_SECONDS * 1000))}"
 export PRE_LIVE_MIN_SIGNALS="${PRE_LIVE_MIN_SIGNALS:-250}"
@@ -291,7 +295,20 @@ async def main() -> None:
     lengths = {name: await client.xlen(stream) for name, stream in streams.items()}
     if any(length <= 0 for length in lengths.values()):
         raise SystemExit(f"missing real dry-run stream data: {lengths}")
-    reports = await client.xrevrange(streams["reports"], count=100)
+    reports = []
+    next_max = "+"
+    while True:
+        batch = await client.xrevrange(
+            streams["reports"],
+            max=next_max,
+            min="-",
+            count=1000,
+        )
+        if not batch:
+            break
+        reports.extend(batch)
+        last_id = batch[-1][0]
+        next_max = f"({last_id}"
     parsed = []
     for _, fields in reports:
         payload = fields.get("payload")

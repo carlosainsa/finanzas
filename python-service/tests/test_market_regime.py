@@ -1,5 +1,7 @@
 import asyncio
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import duckdb
@@ -63,9 +65,27 @@ def test_market_regime_views_measure_tail_fractal_and_whale_pressure(
         ).fetchone()
         context = conn.execute(
             """
-            select regime_timestamp_ms, signal_timestamp_ms
+            select regime_timestamp_ms, signal_timestamp_ms, tail_events, whale_pressure_score
             from market_regime_trade_context
             where signal_id = 'signal-1'
+            """
+        ).fetchone()
+        point = conn.execute(
+            """
+            select tail_events_so_far
+            from market_regime_point_in_time
+            where asset_id = 'asset-yes'
+            order by event_timestamp_ms desc
+            limit 1
+            """
+        ).fetchone()
+        whale_point = conn.execute(
+            """
+            select whale_pressure_score
+            from whale_pressure_point_in_time
+            where asset_id = 'asset-yes'
+            order by event_timestamp_ms desc
+            limit 1
             """
         ).fetchone()
 
@@ -90,6 +110,12 @@ def test_market_regime_views_measure_tail_fractal_and_whale_pressure(
     assert performance[5] == pytest.approx(0.0)
     assert context is not None
     assert context[0] <= context[1]
+    assert context[2] >= 0
+    assert context[3] is None or context[3] >= 0
+    assert point is not None
+    assert point[0] >= 1
+    assert whale_point is not None
+    assert whale_point[0] > 0
 
 
 def test_export_market_regime_report_writes_parquet_outputs(tmp_path: Path) -> None:
@@ -116,6 +142,77 @@ def test_export_market_regime_report_writes_parquet_outputs(tmp_path: Path) -> N
     assert (output_dir / "market_regime_bucket_drawdown.parquet").exists()
     assert (output_dir / "market_regime_bucket_performance.parquet").exists()
     assert (output_dir / "market_regime.json").exists()
+
+
+def test_export_market_regime_report_resource_limited_caps_outputs(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_market_regime_db(tmp_path)
+    output_dir = tmp_path / "market_regime_limited"
+
+    report = export_market_regime_report(
+        db_path,
+        output_dir,
+        resource_mode="resource_limited",
+        max_snapshots_per_asset=3,
+        max_trade_context_rows=1,
+    )
+
+    counts = report["counts"]
+    limits = report["limits"]
+    assert isinstance(counts, dict)
+    assert isinstance(limits, dict)
+    assert report["resource_mode"] == "resource_limited"
+    assert limits["max_snapshots_per_asset"] == 3
+    assert limits["max_trade_context_rows"] == 1
+    assert counts["market_regime_point_in_time"] <= 3
+    assert counts["market_regime_trade_context"] <= 1
+    assert counts["market_regime_trade_buckets"] <= 4
+    assert report["can_execute_trades"] is False
+    for output_name in (
+        "market_regime_summary",
+        "market_tail_risk",
+        "whale_pressure",
+        "market_regime_point_in_time",
+        "market_regime_trade_context",
+        "market_regime_trade_buckets",
+        "market_regime_bucket_drawdown",
+        "market_regime_bucket_performance",
+    ):
+        assert (output_dir / f"{output_name}.parquet").exists()
+
+
+def test_market_regime_cli_accepts_resource_limited_flags(tmp_path: Path) -> None:
+    db_path = seed_market_regime_db(tmp_path)
+    output_dir = tmp_path / "market_regime_cli_limited"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.research.market_regime",
+            "--duckdb",
+            str(db_path),
+            "--output-dir",
+            str(output_dir),
+            "--resource-mode",
+            "resource_limited",
+            "--max-snapshots-per-asset",
+            "3",
+            "--max-trade-context-rows",
+            "1",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    report = json.loads(completed.stdout)
+    assert report["resource_mode"] == "resource_limited"
+    assert report["limits"]["max_snapshots_per_asset"] == 3
+    assert report["limits"]["max_trade_context_rows"] == 1
+    assert report["counts"]["market_regime_trade_context"] <= 1
+    assert report["can_execute_trades"] is False
 
 
 def seed_market_regime_db(tmp_path: Path) -> Path:

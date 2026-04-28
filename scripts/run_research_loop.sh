@@ -11,8 +11,16 @@ BASELINE_NEAR_TOUCH_TICK_SIZE="${BASELINE_NEAR_TOUCH_TICK_SIZE:-0.01}"
 BASELINE_NEAR_TOUCH_OFFSET_TICKS="${BASELINE_NEAR_TOUCH_OFFSET_TICKS:-0}"
 BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION="${BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION:-1.0}"
 GO_NO_GO_PROFILE="${GO_NO_GO_PROFILE:-dev}"
+RESEARCH_RESOURCE_MODE="${RESEARCH_RESOURCE_MODE:-full}"
 PRE_LIVE_PROMOTION_ARGS=()
 GO_NO_GO_ARGS=(--profile "$GO_NO_GO_PROFILE")
+MARKET_REGIME_ARGS=(--resource-mode "$RESEARCH_RESOURCE_MODE")
+if [[ -n "${MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET:-}" ]]; then
+  MARKET_REGIME_ARGS+=(--max-snapshots-per-asset "$MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET")
+fi
+if [[ -n "${MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS:-}" ]]; then
+  MARKET_REGIME_ARGS+=(--max-trade-context-rows "$MARKET_REGIME_MAX_TRADE_CONTEXT_ROWS")
+fi
 if [[ -n "${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--min-capture-duration-ms "$PRE_LIVE_MIN_CAPTURE_DURATION_MS")
   GO_NO_GO_ARGS+=(--min-capture-duration-ms "$PRE_LIVE_MIN_CAPTURE_DURATION_MS")
@@ -106,7 +114,8 @@ PYTHONPATH=python-service python3 -m src.research.game_theory \
   --output-dir "$REPORT_ROOT/game_theory" > "$REPORT_ROOT/game_theory.json"
 PYTHONPATH=python-service python3 -m src.research.market_regime \
   --duckdb "$DUCKDB_PATH" \
-  --output-dir "$REPORT_ROOT/market_regime" > "$REPORT_ROOT/market_regime.json"
+  --output-dir "$REPORT_ROOT/market_regime" \
+  "${MARKET_REGIME_ARGS[@]}" > "$REPORT_ROOT/market_regime.json"
 PYTHONPATH=python-service python3 -m src.research.sentiment_features \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/sentiment_features" > "$REPORT_ROOT/sentiment_features.json"
