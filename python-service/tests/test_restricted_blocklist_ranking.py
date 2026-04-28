@@ -62,6 +62,91 @@ def test_rank_restricted_blocklist_observations_reports_missing_artifacts(
     assert "missing_artifacts" in cast(list[str], row["blockers"])
 
 
+def test_rank_restricted_blocklist_observations_surfaces_insufficient_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "insufficient"
+    root.mkdir()
+    write_json(
+        root / "restricted_blocklist_observation_failure.json",
+        {
+            "status": "insufficient_evidence",
+            "reason": "real dry-run preflight failed; inspect report",
+            "stage": "pre_live_dry_run",
+            "exit_code": 75,
+            "dry_run_exit_code": 75,
+            "can_execute_trades": False,
+            "plan": {
+                "blocklist_kind": "restricted_input_plus_top_migrated_risk",
+                "blocklist_path": "/tmp/blocked_segments.json",
+                "duration_seconds": 900,
+                "market_asset_ids_sha256": "hash",
+            },
+            "diagnostics": {
+                "classification": "preflight_no_stream_progress",
+                "candidate_report_root_exists": True,
+                "data_lake_root_exists": True,
+                "diagnosis_hints": ["inspect_real_dry_run_preflight_report"],
+                "real_dry_run_preflight": {
+                    "blockers": [
+                        "missing_execution_reports_stream_progress",
+                        "missing_dry_run_execution_report",
+                    ]
+                },
+            },
+        },
+    )
+
+    report = rank_restricted_blocklist_observations([root])
+
+    row = cast(list[dict[str, Any]], report["observations"])[0]
+    summary = cast(dict[str, Any], report["summary"])
+    blockers = cast(list[str], row["blockers"])
+    assert row["status"] == "insufficient_evidence"
+    assert row["blocklist_kind"] == "restricted_input_plus_top_migrated_risk"
+    assert row["score"] == -500_000.0
+    assert row["recommendation"] == "repair_pipeline_before_repeat"
+    assert row["failure_classification"] == "preflight_no_stream_progress"
+    assert row["pipeline_report_root_exists"] is True
+    assert "insufficient_evidence" in blockers
+    assert "missing_execution_reports_stream_progress" in blockers
+    assert summary["insufficient_evidence_observations"] == 1
+    assert report["can_execute_trades"] is False
+
+
+def test_rank_restricted_blocklist_observations_prefers_complete_over_insufficient(
+    tmp_path: Path,
+) -> None:
+    complete = seed_observation(
+        tmp_path / "complete",
+        blocklist_kind="migrated_risk_only",
+        promotion_decision="PROMOTE",
+        restricted_decision="REPEAT_OBSERVATION",
+        realized_edge_delta=0.04,
+        drawdown_delta=-0.1,
+        unexpected_blocked=0,
+        risk_migration_status="restricted_input_isolated",
+        migrated_signal_ratio=0.0,
+    )
+    insufficient = tmp_path / "insufficient"
+    insufficient.mkdir()
+    write_json(
+        insufficient / "restricted_blocklist_observation_failure.json",
+        {
+            "status": "insufficient_evidence",
+            "reason": "no dry-run execution report found",
+            "plan": {"blocklist_kind": "restricted_input_plus_top_migrated_risk"},
+            "diagnostics": {"classification": "no_dry_run_execution_reports"},
+        },
+    )
+
+    report = rank_restricted_blocklist_observations([insufficient, complete])
+
+    observations = cast(list[dict[str, Any]], report["observations"])
+    assert observations[0]["status"] == "complete"
+    assert observations[1]["status"] == "insufficient_evidence"
+
+
 def seed_observation(
     root: Path,
     *,

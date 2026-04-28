@@ -117,6 +117,9 @@ def latest_restricted_blocklist_ranking(root: Path | None = None) -> dict[str, o
         "report_version": ranking.get("report_version"),
         "summary": ranking.get("summary") if isinstance(ranking.get("summary"), dict) else {
             "observations": counts.get("restricted_blocklist_ranked_observations"),
+            "insufficient_evidence_observations": counts.get(
+                "restricted_blocklist_insufficient_evidence_observations", 0
+            ),
             "repeat_observation_candidates": counts.get(
                 "restricted_blocklist_repeat_candidates"
             ),
@@ -299,6 +302,7 @@ def empty_restricted_blocklist_ranking(index_path: Path) -> dict[str, object]:
         "report_version": None,
         "summary": {
             "observations": 0,
+            "insufficient_evidence_observations": 0,
             "repeat_observation_candidates": 0,
             "blocked_observations": 0,
         },

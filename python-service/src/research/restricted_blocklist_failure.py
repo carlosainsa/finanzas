@@ -66,6 +66,9 @@ def build_restricted_blocklist_failure(
             "data_lake_root_exists": bool(data_lake_root and data_lake_root.exists()),
             "report_files": file_names(report_root),
             "data_lake_partitions": partition_summary(data_lake_root),
+            "real_dry_run_preflight": read_json(report_root / "real_dry_run_preflight.json")
+            if report_root
+            else {},
             "real_dry_run_evidence": read_json(report_root / "real_dry_run_evidence.json")
             if report_root
             else {},
@@ -99,6 +102,8 @@ def classify_failure(reason: str, report_root: Path | None) -> str:
     normalized = reason.lower()
     if "no dry-run execution report found" in normalized:
         return "no_dry_run_execution_reports"
+    if "real dry-run preflight failed" in normalized:
+        return "preflight_no_stream_progress"
     if "missing real dry-run stream data" in normalized:
         return "missing_stream_data"
     if report_root is not None and not report_root.exists():
@@ -116,6 +121,13 @@ def diagnosis_hints(reason: str, report_root: Path | None) -> list[str]:
                 "check_signals_stream_for_eligible_signals",
                 "check_rust_executor_rejections",
                 "check_if_blocklist_removed_all_candidate_segments",
+            ]
+        )
+    if "real dry-run preflight failed" in reason.lower():
+        hints.extend(
+            [
+                "inspect_real_dry_run_preflight_report",
+                "check_stream_progress_before_full_capture",
             ]
         )
     return sorted(set(hints))

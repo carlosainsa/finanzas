@@ -128,6 +128,7 @@ def test_latest_restricted_blocklist_ranking_reads_latest_report(
                 "summary": {
                     "observations": 2,
                     "blocked_observations": 2,
+                    "insufficient_evidence_observations": 1,
                     "repeat_observation_candidates": 0,
                 },
                 "top_candidate": {
@@ -138,6 +139,11 @@ def test_latest_restricted_blocklist_ranking_reads_latest_report(
                     {
                         "blocklist_kind": "migrated_risk_only",
                         "recommendation": "test_migrated_risk_variant",
+                    },
+                    {
+                        "status": "insufficient_evidence",
+                        "failure_reason": "real dry-run preflight failed",
+                        "recommendation": "repair_pipeline_before_repeat",
                     }
                 ],
                 "can_execute_trades": False,
@@ -167,7 +173,11 @@ def test_latest_restricted_blocklist_ranking_reads_latest_report(
     assert cast(dict[str, object], result["top_candidate"])["blocklist_kind"] == (
         "migrated_risk_only"
     )
-    assert cast(dict[str, object], result["summary"])["observations"] == 2
+    summary = cast(dict[str, object], result["summary"])
+    observations = cast(list[dict[str, object]], result["observations"])
+    assert summary["observations"] == 2
+    assert summary["insufficient_evidence_observations"] == 1
+    assert observations[1]["status"] == "insufficient_evidence"
 
 
 def test_latest_pre_live_readiness_blocks_missing_dry_run_evidence(tmp_path: Path) -> None:

@@ -324,6 +324,7 @@ export const fallbackData: DashboardData = {
     report_version: null,
     summary: {
       observations: 0,
+      insufficient_evidence_observations: 0,
       repeat_observation_candidates: 0,
       blocked_observations: 0,
     },

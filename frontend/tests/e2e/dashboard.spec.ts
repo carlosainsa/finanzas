@@ -204,6 +204,9 @@ test('dashboard shows restricted blocklist ranking', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Restricted Blocklist Ranking' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'migrated_risk_only' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'test_migrated_risk_variant' })).toBeVisible();
+  await expect(page.getByText('Insufficient', { exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'insufficient_evidence' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'real dry-run preflight failed' })).toBeVisible();
 });
 
 test('dashboard shows pre-live readiness report', async ({ page }) => {
@@ -545,6 +548,7 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         summary: {
           observations: 2,
           blocked_observations: 2,
+          insufficient_evidence_observations: 1,
           repeat_observation_candidates: 0,
         },
         top_candidate: {
@@ -554,10 +558,19 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         observations: [
           {
             blocklist_kind: 'migrated_risk_only',
+            status: 'complete',
             score: -258.72,
             recommendation: 'test_migrated_risk_variant',
             restricted_decision: 'REJECT',
             risk_migration_status: 'risk_migration_detected',
+          },
+          {
+            blocklist_kind: 'restricted_input_plus_top_migrated_risk',
+            status: 'insufficient_evidence',
+            score: -500000,
+            recommendation: 'repair_pipeline_before_repeat',
+            restricted_decision: null,
+            failure_reason: 'real dry-run preflight failed',
           },
         ],
         can_execute_trades: false,

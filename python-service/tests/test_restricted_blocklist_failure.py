@@ -85,3 +85,39 @@ def test_restricted_blocklist_failure_summarizes_pipeline_partitions(
     assert diagnostics["candidate_report_root_exists"] is True
     assert signals["parquet_files"] == 1
     assert cast(dict[str, Any], evidence["stream_lengths"])["reports"] == 0
+
+
+def test_restricted_blocklist_failure_includes_preflight_report(
+    tmp_path: Path,
+) -> None:
+    data_lake = tmp_path / "data_lake"
+    report_root = data_lake / "reports" / "run-1"
+    report_root.mkdir(parents=True)
+    (report_root / "real_dry_run_preflight.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "classification": "preflight_no_stream_progress",
+                "blockers": ["missing_execution_reports_stream_progress"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    payload = build_restricted_blocklist_failure(
+        plan={"can_execute_trades": False},
+        output_dir=tmp_path / "failure",
+        candidate_report_root=report_root,
+        exit_code=75,
+        reason="Real dry-run preflight failed; inspect report.",
+        stage="pre_live_dry_run",
+    )
+
+    diagnostics = cast(dict[str, Any], payload["diagnostics"])
+    preflight = cast(dict[str, Any], diagnostics["real_dry_run_preflight"])
+    assert diagnostics["classification"] == "preflight_no_stream_progress"
+    assert preflight["status"] == "failed"
+    assert "inspect_real_dry_run_preflight_report" in cast(
+        list[str], diagnostics["diagnosis_hints"]
+    )

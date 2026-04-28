@@ -39,6 +39,10 @@ export PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA="${PRE_LIVE_MAX_ABS_SIMULATOR_
 export ALLOW_RESEARCH_GATE_FAILURE="${ALLOW_RESEARCH_GATE_FAILURE:-1}"
 export RESEARCH_RUN_SOURCE="${RESEARCH_RUN_SOURCE:-real_market_dry_run}"
 export REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-real-dry-run-$(date -u +%Y%m%dT%H%M%SZ)}"
+export REAL_DRY_RUN_PREFLIGHT_ENABLED="${REAL_DRY_RUN_PREFLIGHT_ENABLED:-1}"
+export REAL_DRY_RUN_PREFLIGHT_SECONDS="${REAL_DRY_RUN_PREFLIGHT_SECONDS:-120}"
+export REAL_DRY_RUN_PREFLIGHT_POLL_SECONDS="${REAL_DRY_RUN_PREFLIGHT_POLL_SECONDS:-5}"
+export REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS="${REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS:-false}"
 REAL_DRY_RUN_ISOLATED="${REAL_DRY_RUN_ISOLATED:-${ISOLATED_REAL_DRY_RUN:-1}}"
 if [[ "$REAL_DRY_RUN_ISOLATED" == "1" || "$REAL_DRY_RUN_ISOLATED" == "true" ]]; then
   export DATA_LAKE_ROOT="${DATA_LAKE_ROOT:-${ROOT_DIR}/.tmp/real-dry-run-data-lake/${REPORT_TIMESTAMP}}"
@@ -81,6 +85,9 @@ manifest_root=${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}
 go_no_go_profile=$GO_NO_GO_PROFILE
 redis_url=$REDIS_URL
 capture_seconds=$REAL_DRY_RUN_SECONDS
+preflight_enabled=$REAL_DRY_RUN_PREFLIGHT_ENABLED
+preflight_seconds=$REAL_DRY_RUN_PREFLIGHT_SECONDS
+preflight_require_reports=$REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS
 blocked_segments_path=${PREDICTOR_BLOCKED_SEGMENTS_PATH:-}
 EOF
 
@@ -118,7 +125,11 @@ assert_services_running() {
 }
 
 capture_with_service_monitoring() {
-  local remaining="$REAL_DRY_RUN_SECONDS"
+  local elapsed="${REAL_DRY_RUN_PREFLIGHT_ELAPSED_SECONDS:-0}"
+  local remaining=$((REAL_DRY_RUN_SECONDS - elapsed))
+  if (( remaining < 0 )); then
+    remaining=0
+  fi
   local interval
   while (( remaining > 0 )); do
     assert_services_running
@@ -130,6 +141,54 @@ capture_with_service_monitoring() {
     remaining=$((remaining - interval))
   done
   assert_services_running
+}
+
+run_preflight_with_service_monitoring() {
+  if [[ "$REAL_DRY_RUN_PREFLIGHT_ENABLED" != "1" && "$REAL_DRY_RUN_PREFLIGHT_ENABLED" != "true" ]]; then
+    REAL_DRY_RUN_PREFLIGHT_ELAPSED_SECONDS=0
+    return 0
+  fi
+  local seconds="$REAL_DRY_RUN_PREFLIGHT_SECONDS"
+  if (( seconds <= 0 )); then
+    REAL_DRY_RUN_PREFLIGHT_ELAPSED_SECONDS=0
+    return 0
+  fi
+  if (( seconds > REAL_DRY_RUN_SECONDS )); then
+    seconds="$REAL_DRY_RUN_SECONDS"
+  fi
+  local require_reports_flag=()
+  if [[ "$REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS" == "1" || "$REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS" == "true" ]]; then
+    require_reports_flag=(--require-reports)
+  fi
+  set +e
+  PYTHONPATH=python-service python3 -m src.research.real_dry_run_preflight \
+    --redis-url "$REDIS_URL" \
+    --output "$RESEARCH_REPORT_ROOT/real_dry_run_preflight.json" \
+    --check-seconds "$seconds" \
+    --poll-seconds "$REAL_DRY_RUN_PREFLIGHT_POLL_SECONDS" \
+    --capture-seconds "$REAL_DRY_RUN_SECONDS" \
+    "${require_reports_flag[@]}" \
+    --json
+  preflight_status=$?
+  set -e
+  if [[ "$preflight_status" != "0" ]]; then
+    echo "Real dry-run preflight failed; inspect $RESEARCH_REPORT_ROOT/real_dry_run_preflight.json." >&2
+    tail_service_logs
+    exit "$preflight_status"
+  fi
+  REAL_DRY_RUN_PREFLIGHT_ELAPSED_SECONDS="$(
+    python3 - "$RESEARCH_REPORT_ROOT/real_dry_run_preflight.json" <<'PY'
+import json
+import math
+import sys
+
+try:
+    payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+    print(max(0, math.ceil(float(payload.get("elapsed_seconds", 0)))))
+except Exception:
+    print(0)
+PY
+  )"
 }
 
 cd "$ROOT_DIR"
@@ -209,6 +268,7 @@ while time.monotonic() < deadline:
 raise SystemExit("operator API did not become ready")
 PY
 
+run_preflight_with_service_monitoring
 capture_with_service_monitoring
 
 PYTHONPATH=python-service python3 - <<'PY'

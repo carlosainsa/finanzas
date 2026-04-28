@@ -483,8 +483,8 @@ export function App() {
                 value={Number(asRecord(data.restrictedBlocklistRanking.summary).repeat_observation_candidates ?? 0)}
               />
               <Counter
-                label="Trades"
-                value={data.restrictedBlocklistRanking.can_execute_trades ? 1 : 0}
+                label="Insufficient"
+                value={Number(asRecord(data.restrictedBlocklistRanking.summary).insufficient_evidence_observations ?? 0)}
               />
             </div>
             <Table
@@ -493,13 +493,14 @@ export function App() {
                 const row = asRecord(item);
                 return [
                   String(row.blocklist_kind ?? '-'),
+                  String(row.status ?? '-'),
                   formatUnknown(row.score),
                   String(row.recommendation ?? '-'),
                   String(row.restricted_decision ?? '-'),
-                  String(row.risk_migration_status ?? '-'),
+                  String(row.failure_reason ?? row.risk_migration_status ?? '-'),
                 ];
               })}
-              headers={['Variant', 'Score', 'Recommendation', 'Decision', 'Risk migration']}
+              headers={['Variant', 'Status', 'Score', 'Recommendation', 'Decision', 'Failure/Risk']}
             />
           </Panel>
 

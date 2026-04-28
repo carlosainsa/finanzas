@@ -33,6 +33,9 @@ def rank_restricted_blocklist_observations(
             "complete_observations": sum(
                 1 for item in ranked if item.get("status") == "complete"
             ),
+            "insufficient_evidence_observations": sum(
+                1 for item in ranked if item.get("status") == "insufficient_evidence"
+            ),
             "repeat_observation_candidates": sum(
                 1
                 for item in ranked
@@ -48,6 +51,7 @@ def rank_restricted_blocklist_observations(
 
 def observation_row(observation_root: Path) -> dict[str, object]:
     summary = read_json(observation_root / "restricted_blocklist_observation_summary.json")
+    failure = read_json(observation_root / "restricted_blocklist_observation_failure.json")
     comparison_report = read_json(observation_root / "comparison.json")
     promotion = read_json(observation_root / "research_promotion_decision.json")
     decision = read_json(observation_root / "restricted_blocklist_decision.json")
@@ -62,6 +66,10 @@ def observation_row(observation_root: Path) -> dict[str, object]:
             "restricted_blocklist_diagnostics.json",
         ),
     )
+    failure_status = failure.get("status")
+    failure_diagnostics = typed_dict(failure.get("diagnostics"))
+    failure_plan = typed_dict(failure.get("plan"))
+    has_failure = failure_status == "insufficient_evidence"
     comparison = typed_dict(comparison_report.get("comparison"))
     blocked_changes = typed_dict(comparison.get("blocked_segment_changes"))
     comparability = typed_dict(comparison.get("segment_comparability"))
@@ -73,6 +81,7 @@ def observation_row(observation_root: Path) -> dict[str, object]:
     checks = check_index(promotion)
     blockers = ranking_blockers(
         missing_artifact_names=missing,
+        failure=failure,
         decision=decision,
         promotion=promotion,
         comparison=comparison,
@@ -83,12 +92,20 @@ def observation_row(observation_root: Path) -> dict[str, object]:
     )
     row: dict[str, object] = {
         "observation_root": str(observation_root),
-        "status": "missing_artifacts" if missing else "complete",
+        "status": "insufficient_evidence"
+        if has_failure
+        else "missing_artifacts"
+        if missing
+        else "complete",
         "missing_artifacts": missing,
-        "blocklist_kind": summary.get("blocklist_kind"),
-        "blocklist_path": summary.get("blocklist_path"),
-        "duration_seconds": summary.get("duration_seconds"),
-        "market_asset_ids_sha256": summary.get("market_asset_ids_sha256"),
+        "blocklist_kind": summary.get("blocklist_kind")
+        or failure_plan.get("blocklist_kind"),
+        "blocklist_path": summary.get("blocklist_path")
+        or failure_plan.get("blocklist_path"),
+        "duration_seconds": summary.get("duration_seconds")
+        or failure_plan.get("duration_seconds"),
+        "market_asset_ids_sha256": summary.get("market_asset_ids_sha256")
+        or failure_plan.get("market_asset_ids_sha256"),
         "research_promotion_decision": promotion.get("decision"),
         "restricted_decision": decision.get("restricted_decision"),
         "restricted_decision_reason": decision.get("reason"),
@@ -116,6 +133,21 @@ def observation_row(observation_root: Path) -> dict[str, object]:
             "reconciliation_divergence_rate"
         ),
         "failed_checks": failed_check_names(checks),
+        "failure_status": failure_status,
+        "failure_reason": failure.get("reason"),
+        "failure_stage": failure.get("stage"),
+        "failure_exit_code": failure.get("exit_code"),
+        "dry_run_exit_code": failure.get("dry_run_exit_code"),
+        "failure_classification": failure_diagnostics.get("classification"),
+        "failure_diagnosis_hints": failure_diagnostics.get("diagnosis_hints")
+        if isinstance(failure_diagnostics.get("diagnosis_hints"), list)
+        else [],
+        "pipeline_report_root_exists": failure_diagnostics.get(
+            "candidate_report_root_exists"
+        ),
+        "pipeline_data_lake_root_exists": failure_diagnostics.get(
+            "data_lake_root_exists"
+        ),
         "blockers": blockers,
         "can_execute_trades": False,
     }
@@ -125,6 +157,8 @@ def observation_row(observation_root: Path) -> dict[str, object]:
 
 
 def ranking_score(row: dict[str, object]) -> float:
+    if row.get("status") == "insufficient_evidence":
+        return -500_000.0
     if row.get("status") != "complete":
         return -1_000_000.0
     score = 0.0
@@ -148,6 +182,12 @@ def ranking_score(row: dict[str, object]) -> float:
 
 def ranking_recommendation(row: dict[str, object]) -> str:
     blockers = typed_list(row.get("blockers"))
+    if row.get("status") == "insufficient_evidence":
+        if "missing_signals_stream_progress" in blockers or row.get(
+            "failure_classification"
+        ) == "no_dry_run_execution_reports":
+            return "relax_variant_candidate"
+        return "repair_pipeline_before_repeat"
     if row.get("status") != "complete":
         return "repair_missing_artifacts"
     if row.get("restricted_decision") == "REPEAT_OBSERVATION" and not blockers:
@@ -162,6 +202,7 @@ def ranking_recommendation(row: dict[str, object]) -> str:
 def ranking_blockers(
     *,
     missing_artifact_names: list[str],
+    failure: dict[str, object],
     decision: dict[str, object],
     promotion: dict[str, object],
     comparison: dict[str, Any],
@@ -171,7 +212,21 @@ def ranking_blockers(
     checks: dict[str, dict[str, object]],
 ) -> list[str]:
     blockers: list[str] = []
-    if missing_artifact_names:
+    failure_status = failure.get("status")
+    if failure_status == "insufficient_evidence":
+        blockers.append("insufficient_evidence")
+        reason = failure.get("reason")
+        if isinstance(reason, str) and reason:
+            blockers.append(reason)
+        diagnostics = typed_dict(failure.get("diagnostics"))
+        classification = diagnostics.get("classification")
+        if isinstance(classification, str) and classification:
+            blockers.append(classification)
+        preflight = typed_dict(diagnostics.get("real_dry_run_preflight"))
+        blockers.extend(
+            item for item in typed_list(preflight.get("blockers")) if isinstance(item, str)
+        )
+    elif missing_artifact_names:
         blockers.append("missing_artifacts")
     if fixed_universe.get("status") not in (None, "match", "not_applicable"):
         blockers.append("fixed_market_universe_not_matched")

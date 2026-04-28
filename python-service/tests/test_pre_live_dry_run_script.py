@@ -62,11 +62,28 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
     assert '"go_no_go_profile": os.environ["GO_NO_GO_PROFILE"]' in script
     assert 'if [[ "$readiness_status" != "0"' in script
     assert "ALLOW_RESEARCH_GATE_FAILURE" in script
+    assert "src.research.real_dry_run_preflight" in script
+    assert "real_dry_run_preflight.json" in script
+    api_ready = 'raise SystemExit("operator API did not become ready")'
+    assert script.index(api_ready) < script.index(
+        "\nrun_preflight_with_service_monitoring\ncapture_with_service_monitoring"
+    )
     assert (
         'scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" || true'
         in script
     )
     assert '"market_asset_ids_sha256"' in script
+
+
+def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
+    script = (
+        ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        'REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS="${REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS:-true}"'
+        in script
+    )
 
 
 def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(
