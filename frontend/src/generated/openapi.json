@@ -503,6 +503,145 @@
         "title": "ExecutionReportsResponse",
         "type": "object"
       },
+      "GoNoGoResponse": {
+        "properties": {
+          "agent_advisory_acceptable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Advisory Acceptable"
+          },
+          "blockers": {
+            "items": {},
+            "title": "Blockers",
+            "type": "array"
+          },
+          "calibration_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Passed"
+          },
+          "can_execute_trades": {
+            "title": "Can Execute Trades",
+            "type": "boolean"
+          },
+          "checks": {
+            "items": {},
+            "title": "Checks",
+            "type": "array"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "nim_budget_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nim Budget Status"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "pre_live_gate_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pre Live Gate Passed"
+          },
+          "pre_live_promotion_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pre Live Promotion Passed"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "decision",
+          "passed",
+          "can_execute_trades",
+          "blockers",
+          "metrics",
+          "checks"
+        ],
+        "title": "GoNoGoResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1253,6 +1392,28 @@
               }
             ],
             "title": "Fill Rate"
+          },
+          "go_no_go_decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Go No Go Decision"
+          },
+          "go_no_go_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Go No Go Passed"
           },
           "nim_budget_status": {
             "anyOf": [
@@ -2461,6 +2622,29 @@
         "summary": "Reconciliation Status"
       }
     },
+    "/api/research/go-no-go": {
+      "get": {
+        "operationId": "research_go_no_go_api_research_go_no_go_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoNoGoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Go No Go"
+      }
+    },
     "/api/research/nim-budget": {
       "get": {
         "operationId": "research_nim_budget_api_research_nim_budget_get",
@@ -3288,6 +3472,29 @@
           }
         ],
         "summary": "Reconciliation Status"
+      }
+    },
+    "/research/go-no-go": {
+      "get": {
+        "operationId": "research_go_no_go_research_go_no_go_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoNoGoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Go No Go"
       }
     },
     "/research/nim-budget": {

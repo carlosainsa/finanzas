@@ -259,6 +259,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/go-no-go": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Go No Go */
+        get: operations["research_go_no_go_api_research_go_no_go_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/research/nim-budget": {
         parameters: {
             query?: never;
@@ -633,6 +650,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/research/go-no-go": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Go No Go */
+        get: operations["research_go_no_go_research_go_no_go_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/research/nim-budget": {
         parameters: {
             query?: never;
@@ -901,6 +935,43 @@ export interface components {
             /** Source */
             source: string;
         };
+        /** GoNoGoResponse */
+        GoNoGoResponse: {
+            /** Agent Advisory Acceptable */
+            agent_advisory_acceptable?: boolean | null;
+            /** Blockers */
+            blockers: unknown[];
+            /** Calibration Passed */
+            calibration_passed?: boolean | null;
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Checks */
+            checks: unknown[];
+            /** Created At */
+            created_at?: string | null;
+            /** Decision */
+            decision: string;
+            /** Metrics */
+            metrics: {
+                [key: string]: unknown;
+            };
+            /** Nim Budget Status */
+            nim_budget_status?: string | null;
+            /** Passed */
+            passed: boolean;
+            /** Pre Live Gate Passed */
+            pre_live_gate_passed?: boolean | null;
+            /** Pre Live Promotion Passed */
+            pre_live_promotion_passed?: boolean | null;
+            /** Reason */
+            reason?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1108,6 +1179,10 @@ export interface components {
             feature_research_decision?: string | null;
             /** Fill Rate */
             fill_rate?: number | null;
+            /** Go No Go Decision */
+            go_no_go_decision?: string | null;
+            /** Go No Go Passed */
+            go_no_go_passed?: boolean | null;
             /** Nim Budget Status */
             nim_budget_status?: string | null;
             /** Nim Estimated Cost */
@@ -1714,6 +1789,26 @@ export interface operations {
             };
         };
     };
+    research_go_no_go_api_research_go_no_go_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoNoGoResponse"];
+                };
+            };
+        };
+    };
     research_nim_budget_api_research_nim_budget_get: {
         parameters: {
             query?: never;
@@ -2304,6 +2399,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_go_no_go_research_go_no_go_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoNoGoResponse"];
                 };
             };
         };

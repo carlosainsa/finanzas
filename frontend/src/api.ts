@@ -15,6 +15,7 @@ export type ControlPreview = components['schemas']['ControlPreviewResponse'];
 export type ReconciliationStatus = components['schemas']['ReconciliationStatusResponse'];
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 export type NIMBudget = components['schemas']['NIMBudgetResponse'];
+export type GoNoGo = components['schemas']['GoNoGoResponse'];
 export type ResearchRunSummary = components['schemas']['ResearchRunSummary'];
 
 export type DashboardData = {
@@ -30,6 +31,7 @@ export type DashboardData = {
   reconciliation: ReconciliationStatus;
   runtime: RuntimeMetrics;
   nimBudget: NIMBudget;
+  goNoGo: GoNoGo;
   researchRuns: ResearchRunSummary[];
 };
 
@@ -103,7 +105,7 @@ async function getJson<T>(path: keyof paths): Promise<T> {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const status = await getJson<StatusResponse>('/api/status');
-  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, researchRuns] = await Promise.all([
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, goNoGo, researchRuns] = await Promise.all([
     getJson<RiskResponse>('/api/risk'),
     getJson<{ streams: StreamSummary[] }>('/api/streams'),
     getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
@@ -115,6 +117,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     client.GET('/api/reconciliation/status', { params: { query: { limit: 20 } } }),
     client.GET('/api/metrics', { params: { query: { limit: 500 } } }),
     optionalGet<NIMBudget>('/api/research/nim-budget', fallbackData.nimBudget),
+    optionalGet<GoNoGo>('/api/research/go-no-go', fallbackData.goNoGo),
     optionalGet<{ runs: ResearchRunSummary[] }>('/api/research/runs', { runs: fallbackData.researchRuns }),
   ]);
 
@@ -131,6 +134,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     reconciliation: unwrap(reconciliation.data, reconciliation.error, '/api/reconciliation/status'),
     runtime: unwrap(runtime.data, runtime.error, '/api/metrics'),
     nimBudget,
+    goNoGo,
     researchRuns: researchRuns.runs,
   };
 }
@@ -282,6 +286,24 @@ export const fallbackData: DashboardData = {
     budget_violations: [],
     can_execute_trades: false,
     updated_at: null,
+  },
+  goNoGo: {
+    status: 'missing',
+    source: 'data_lake/research_runs/research_runs.jsonl',
+    run_id: null,
+    created_at: null,
+    decision: 'NO_GO',
+    passed: false,
+    can_execute_trades: false,
+    reason: 'missing_research_run',
+    blockers: [],
+    metrics: {},
+    checks: [],
+    pre_live_gate_passed: null,
+    calibration_passed: null,
+    pre_live_promotion_passed: null,
+    agent_advisory_acceptable: null,
+    nim_budget_status: null,
   },
   researchRuns: [],
 };

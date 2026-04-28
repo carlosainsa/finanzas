@@ -429,12 +429,35 @@ export function App() {
               rows={data.researchRuns.slice(0, 6).map((run) => [
                 run.run_id ?? '-',
                 run.passed === null || run.passed === undefined ? '-' : run.passed ? 'pass' : 'fail',
+                run.go_no_go_decision ?? '-',
                 formatNumber(run.realized_edge),
                 formatNumber(run.fill_rate),
                 run.nim_budget_status ?? '-',
                 run.feature_research_decision ?? '-',
               ])}
-              headers={['Run', 'Passed', 'Edge', 'Fill rate', 'NIM budget', 'Feature decision']}
+              headers={['Run', 'Passed', 'Go/No-Go', 'Edge', 'Fill rate', 'NIM budget', 'Feature decision']}
+            />
+          </Panel>
+
+          <Panel title="Go/No-Go" subtitle={data.goNoGo.source}>
+            <div className="budgetHeader">
+              <span className={`budgetBadge ${data.goNoGo.passed ? 'good' : 'danger'}`}>
+                {data.goNoGo.decision}
+              </span>
+              <code>{data.goNoGo.run_id ?? 'no research run'}</code>
+            </div>
+            <Table
+              empty="No quantitative blockers"
+              rows={data.goNoGo.blockers.slice(0, 6).map((blocker) => {
+                const row = blocker as Record<string, unknown>;
+                return [
+                  String(row.check_name ?? '-'),
+                  formatUnknown(row.metric_value),
+                  formatUnknown(row.threshold),
+                  String(row.passed ?? false),
+                ];
+              })}
+              headers={['Check', 'Metric', 'Threshold', 'Passed']}
             />
           </Panel>
         </section>
@@ -504,6 +527,16 @@ function formatBudgetCost(value: number | null | undefined): string {
     return '-';
   }
   return value === 0 ? '0' : value.toFixed(6);
+}
+
+function formatUnknown(value: unknown): string {
+  if (typeof value === 'number') {
+    return formatNumber(value);
+  }
+  if (value === null || value === undefined) {
+    return '-';
+  }
+  return String(value);
 }
 
 function budgetTone(status: string | null | undefined): string {

@@ -15,6 +15,7 @@ from src.api.models import (
     ControlResultsResponse,
     ControlResponse,
     ExecutionReportsResponse,
+    GoNoGoResponse,
     MarketsDiscoverResponse,
     OrdersOpenResponse,
     PositionsResponse,
@@ -28,7 +29,12 @@ from src.api.models import (
     StrategyMetricsResponse,
     StreamsResponse,
 )
-from src.api.research_service import get_research_run, latest_nim_budget, list_research_runs
+from src.api.research_service import (
+    get_research_run,
+    latest_go_no_go,
+    latest_nim_budget,
+    list_research_runs,
+)
 from src.api.operator_service import (
     open_orders,
     positions,
@@ -41,9 +47,12 @@ from src.api.operator_service import (
     request_cancel_all,
     risk_summary,
     runtime_metrics,
+    runtime_metrics_from_records,
     prometheus_metrics,
     set_kill_switch,
     strategy_metrics,
+    strategy_metrics_from_records,
+    signal_index_from_records,
     status_summary,
     stream_summary,
     RedisLike,
@@ -53,6 +62,7 @@ from src.api.state_store import (
     execution_reports_from_postgres,
     reconciliation_status_from_postgres,
     require_pool,
+    trade_signals_from_postgres,
 )
 from src.data.redis_client import get_redis
 from src.discovery.markets import discover_markets
@@ -226,7 +236,15 @@ async def get_strategy_metrics(
     _: ReadAuthDependency, limit: int = 500
 ) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
-    return await strategy_metrics(redis, count=max(1, min(limit, 1000)))
+    postgres_pool = await postgres_pool_or_503()
+    bounded_limit = max(1, min(limit, 1000))
+    if postgres_pool is not None:
+        reports = await execution_reports_from_postgres(postgres_pool, bounded_limit)
+        signals = signal_index_from_records(
+            await trade_signals_from_postgres(postgres_pool, bounded_limit)
+        )
+        return strategy_metrics_from_records(reports, signals, source="postgres")
+    return await strategy_metrics(redis, count=bounded_limit)
 
 
 @router.get("/control/results", response_model=ControlResultsResponse)
@@ -250,19 +268,47 @@ async def get_control_results(
 @router.get("/metrics", response_model=RuntimeMetricsResponse)
 async def get_runtime_metrics(_: ReadAuthDependency, limit: int = 500) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
-    return await runtime_metrics(redis, count=max(1, min(limit, 1000)))
+    postgres_pool = await postgres_pool_or_503()
+    bounded_limit = max(1, min(limit, 1000))
+    if postgres_pool is not None:
+        reports = await execution_reports_from_postgres(postgres_pool, bounded_limit)
+        signals = signal_index_from_records(
+            await trade_signals_from_postgres(postgres_pool, bounded_limit)
+        )
+        results = await control_results_from_postgres(postgres_pool, bounded_limit)
+        return runtime_metrics_from_records(
+            reports, signals, results, source=["postgres"]
+        )
+    return await runtime_metrics(redis, count=bounded_limit)
 
 
 @router.get("/metrics/prometheus", response_class=Response)
 async def get_prometheus_metrics(_: ReadAuthDependency, limit: int = 500) -> Response:
     redis = cast(RedisLike, await get_redis())
-    metrics = await runtime_metrics(redis, count=max(1, min(limit, 1000)))
+    postgres_pool = await postgres_pool_or_503()
+    bounded_limit = max(1, min(limit, 1000))
+    if postgres_pool is not None:
+        reports = await execution_reports_from_postgres(postgres_pool, bounded_limit)
+        signals = signal_index_from_records(
+            await trade_signals_from_postgres(postgres_pool, bounded_limit)
+        )
+        results = await control_results_from_postgres(postgres_pool, bounded_limit)
+        metrics = runtime_metrics_from_records(
+            reports, signals, results, source=["postgres"]
+        )
+    else:
+        metrics = await runtime_metrics(redis, count=bounded_limit)
     return Response(content=prometheus_metrics(metrics), media_type="text/plain")
 
 
 @router.get("/research/nim-budget", response_model=NIMBudgetResponse)
 async def research_nim_budget(_: ReadAuthDependency) -> dict[str, object]:
     return latest_nim_budget()
+
+
+@router.get("/research/go-no-go", response_model=GoNoGoResponse)
+async def research_go_no_go(_: ReadAuthDependency) -> dict[str, object]:
+    return latest_go_no_go()
 
 
 @router.get("/research/runs", response_model=ResearchRunsResponse)

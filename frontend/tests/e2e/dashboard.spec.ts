@@ -186,6 +186,16 @@ test('dashboard shows recent research runs', async ({ page }) => {
   await expect(page.getByRole('cell', { name: 'KEEP_DIAGNOSTIC' })).toBeVisible();
 });
 
+test('dashboard shows latest go no-go gate', async ({ page }) => {
+  await mockOperatorApi(page);
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Go/No-Go' })).toBeVisible();
+  await expect(page.locator('.budgetBadge').filter({ hasText: /^NO_GO$/ })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'positive_realized_edge' })).toBeVisible();
+});
+
 test('cancel-all preview failure does not submit destructive command', async ({ page }) => {
   const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
   await mockOperatorApi(page, {
@@ -449,6 +459,32 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         can_execute_trades: false,
         updated_at: '2026-04-27T00:00:00+00:00',
       };
+    case '/api/research/go-no-go':
+      return {
+        status: 'ok',
+        source: 'data_lake/reports/20260427T000000Z/go_no_go.json',
+        run_id: '20260427T000000Z',
+        created_at: '2026-04-27T00:00:00+00:00',
+        decision: 'NO_GO',
+        passed: false,
+        can_execute_trades: false,
+        reason: 'quantitative_gate_failure',
+        blockers: [
+          {
+            check_name: 'positive_realized_edge',
+            metric_value: -0.01,
+            threshold: 0,
+            passed: false,
+          },
+        ],
+        metrics: { realized_edge: -0.01, fill_rate: 0.5 },
+        checks: [],
+        pre_live_gate_passed: true,
+        calibration_passed: true,
+        pre_live_promotion_passed: false,
+        agent_advisory_acceptable: true,
+        nim_budget_status: 'OK',
+      };
     case '/api/research/runs':
       return {
         runs: [
@@ -461,6 +497,8 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
             pre_live_gate_passed: true,
             calibration_passed: true,
             pre_live_promotion_passed: true,
+            go_no_go_passed: true,
+            go_no_go_decision: 'GO',
             feature_research_decision: 'KEEP_DIAGNOSTIC',
             realized_edge: 0.04,
             fill_rate: 0.5,

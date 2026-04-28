@@ -189,6 +189,25 @@ class NIMBudgetResponse(BaseModel):
     updated_at: str | None = None
 
 
+class GoNoGoResponse(BaseModel):
+    status: str
+    source: str
+    run_id: str | None = None
+    created_at: str | None = None
+    decision: str
+    passed: bool
+    can_execute_trades: bool
+    reason: str | None = None
+    blockers: list[Any]
+    metrics: dict[str, Any]
+    checks: list[Any]
+    pre_live_gate_passed: bool | None = None
+    calibration_passed: bool | None = None
+    pre_live_promotion_passed: bool | None = None
+    agent_advisory_acceptable: bool | None = None
+    nim_budget_status: str | None = None
+
+
 class ResearchRunSummary(BaseModel):
     run_id: str | None = None
     created_at: str | None = None
@@ -198,7 +217,9 @@ class ResearchRunSummary(BaseModel):
     pre_live_gate_passed: bool | None = None
     calibration_passed: bool | None = None
     pre_live_promotion_passed: bool | None = None
+    go_no_go_passed: bool | None = None
     feature_research_decision: str | None = None
+    go_no_go_decision: str | None = None
     realized_edge: float | None = None
     fill_rate: float | None = None
     nim_budget_status: str | None = None

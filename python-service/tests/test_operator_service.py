@@ -16,6 +16,9 @@ from src.api.operator_service import (
     request_cancel_all,
     request_cancel_bot_open,
     set_kill_switch,
+    strategy_metrics_from_records,
+    runtime_metrics_from_records,
+    signal_index_from_records,
     strategy_metrics,
     stream_summary,
     prometheus_metrics,
@@ -273,6 +276,67 @@ def test_strategy_metrics_summarize_recent_reports() -> None:
     assert metrics["filled_size"] == 3.0
 
 
+def test_strategy_metrics_from_postgres_records_uses_canonical_source() -> None:
+    signals = signal_index_from_records(
+        [
+            {
+                "signal_id": "signal-1",
+                "timestamp_ms": 10,
+            }
+        ]
+    )
+    reports: list[dict[str, object]] = [
+        {
+            "signal_id": "signal-1",
+            "order_id": "order-1",
+            "status": "MATCHED",
+            "filled_size": 2,
+            "timestamp_ms": 20,
+        }
+    ]
+
+    metrics = strategy_metrics_from_records(reports, signals, source="postgres")
+
+    assert metrics["source"] == "postgres"
+    assert metrics["sample_size"] == 1
+    assert metrics["latency_ms"] == 10
+
+
+def test_runtime_metrics_from_postgres_records_uses_canonical_source() -> None:
+    signals = signal_index_from_records(
+        [
+            {
+                "signal_id": "signal-1",
+                "source_timestamp_ms": 1,
+                "timestamp_ms": 10,
+            }
+        ]
+    )
+    reports = [
+        {
+            "signal_id": "signal-1",
+            "order_id": "order-1",
+            "status": "MATCHED",
+            "timestamp_ms": 20,
+        }
+    ]
+    results: list[dict[str, object]] = [
+        {
+            "command_id": "command-1",
+            "command_type": "cancel_bot_open",
+            "status": "CONFIRMED",
+        }
+    ]
+
+    metrics = runtime_metrics_from_records(reports, signals, results, source=["postgres"])
+
+    assert metrics["source"] == ["postgres"]
+    assert metrics["signals_received"] == 1
+    assert metrics["control_results"] == 1
+    assert metrics["ws_to_signal_latency_ms"] == 9
+    assert metrics["signal_to_order_latency_ms"] == 10
+
+
 def test_prometheus_metrics_formats_numeric_values() -> None:
     output = prometheus_metrics(
         {
@@ -522,6 +586,9 @@ def test_required_postgres_state_returns_503_instead_of_redis_fallback(
         "/control/results",
         "/reconciliation/status",
         "/risk",
+        "/strategy/metrics",
+        "/metrics",
+        "/metrics/prometheus",
     ):
         response = client.get(path)
         assert response.status_code == 503

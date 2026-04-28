@@ -2,7 +2,12 @@ import json
 from pathlib import Path
 from typing import cast
 
-from src.api.research_service import get_research_run, latest_nim_budget, list_research_runs
+from src.api.research_service import (
+    get_research_run,
+    latest_go_no_go,
+    latest_nim_budget,
+    list_research_runs,
+)
 
 
 def test_latest_nim_budget_returns_missing_when_index_absent(tmp_path: Path) -> None:
@@ -58,6 +63,51 @@ def test_latest_nim_budget_reads_latest_manifest_row(tmp_path: Path) -> None:
     assert result["can_execute_trades"] is False
 
 
+def test_latest_go_no_go_reads_latest_manifest_report(tmp_path: Path) -> None:
+    manifest_root = tmp_path / "research_runs"
+    report_root = tmp_path / "run-2"
+    manifest_root.mkdir()
+    report_root.mkdir()
+    (report_root / "go_no_go.json").write_text(
+        json.dumps(
+            {
+                "decision": "NO_GO",
+                "passed": False,
+                "reason": "quantitative_gate_failure",
+                "blockers": [{"check_name": "positive_realized_edge", "passed": False}],
+                "metrics": {"realized_edge": -0.01, "fill_rate": 0.2},
+                "checks": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (manifest_root / "research_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run-2",
+                "created_at": "2026-04-27T00:00:00+00:00",
+                "report_root": str(report_root),
+                "go_no_go_passed": False,
+                "metrics": {"go_no_go_decision": "NO_GO"},
+                "counts": {"nim_advisory_budget_status": "OK"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = latest_go_no_go(manifest_root)
+
+    assert result["status"] == "ok"
+    assert result["run_id"] == "run-2"
+    assert result["decision"] == "NO_GO"
+    assert result["passed"] is False
+    assert result["can_execute_trades"] is False
+    assert result["nim_budget_status"] == "OK"
+    assert cast(dict[str, object], result["metrics"])["realized_edge"] == -0.01
+
+
 def test_list_research_runs_returns_latest_first(tmp_path: Path) -> None:
     manifest_root = seed_research_index(tmp_path)
 
@@ -74,7 +124,9 @@ def test_list_research_runs_returns_latest_first(tmp_path: Path) -> None:
             "pre_live_gate_passed": True,
             "calibration_passed": True,
             "pre_live_promotion_passed": True,
+            "go_no_go_passed": True,
             "feature_research_decision": "KEEP_DIAGNOSTIC",
+            "go_no_go_decision": "GO",
             "realized_edge": 0.04,
             "fill_rate": 0.5,
             "nim_budget_status": "OK",
@@ -135,8 +187,13 @@ def seed_research_index(tmp_path: Path) -> Path:
                         "pre_live_gate_passed": True,
                         "calibration_passed": True,
                         "pre_live_promotion_passed": True,
+                        "go_no_go_passed": True,
                         "feature_research_decision": "KEEP_DIAGNOSTIC",
-                        "metrics": {"realized_edge": 0.04, "fill_rate": 0.5},
+                        "metrics": {
+                            "realized_edge": 0.04,
+                            "fill_rate": 0.5,
+                            "go_no_go_decision": "GO",
+                        },
                         "versions": {"nim_advisory_model": "deepseek-ai/deepseek-v3.2"},
                         "counts": {
                             "nim_advisory_total_tokens": 266,

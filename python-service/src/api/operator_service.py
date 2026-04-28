@@ -253,6 +253,16 @@ async def positions(
 async def strategy_metrics(redis: RedisLike, count: int = 500) -> dict[str, object]:
     reports = await recent_execution_reports(redis, count=count)
     signals = await signal_index(redis, count=count)
+    return strategy_metrics_from_records(
+        reports, signals, source=settings.execution_reports_stream
+    )
+
+
+def strategy_metrics_from_records(
+    reports: list[dict[str, object]],
+    signals: dict[str, dict[str, object]],
+    source: str,
+) -> dict[str, object]:
     total = len(reports)
     matched = sum(1 for report in reports if report.get("status") == "MATCHED")
     open_count = sum(1 for report in reports if report.get("status") in {"DELAYED", "UNMATCHED"})
@@ -270,7 +280,7 @@ async def strategy_metrics(redis: RedisLike, count: int = 500) -> dict[str, obje
         "latency_ms": sum(latency_values) / len(latency_values)
         if latency_values
         else None,
-        "source": settings.execution_reports_stream,
+        "source": source,
     }
 
 
@@ -285,6 +295,24 @@ async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, objec
     reports = await recent_execution_reports(redis, count=count)
     results = await control_results(redis, count=count)
     signals = await signal_index(redis, count=count)
+    return runtime_metrics_from_records(
+        reports,
+        signals,
+        results,
+        source=[
+            settings.signals_stream,
+            settings.execution_reports_stream,
+            settings.operator_results_stream,
+        ],
+    )
+
+
+def runtime_metrics_from_records(
+    reports: list[dict[str, object]],
+    signals: dict[str, dict[str, object]],
+    results: list[dict[str, object]],
+    source: list[str],
+) -> dict[str, object]:
     latency = stage_latencies(reports, signals)
     return {
         "signals_received": len(signals),
@@ -309,11 +337,7 @@ async def runtime_metrics(redis: RedisLike, count: int = 500) -> dict[str, objec
         "ws_to_signal_latency_ms": average(latency["ws_to_signal"]),
         "signal_to_order_latency_ms": average(latency["signal_to_order"]),
         "order_to_report_latency_ms": average(latency["order_to_report"]),
-        "source": [
-            settings.signals_stream,
-            settings.execution_reports_stream,
-            settings.operator_results_stream,
-        ],
+        "source": source,
     }
 
 
@@ -500,6 +524,17 @@ async def signal_index(redis: RedisLike, count: int = 500) -> dict[str, dict[str
     entries = await redis.xrevrange(settings.signals_stream, count=count)
     signals: dict[str, dict[str, object]] = {}
     for _, payload in parse_stream_payloads(entries):
+        signal_id = payload.get("signal_id")
+        if isinstance(signal_id, str):
+            signals.setdefault(signal_id, payload)
+    return signals
+
+
+def signal_index_from_records(
+    records: Iterable[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    signals: dict[str, dict[str, object]] = {}
+    for payload in records:
         signal_id = payload.get("signal_id")
         if isinstance(signal_id, str):
             signals.setdefault(signal_id, payload)

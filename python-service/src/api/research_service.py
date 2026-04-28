@@ -43,6 +43,52 @@ def latest_nim_budget(root: Path | None = None) -> dict[str, object]:
     }
 
 
+def latest_go_no_go(root: Path | None = None) -> dict[str, object]:
+    manifest_root = resolved_manifest_root(root)
+    index_path = manifest_root / "research_runs.jsonl"
+    if not index_path.exists():
+        return empty_go_no_go(index_path)
+
+    latest = latest_manifest(index_path)
+    if latest is None:
+        return empty_go_no_go(index_path)
+
+    report_root_value = latest.get("report_root")
+    report_root = Path(report_root_value) if isinstance(report_root_value, str) else None
+    go_no_go = read_report_json(report_root / "go_no_go.json") if report_root else {}
+    metrics = typed_dict(latest.get("metrics"))
+    counts = typed_dict(latest.get("counts"))
+    blockers = parse_violations(metrics.get("go_no_go_blockers"))
+    return {
+        "status": "ok" if go_no_go else "missing_report",
+        "source": str(report_root / "go_no_go.json") if report_root else str(index_path),
+        "run_id": latest.get("run_id"),
+        "created_at": latest.get("created_at"),
+        "decision": go_no_go.get("decision") or metrics.get("go_no_go_decision"),
+        "passed": bool(go_no_go.get("passed", latest.get("go_no_go_passed", False))),
+        "can_execute_trades": False,
+        "reason": go_no_go.get("reason"),
+        "blockers": go_no_go.get("blockers") if isinstance(go_no_go.get("blockers"), list) else blockers,
+        "metrics": go_no_go.get("metrics") if isinstance(go_no_go.get("metrics"), dict) else {
+            "realized_edge": metrics.get("realized_edge"),
+            "fill_rate": metrics.get("fill_rate"),
+            "slippage": metrics.get("slippage"),
+            "adverse_selection": metrics.get("adverse_selection"),
+            "drawdown": metrics.get("drawdown"),
+            "stale_data_rate": metrics.get("stale_data_rate"),
+            "reconciliation_divergence_rate": metrics.get("reconciliation_divergence_rate"),
+            "test_brier_score": metrics.get("test_brier_score"),
+            "test_log_loss": metrics.get("test_log_loss"),
+        },
+        "checks": go_no_go.get("checks") if isinstance(go_no_go.get("checks"), list) else [],
+        "pre_live_gate_passed": latest.get("pre_live_gate_passed"),
+        "calibration_passed": latest.get("calibration_passed"),
+        "pre_live_promotion_passed": latest.get("pre_live_promotion_passed"),
+        "agent_advisory_acceptable": latest.get("agent_advisory_acceptable"),
+        "nim_budget_status": counts.get("nim_advisory_budget_status"),
+    }
+
+
 def list_research_runs(root: Path | None = None, limit: int = 20) -> dict[str, object]:
     manifest_root = resolved_manifest_root(root)
     index_path = manifest_root / "research_runs.jsonl"
@@ -106,6 +152,14 @@ def read_manifest_index(index_path: Path) -> list[dict[str, object]]:
     return rows
 
 
+def read_report_json(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def latest_manifest(index_path: Path) -> dict[str, object] | None:
     rows = read_manifest_index(index_path)
     return rows[-1] if rows else None
@@ -124,7 +178,9 @@ def summarize_run(item: dict[str, object]) -> dict[str, object]:
         "pre_live_gate_passed": item.get("pre_live_gate_passed"),
         "calibration_passed": item.get("calibration_passed"),
         "pre_live_promotion_passed": item.get("pre_live_promotion_passed"),
+        "go_no_go_passed": item.get("go_no_go_passed"),
         "feature_research_decision": item.get("feature_research_decision"),
+        "go_no_go_decision": metrics.get("go_no_go_decision"),
         "realized_edge": metrics.get("realized_edge"),
         "fill_rate": metrics.get("fill_rate"),
         "nim_budget_status": counts.get("nim_advisory_budget_status"),
@@ -154,6 +210,27 @@ def empty_nim_budget(index_path: Path) -> dict[str, object]:
         "budget_violations": [],
         "can_execute_trades": False,
         "updated_at": None,
+    }
+
+
+def empty_go_no_go(index_path: Path) -> dict[str, object]:
+    return {
+        "status": "missing",
+        "source": str(index_path),
+        "run_id": None,
+        "created_at": None,
+        "decision": "NO_GO",
+        "passed": False,
+        "can_execute_trades": False,
+        "reason": "missing_research_run",
+        "blockers": [{"check_name": "research_run_available", "passed": False}],
+        "metrics": {},
+        "checks": [],
+        "pre_live_gate_passed": None,
+        "calibration_passed": None,
+        "pre_live_promotion_passed": None,
+        "agent_advisory_acceptable": None,
+        "nim_budget_status": None,
     }
 
 

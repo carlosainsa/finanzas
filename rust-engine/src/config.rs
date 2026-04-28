@@ -99,10 +99,21 @@ impl Config {
     }
 
     fn validate(self) -> Result<Self> {
-        if self.app_env.eq_ignore_ascii_case("production") {
+        if self.app_env.eq_ignore_ascii_case("production")
+            || parse_env_bool("REQUIRE_POSTGRES_STATE", false)
+        {
             let mut missing = Vec::new();
             if self.database_url.is_none() {
                 missing.push("DATABASE_URL");
+            }
+            if !self.app_env.eq_ignore_ascii_case("production") {
+                if !missing.is_empty() {
+                    anyhow::bail!(
+                        "configuration missing required settings: {}",
+                        missing.join(", ")
+                    );
+                }
+                return Ok(self);
             }
             if std::env::var("OPERATOR_READ_TOKEN").is_err() {
                 missing.push("OPERATOR_READ_TOKEN");

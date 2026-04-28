@@ -93,6 +93,9 @@ PYTHONPATH=python-service python3 -m src.research.pre_live_promotion \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/pre_live_promotion" \
   "${PRE_LIVE_PROMOTION_ARGS[@]}" > "$REPORT_ROOT/pre_live_promotion.json"
+PYTHONPATH=python-service python3 -m src.research.go_no_go \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/go_no_go" > "$REPORT_ROOT/go_no_go.json"
 PYTHONPATH=python-service python3 -m src.research.agent_advisory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"
@@ -177,6 +180,7 @@ def read_json(name: str) -> dict[str, object]:
 backtest = read_json("backtest.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
+go_no_go = read_json("go_no_go.json")
 advisory = read_json("agent_advisory.json")
 nim_advisory = read_json("nim_advisory.json")
 nim_advisory_exit_code = int(os.environ.get("NIM_ADVISORY_EXIT_CODE", "0"))
@@ -198,8 +202,10 @@ summary = {
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
     "calibration_passed": calibration.get("passed", False),
     "pre_live_promotion_passed": promotion.get("passed", False),
+    "go_no_go_passed": go_no_go.get("passed", False),
     "agent_advisory_acceptable": advisory_summary.get("advisory_acceptable", False),
     "pre_live_promotion": promotion,
+    "go_no_go": go_no_go,
     "agent_advisory": advisory,
     "nim_advisory": nim_advisory,
     "nim_advisory_exit_code": nim_advisory_exit_code,
@@ -209,6 +215,7 @@ summary["passed"] = bool(
     summary["pre_live_gate_passed"]
     and summary["calibration_passed"]
     and summary["pre_live_promotion_passed"]
+    and summary["go_no_go_passed"]
     and summary["agent_advisory_acceptable"]
     and nim_advisory_exit_code == 0
 )

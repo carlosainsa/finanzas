@@ -15,6 +15,7 @@ from src.research.pre_live_promotion import (
     create_promotion_views,
     export_promotion_report,
 )
+from src.research.go_no_go import GO_NO_GO_REPORT_VERSION, create_go_no_go_report, export_go_no_go_report
 
 
 class FakeRedis:
@@ -64,6 +65,50 @@ def test_promotion_report_combines_required_pre_live_metrics(tmp_path: Path) -> 
     assert checks["positive_realized_edge"] is True
     assert checks["calibration_available"] is True
     assert report["passed"] is True
+
+
+def test_go_no_go_report_summarizes_quantitative_gate(tmp_path: Path) -> None:
+    db_path = seed_promotion_db(tmp_path)
+
+    report = create_go_no_go_report(
+        db_path, PromotionConfig(max_drawdown=1.0, max_stale_data_rate=1.0)
+    )
+
+    assert report["report_version"] == GO_NO_GO_REPORT_VERSION
+    assert report["decision"] == "GO"
+    assert report["passed"] is True
+    assert report["can_execute_trades"] is False
+    assert report["blockers"] == []
+
+
+def test_go_no_go_report_blocks_failed_quantitative_gate(tmp_path: Path) -> None:
+    db_path = seed_promotion_db(tmp_path)
+
+    report = create_go_no_go_report(
+        db_path,
+        PromotionConfig(
+            min_signals=10,
+            max_drawdown=1.0,
+            max_stale_data_rate=1.0,
+        ),
+    )
+
+    blockers = cast(list[dict[str, object]], report["blockers"])
+    assert report["decision"] == "NO_GO"
+    assert report["passed"] is False
+    assert any(blocker["check_name"] == "has_signals" for blocker in blockers)
+
+
+def test_export_go_no_go_report_writes_json(tmp_path: Path) -> None:
+    db_path = seed_promotion_db(tmp_path)
+    output_dir = tmp_path / "go_no_go"
+
+    report = export_go_no_go_report(
+        db_path, output_dir, PromotionConfig(max_drawdown=1.0, max_stale_data_rate=1.0)
+    )
+
+    assert report["passed"] is True
+    assert (output_dir / "go_no_go.json").exists()
 
 
 def test_promotion_report_enforces_explicit_real_dry_run_gates(

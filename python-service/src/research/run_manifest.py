@@ -21,6 +21,7 @@ def create_run_manifest(
     resolved_run_id = run_id or report_root.name
     summary = read_json(report_root / "research_summary.json")
     promotion = read_json(report_root / "pre_live_promotion.json")
+    go_no_go = read_json(report_root / "go_no_go.json")
     advisory = read_json(report_root / "agent_advisory.json")
     baseline = read_json(report_root / "baseline.json")
     synthetic_fills = read_json(report_root / "synthetic_fills.json")
@@ -48,11 +49,13 @@ def create_run_manifest(
         "pre_live_gate_passed": bool(summary.get("pre_live_gate_passed", False)),
         "calibration_passed": bool(summary.get("calibration_passed", False)),
         "pre_live_promotion_passed": bool(summary.get("pre_live_promotion_passed", False)),
+        "go_no_go_passed": bool(summary.get("go_no_go_passed", False)),
         "agent_advisory_acceptable": bool(summary.get("agent_advisory_acceptable", False)),
         "feature_research_decision": feature_research_decision.get("decision"),
         "feature_research_status": feature_research_decision.get("status"),
         "versions": {
             "promotion_report": promotion.get("report_version"),
+            "go_no_go_report": go_no_go.get("report_version"),
             "advisory_report": advisory.get("report_version"),
             "advisory_model": advisory.get("model_version"),
             "advisory_data": advisory.get("data_version"),
@@ -69,7 +72,7 @@ def create_run_manifest(
             "nim_advisory_feature": nim_advisory.get("feature_version"),
             "nim_advisory_prompt": nim_advisory.get("prompt_version"),
         },
-        "metrics": manifest_metrics(promotion, advisory, calibration, backtest),
+        "metrics": manifest_metrics(promotion, advisory, calibration, backtest, go_no_go),
         "counts": manifest_counts(
             summary,
             baseline,
@@ -123,8 +126,10 @@ def manifest_metrics(
     advisory: dict[str, object],
     calibration: dict[str, object],
     backtest: dict[str, object],
+    go_no_go: dict[str, object],
 ) -> dict[str, object]:
     promotion_metrics = typed_dict(promotion.get("metrics"))
+    go_no_go_metrics = typed_dict(go_no_go.get("metrics"))
     advisory_summary = typed_dict(advisory.get("summary"))
     pre_live_gate = typed_dict(backtest.get("pre_live_gate"))
     return {
@@ -152,6 +157,16 @@ def manifest_metrics(
         ),
         "test_brier_score": promotion_metrics.get("test_brier_score"),
         "test_log_loss": promotion_metrics.get("test_log_loss"),
+        "go_no_go_decision": go_no_go.get("decision"),
+        "go_no_go_blockers": stable_json_list(
+            [
+                typed_dict(item).get("check_name")
+                for item in typed_list(go_no_go.get("blockers"))
+                if typed_dict(item).get("check_name")
+            ]
+        ),
+        "go_no_go_realized_edge": go_no_go_metrics.get("realized_edge"),
+        "go_no_go_fill_rate": go_no_go_metrics.get("fill_rate"),
         "advisory_failed": advisory_summary.get("failed"),
         "advisory_warned": advisory_summary.get("warned"),
         "legacy_pre_live_fill_rate": pre_live_gate.get("fill_rate"),
@@ -261,6 +276,7 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "nim_advisory.json",
         "calibration.json",
         "pre_live_promotion.json",
+        "go_no_go.json",
         "agent_advisory.json",
         "synthetic_fills.json",
         "real_dry_run_evidence.json",
@@ -309,6 +325,7 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "pre_live_gate_passed": manifest.get("pre_live_gate_passed"),
         "calibration_passed": manifest.get("calibration_passed"),
         "pre_live_promotion_passed": manifest.get("pre_live_promotion_passed"),
+        "go_no_go_passed": manifest.get("go_no_go_passed"),
         "agent_advisory_acceptable": manifest.get("agent_advisory_acceptable"),
         "feature_research_decision": manifest.get("feature_research_decision"),
         "feature_research_status": manifest.get("feature_research_status"),
@@ -330,6 +347,10 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "reconciliation_divergence_rate": metrics.get("reconciliation_divergence_rate"),
         "test_brier_score": metrics.get("test_brier_score"),
         "test_log_loss": metrics.get("test_log_loss"),
+        "go_no_go_decision": metrics.get("go_no_go_decision"),
+        "go_no_go_blockers": metrics.get("go_no_go_blockers"),
+        "go_no_go_realized_edge": metrics.get("go_no_go_realized_edge"),
+        "go_no_go_fill_rate": metrics.get("go_no_go_fill_rate"),
         "legacy_pre_live_fill_rate": metrics.get("legacy_pre_live_fill_rate"),
         "advisory_failed": metrics.get("advisory_failed"),
         "advisory_warned": metrics.get("advisory_warned"),
@@ -380,6 +401,7 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "blocked_segments": counts.get("blocked_segments"),
         "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
         "promotion_report_version": versions.get("promotion_report"),
+        "go_no_go_report_version": versions.get("go_no_go_report"),
         "advisory_report_version": versions.get("advisory_report"),
         "advisory_model_version": versions.get("advisory_model"),
         "advisory_data_version": versions.get("advisory_data"),
@@ -444,6 +466,10 @@ def read_json(path: Path) -> dict[str, object]:
 
 def typed_dict(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def typed_list(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 def stable_json_list(value: object) -> str:

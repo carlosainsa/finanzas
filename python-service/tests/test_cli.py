@@ -33,6 +33,7 @@ def test_cli_supports_metrics_and_control_results() -> None:
 
     assert parser.parse_args(["metrics"]).command == "metrics"
     assert parser.parse_args(["nim-budget"]).command == "nim-budget"
+    assert parser.parse_args(["research-go-no-go"]).command == "research-go-no-go"
     assert parser.parse_args(["research-runs"]).command == "research-runs"
     run_args = parser.parse_args(["research-run", "run-1"])
     assert run_args.command == "research-run"
@@ -194,3 +195,20 @@ def test_cli_prints_research_runs_summary(capsys: pytest.CaptureFixture[str]) ->
     assert "run-2" in output
     assert "realized_edge" in output
     assert "OK" in output
+
+
+def test_cli_prints_go_no_go_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "research-go-no-go",
+        {
+            "run_id": "run-2",
+            "decision": "NO_GO",
+            "passed": False,
+            "reason": "quantitative_gate_failure",
+            "blockers": [{"check_name": "positive_realized_edge", "passed": False}],
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "NO_GO" in output
+    assert "positive_realized_edge" in output

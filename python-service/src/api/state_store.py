@@ -60,21 +60,34 @@ def required_schema_version() -> str:
 async def open_orders_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:
     rows = await pool.fetch(
         """
-        select er.payload
-        from execution_reports er
-        join (
-            select order_id, max(created_at) as created_at
-            from execution_reports
-            where order_id <> ''
-            group by order_id
-        ) latest
-          on er.order_id = latest.order_id
-         and er.created_at = latest.created_at
-        where er.status in ('Delayed', 'Unmatched', 'Partial', 'DELAYED', 'UNMATCHED', 'PARTIAL')
-        order by er.created_at desc
+        select
+            signal_id,
+            order_id,
+            upper(status) as status,
+            floor(extract(epoch from updated_at) * 1000)::bigint as timestamp_ms,
+            filled_size,
+            filled_size as cumulative_filled_size,
+            remaining_size
+        from orders
+        where status in ('SUBMITTED', 'DELAYED', 'UNMATCHED', 'PARTIAL', 'Delayed', 'Unmatched', 'Partial')
+           or coalesce(remaining_size, 0) > 0
+        order by updated_at desc
         """
     )
-    return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
+    return [
+        {
+            "signal_id": row["signal_id"],
+            "order_id": row["order_id"],
+            "status": normalize_open_order_status(row["status"]),
+            "timestamp_ms": int(row["timestamp_ms"] or 0),
+            "filled_price": None,
+            "filled_size": float(row["filled_size"] or 0.0),
+            "cumulative_filled_size": float(row["cumulative_filled_size"] or 0.0),
+            "remaining_size": float(row["remaining_size"] or 0.0),
+            "error": None,
+        }
+        for row in rows
+    ]
 
 
 async def execution_reports_from_postgres(
@@ -84,6 +97,21 @@ async def execution_reports_from_postgres(
         """
         select payload
         from execution_reports
+        order by created_at desc
+        limit $1
+        """,
+        count,
+    )
+    return [payload for row in rows if (payload := jsonb_payload_to_dict(row["payload"]))]
+
+
+async def trade_signals_from_postgres(
+    pool: asyncpg.Pool, count: int
+) -> list[dict[str, Any]]:
+    rows = await pool.fetch(
+        """
+        select payload
+        from trade_signals
         order by created_at desc
         limit $1
         """,
@@ -242,6 +270,15 @@ def jsonb_payload_to_dict(value: object) -> dict[str, Any] | None:
         if isinstance(parsed, dict):
             return parsed
     return None
+
+
+def normalize_open_order_status(status: object) -> str:
+    value = str(status or "").upper()
+    if value == "SUBMITTED":
+        return "DELAYED"
+    if value in {"DELAYED", "UNMATCHED", "PARTIAL"}:
+        return value
+    return "UNMATCHED"
 
 
 async def positions_from_postgres(pool: asyncpg.Pool) -> list[dict[str, Any]]:

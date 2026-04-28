@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("positions")
     subparsers.add_parser("metrics")
     subparsers.add_parser("nim-budget")
+    subparsers.add_parser("research-go-no-go")
     research_runs = subparsers.add_parser("research-runs")
     research_runs.add_argument("--limit", type=int)
     research_run = subparsers.add_parser("research-run")
@@ -95,6 +96,8 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
             return request_json(client, "GET", "/metrics", token=read_token(args))
         if args.command == "nim-budget":
             return request_json(client, "GET", "/research/nim-budget", token=read_token(args))
+        if args.command == "research-go-no-go":
+            return request_json(client, "GET", "/research/go-no-go", token=read_token(args))
         if args.command == "research-runs":
             return request_json(
                 client,
@@ -313,6 +316,24 @@ def print_command_table(command: str, value: object) -> None:
                 "nim_budget_status",
                 "nim_total_tokens",
             ],
+        )
+        return
+    if command == "research-go-no-go" and isinstance(value, dict):
+        print_rows(
+            [
+                {
+                    "run_id": value.get("run_id"),
+                    "decision": value.get("decision"),
+                    "passed": value.get("passed"),
+                    "reason": value.get("reason"),
+                    "blockers": [
+                        item.get("check_name")
+                        for item in value.get("blockers", [])
+                        if isinstance(item, dict)
+                    ],
+                }
+            ],
+            ["run_id", "decision", "passed", "reason", "blockers"],
         )
         return
     if command == "research-run" and isinstance(value, dict):
