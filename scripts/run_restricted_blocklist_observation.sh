@@ -22,7 +22,10 @@ universe recorded by pre_live_blocker_diagnostics.json. It writes:
 Options:
   --baseline-report-root PATH   Unrestricted baseline report root.
   --diagnostics PATH            Defaults to BASELINE/blocker_diagnostics/pre_live_blocker_diagnostics.json.
-  --blocklist-kind KIND         candidate, defensive, top_1, or defensive_top_1. Default: candidate.
+  --blocklist-kind KIND         candidate, defensive, top_1, defensive_top_1,
+                                restricted_input_plus_top_migrated_risk,
+                                restricted_input_plus_all_migrated_risk, or
+                                migrated_risk_only. Default: candidate.
   --duration-seconds N          Restricted dry-run duration. Default: REAL_DRY_RUN_SECONDS or 900.
   --candidate-report-root PATH  Skip execution and evaluate an existing restricted report root.
   --output-dir PATH             Defaults to candidate report root when available, otherwise baseline/restricted_observation.
@@ -107,11 +110,6 @@ output_arg = sys.argv[6]
 
 diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
 fixed = diagnostics.get("fixed_market_universe")
-if not isinstance(fixed, dict):
-    raise SystemExit("diagnostics missing fixed_market_universe")
-market_asset_ids_csv = fixed.get("market_asset_ids_csv")
-if not isinstance(market_asset_ids_csv, str) or not market_asset_ids_csv:
-    raise SystemExit("diagnostics fixed_market_universe missing market_asset_ids_csv")
 
 def variant_path(collection_name: str, variant_name: str) -> str:
     variants = diagnostics.get(collection_name)
@@ -124,21 +122,65 @@ def variant_path(collection_name: str, variant_name: str) -> str:
                 return path
     raise SystemExit(f"variant not found: {variant_name}")
 
+def migrated_variant_path(variant_name: str) -> str:
+    for container_name in ("migrated_risk_variants", "restricted_blocklist_variants"):
+        container = diagnostics.get(container_name)
+        if isinstance(container, dict):
+            variants = container.get("variants")
+            if isinstance(variants, list):
+                for item in variants:
+                    if isinstance(item, dict) and item.get("name") == variant_name:
+                        path = item.get("path")
+                        if isinstance(path, str) and path:
+                            return path
+    variants = diagnostics.get("variants")
+    if isinstance(variants, list):
+        for item in variants:
+            if isinstance(item, dict) and item.get("name") == variant_name:
+                path = item.get("path")
+                if isinstance(path, str) and path:
+                    return path
+    raise SystemExit(f"migrated risk variant not found: {variant_name}")
+
 if kind == "candidate":
+    if not isinstance(fixed, dict):
+        raise SystemExit("diagnostics missing fixed_market_universe")
     blocklist_path = diagnostics.get("blocked_segments_path")
 elif kind == "defensive":
+    if not isinstance(fixed, dict):
+        raise SystemExit("diagnostics missing fixed_market_universe")
     blocklist_path = diagnostics.get("defensive_blocked_segments_path")
 elif kind == "top_1":
+    if not isinstance(fixed, dict):
+        raise SystemExit("diagnostics missing fixed_market_universe")
     blocklist_path = variant_path("narrow_candidate_variants", "top_1")
 elif kind == "defensive_top_1":
+    if not isinstance(fixed, dict):
+        raise SystemExit("diagnostics missing fixed_market_universe")
     blocklist_path = variant_path("defensive_candidate_variants", "defensive_top_1")
+elif kind in {
+    "restricted_input_plus_top_migrated_risk",
+    "restricted_input_plus_all_migrated_risk",
+    "migrated_risk_only",
+}:
+    blocklist_path = migrated_variant_path(kind)
 else:
-    raise SystemExit("blocklist kind must be candidate, defensive, top_1, or defensive_top_1")
+    raise SystemExit("unsupported blocklist kind")
 
 if not isinstance(blocklist_path, str) or not blocklist_path:
     raise SystemExit(f"diagnostics missing blocklist path for {kind}")
 if not Path(blocklist_path).exists():
     raise SystemExit(f"blocklist path does not exist: {blocklist_path}")
+if not isinstance(fixed, dict):
+    blocklist_payload = json.loads(Path(blocklist_path).read_text(encoding="utf-8"))
+    contract = blocklist_payload.get("evaluation_contract")
+    if isinstance(contract, dict):
+        fixed = contract.get("fixed_market_universe")
+if not isinstance(fixed, dict):
+    raise SystemExit("blocklist missing fixed_market_universe")
+market_asset_ids_csv = fixed.get("market_asset_ids_csv")
+if not isinstance(market_asset_ids_csv, str) or not market_asset_ids_csv:
+    raise SystemExit("fixed_market_universe missing market_asset_ids_csv")
 
 candidate_root = Path(candidate_arg) if candidate_arg else None
 output_dir = Path(output_arg) if output_arg else (
@@ -201,6 +243,7 @@ PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blockli
   --baseline-report-root "$BASELINE_REPORT_ROOT" \
   --candidate-report-root "$CANDIDATE_REPORT_ROOT" \
   --output "$OUTPUT_DIR/restricted_blocklist_diagnostics.json" \
+  --variants-output-dir "$OUTPUT_DIR" \
   --json
 
 set +e
@@ -232,6 +275,7 @@ summary = {
     "output_dir": str(output),
     "comparison_path": str(output / "comparison.json"),
     "restricted_blocklist_diagnostics_path": str(output / "restricted_blocklist_diagnostics.json"),
+    "migrated_risk_blocklist_variants_path": str(output / "migrated_risk_blocklist_variants.json"),
     "research_promotion_decision_path": str(output / "research_promotion_decision.json"),
     "decision": decision.get("decision"),
     "decision_exit_code": decision_status,

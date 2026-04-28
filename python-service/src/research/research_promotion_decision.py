@@ -18,6 +18,7 @@ class PromotionThresholds:
     max_stale_data_rate_delta: float = 0.01
     max_reconciliation_divergence_delta: float = 0.0
     max_newly_blocked_segments: int = 0
+    max_migrated_risk_signal_ratio: float = 0.0
     min_shared_segments: int = 1
 
 
@@ -67,6 +68,10 @@ def decide_from_report(
             required=True,
         ),
         check_blocked_segments(comparison, thresholds.max_newly_blocked_segments),
+        check_migrated_risk(
+            comparison,
+            thresholds.max_migrated_risk_signal_ratio,
+        ),
         check_segment_comparability(comparison, thresholds.min_shared_segments),
     ]
     failed = [item for item in checks if item["status"] == "FAIL"]
@@ -172,6 +177,59 @@ def check_candidate_absolute_gate(report: dict[str, object]) -> dict[str, object
         "metric_value": 1.0 if passed else 0.0,
         "threshold": 1.0,
     }
+
+
+def check_migrated_risk(
+    comparison: dict[str, Any],
+    max_migrated_risk_signal_ratio: float,
+) -> dict[str, object]:
+    diagnostics = typed_dict(comparison.get("restricted_blocklist_diagnostics"))
+    if diagnostics.get("status") == "not_applicable":
+        return check_result(
+            "migrated_risk",
+            "PASS",
+            0.0,
+            max_migrated_risk_signal_ratio,
+        )
+    if not diagnostics:
+        return check_result(
+            "migrated_risk",
+            "PASS",
+            0.0,
+            max_migrated_risk_signal_ratio,
+        )
+    efficacy = typed_dict(diagnostics.get("efficacy"))
+    if not efficacy:
+        return check_result(
+            "migrated_risk",
+            "MISSING",
+            None,
+            max_migrated_risk_signal_ratio,
+        )
+    net_effect = typed_dict(efficacy.get("net_effect"))
+    ratio = numeric_or_none(net_effect.get("unexpected_to_expected_signal_ratio"))
+    status_value = efficacy.get("status")
+    if status_value == "risk_migration_detected":
+        return {
+            "check_name": "migrated_risk",
+            "status": "FAIL",
+            "metric_value": ratio,
+            "threshold": max_migrated_risk_signal_ratio,
+            "message": "risk_migration_detected",
+        }
+    if ratio is None:
+        return check_result(
+            "migrated_risk",
+            "PASS",
+            0.0,
+            max_migrated_risk_signal_ratio,
+        )
+    return check_result(
+        "migrated_risk",
+        "PASS" if ratio <= max_migrated_risk_signal_ratio else "FAIL",
+        ratio,
+        max_migrated_risk_signal_ratio,
+    )
 
 
 def check_comparison_verdict(comparison: dict[str, Any]) -> dict[str, object]:

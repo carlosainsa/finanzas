@@ -116,6 +116,7 @@ def test_promotion_decision_allows_expected_restricted_blocked_segment(
 
     checks = checks_by_name(decision)
     assert checks["newly_blocked_segments"]["status"] == "PASS"
+    assert checks["migrated_risk"]["status"] == "PASS"
     assert checks["newly_blocked_segments"]["metric_value"] == 0.0
     assert checks["newly_blocked_segments"]["threshold"] == 0.0
 
@@ -153,6 +154,8 @@ def test_promotion_decision_rejects_unexpected_restricted_blocked_segment(
     checks = checks_by_name(decision)
     assert decision["decision"] == "REJECT"
     assert checks["newly_blocked_segments"]["status"] == "FAIL"
+    assert checks["migrated_risk"]["status"] == "FAIL"
+    assert checks["migrated_risk"]["message"] == "risk_migration_detected"
     assert checks["newly_blocked_segments"]["metric_value"] == 1.0
 
 
