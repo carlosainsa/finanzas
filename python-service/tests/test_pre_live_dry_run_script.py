@@ -352,6 +352,8 @@ def test_restricted_blocklist_observation_finalizes_decision() -> None:
     assert "restricted_blocklist_ranking.json" in script
     assert "src.research.restricted_blocklist_summary" in script
     assert "restricted_blocklist_observation_summary.json" in script
+    assert "src.research.restricted_blocklist_family_decision" in script
+    assert "restricted_blocklist_family_decision.json" in script
     assert "src.research.restricted_blocklist_next_variant" in script
     assert "restricted_blocklist_next_variant.json" in script
     assert "src.research.restricted_blocklist_failure" in script

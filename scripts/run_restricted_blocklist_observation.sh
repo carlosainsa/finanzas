@@ -382,6 +382,11 @@ PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blockli
   "${RANKING_ARGS[@]}" \
   --output "$RANKING_OUTPUT_DIR/restricted_blocklist_observation_history.json"
 
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_family_decision \
+  --history "$RANKING_OUTPUT_DIR/restricted_blocklist_observation_history.json" \
+  --output "$RANKING_OUTPUT_DIR/restricted_blocklist_family_decision.json" \
+  --json
+
 PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_next_variant \
   --ranking "$RANKING_OUTPUT_DIR/restricted_blocklist_ranking.json" \
   --output-dir "$RANKING_OUTPUT_DIR" \

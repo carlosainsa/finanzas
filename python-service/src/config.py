@@ -58,11 +58,17 @@ class Settings(BaseSettings):
     predictor_min_spread: float = 0.03
     predictor_order_size: float = 1.0
     predictor_min_confidence: float = 0.55
+    predictor_strategy_profile: str = "baseline"
     predictor_quote_placement: str = "passive_bid"
     predictor_near_touch_research_only: bool = True
     predictor_near_touch_tick_size: float = 0.01
     predictor_near_touch_offset_ticks: int = 0
     predictor_near_touch_max_spread_fraction: float = 1.0
+    predictor_conservative_min_confidence: float = 0.65
+    predictor_conservative_near_touch_max_spread_fraction: float = 0.5
+    predictor_conservative_min_depth: float = 2.0
+    predictor_conservative_max_top_changes: int = 3
+    predictor_conservative_top_change_window_ms: int = 60_000
     predictor_blocked_segments_path: str | None = None
 
 settings = Settings()
