@@ -199,11 +199,34 @@ def test_compare_report_roots_allows_expected_restricted_segment_loss(
     assert diagnostics["status"] == "ok"
     assert diagnostic_summary["expected_newly_blocked_segments"] == 1
     assert diagnostic_summary["unexpected_newly_blocked_segments"] == 0
+    assert diagnostic_summary["restricted_input_blocklist_segments"] == 1
+    assert diagnostic_summary["candidate_generated_blocklist_segments"] == 1
+    assert (
+        diagnostic_summary[
+            "restricted_input_observed_in_candidate_generated_segments"
+        ]
+        == 1
+    )
     expected_bucket = cast(dict[str, Any], diagnostics["expected"])
     expected_metrics = cast(dict[str, Any], expected_bucket["metrics"])
     assert expected_bucket["count"] == 1
     assert expected_metrics["signals"] == 4
     assert expected_metrics["avg_realized_edge"] == pytest.approx(-0.02)
+    restricted_input = cast(dict[str, Any], diagnostics["restricted_input_blocklist"])
+    candidate_generated = cast(dict[str, Any], diagnostics["candidate_generated_blocklist"])
+    effectiveness = cast(dict[str, Any], diagnostics["effectiveness"])
+    efficacy = cast(dict[str, Any], diagnostics["efficacy"])
+    assert restricted_input["count"] == 1
+    assert candidate_generated["count"] == 1
+    assert effectiveness["status"] == "restricted_input_isolated"
+    assert efficacy["net_effect"] == effectiveness["net_effect"]
+    baseline_contribution = cast(
+        dict[str, Any], effectiveness["baseline_restricted_input_contribution"]
+    )
+    assert baseline_contribution["signals"] == 4
+    assert baseline_contribution["pnl"] == pytest.approx(-0.2)
+    net_effect = cast(dict[str, Any], effectiveness["net_effect"])
+    assert net_effect["verdict"] == "effective"
     diagnostic_segments = cast(list[dict[str, Any]], diagnostics["segments"])
     expected_segment = next(
         item for item in diagnostic_segments if item["market_id"] == "market-2"
@@ -211,6 +234,9 @@ def test_compare_report_roots_allows_expected_restricted_segment_loss(
     assert expected_segment["classification"] == "expected_newly_blocked"
     assert cast(dict[str, Any], expected_segment["sources"])[
         "expected_restricted_input"
+    ] is True
+    assert cast(dict[str, Any], expected_segment["sources"])[
+        "restricted_input_blocklist"
     ] is True
     assert cast(dict[str, Any], expected_segment["baseline_metrics"])["signals"] == 4
 
@@ -264,6 +290,25 @@ def test_compare_report_roots_flags_unexpected_restricted_blocked_segment(
     missing_expected_bucket = cast(dict[str, Any], diagnostics["missing_expected"])
     assert unexpected_bucket["count"] == 1
     assert missing_expected_bucket["count"] == 1
+    diagnostic_summary = cast(dict[str, Any], diagnostics["summary"])
+    assert diagnostic_summary["candidate_generated_unexpected_segments"] == 1
+    assert (
+        diagnostic_summary[
+            "restricted_input_missing_from_candidate_generated_segments"
+        ]
+        == 1
+    )
+    restricted_input = cast(dict[str, Any], diagnostics["restricted_input_blocklist"])
+    candidate_generated = cast(dict[str, Any], diagnostics["candidate_generated_blocklist"])
+    effectiveness = cast(dict[str, Any], diagnostics["effectiveness"])
+    assert restricted_input["count"] == 1
+    assert candidate_generated["count"] == 1
+    assert effectiveness["status"] == "risk_migration_detected"
+    migrated_risk = cast(dict[str, Any], effectiveness["risk_migration"])
+    assert migrated_risk["unexpected_blocked_segments"] == 1
+    assert migrated_risk["unexpected_signals"] == 0
+    net_effect = cast(dict[str, Any], effectiveness["net_effect"])
+    assert net_effect["verdict"] == "mixed"
     diagnostic_segments = cast(list[dict[str, Any]], diagnostics["segments"])
     unexpected_segment = next(
         item for item in diagnostic_segments if item["market_id"] == "market-other"

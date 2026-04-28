@@ -62,11 +62,33 @@ def test_write_restricted_blocklist_diagnostics_exports_reviewable_report(
     assert summary["expected_restricted_input_segments"] == 1
     assert summary["unexpected_newly_blocked_segments"] == 1
     assert summary["expected_not_blocked_segments"] == 1
+    assert summary["restricted_input_blocklist_segments"] == 1
+    assert summary["candidate_generated_blocklist_segments"] == 1
+    assert summary["candidate_generated_unexpected_segments"] == 1
     unexpected = cast(dict[str, Any], payload["unexpected"])
     missing_expected = cast(dict[str, Any], payload["missing_expected"])
+    restricted_input = cast(dict[str, Any], payload["restricted_input_blocklist"])
+    candidate_generated = cast(dict[str, Any], payload["candidate_generated_blocklist"])
+    effectiveness = cast(dict[str, Any], payload["effectiveness"])
+    efficacy = cast(dict[str, Any], payload["efficacy"])
+    source_paths = cast(dict[str, Any], payload["source_paths"])
     assert unexpected["count"] == 1
     assert missing_expected["count"] == 1
+    assert restricted_input["count"] == 1
+    assert candidate_generated["count"] == 1
+    assert source_paths["restricted_input_blocklist_path"] == str(blocklist_path)
+    assert "candidate_generated_blocklist_json_path" in source_paths
     assert cast(dict[str, Any], unexpected["metrics"])["sample_count"] == 1
+    assert effectiveness["report_version"] == "restricted_blocklist_effectiveness_v1"
+    assert efficacy["report_version"] == "restricted_blocklist_effectiveness_v1"
+    assert effectiveness["status"] == "risk_migration_detected"
+    baseline_contribution = cast(
+        dict[str, Any], effectiveness["baseline_restricted_input_contribution"]
+    )
+    assert baseline_contribution["signals"] == 4
+    assert baseline_contribution["pnl"] == -0.2
+    net_effect = cast(dict[str, Any], effectiveness["net_effect"])
+    assert net_effect["verdict"] == "mixed"
     assert (
         "candidate_pre_live_promotion_generated_unexpected_blocks"
         in cast(list[str], payload["diagnosis"])
