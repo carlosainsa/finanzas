@@ -220,6 +220,11 @@ def test_restricted_blocklist_observation_finalizes_decision() -> None:
     assert "restricted_blocklist_ranking.json" in script
     assert "src.research.restricted_blocklist_next_variant" in script
     assert "restricted_blocklist_next_variant.json" in script
+    assert "src.research.restricted_blocklist_failure" in script
+    assert "restricted_blocklist_observation_failure.json" in script
+    assert "failure_write_status" in script
+    assert "preserving dry-run exit code" in script
+    assert 'exit "$dry_run_status"' in script
     assert "--ranking-observation-root" in script
     assert "src.research.run_manifest" in script
     assert "restricted_blocklist_observation" in script

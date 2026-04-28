@@ -22,6 +22,7 @@ universe recorded by pre_live_blocker_diagnostics.json. It writes:
   research_promotion_decision.json
   restricted_blocklist_ranking.json
   restricted_blocklist_next_variant.json when a migrated-risk variant is indicated
+  restricted_blocklist_observation_failure.json when pre-live evidence is insufficient
 
 Options:
   --baseline-report-root PATH   Unrestricted baseline report root.
@@ -231,11 +232,32 @@ if [[ -z "$CANDIDATE_REPORT_ROOT" ]]; then
   export REPORT_TIMESTAMP
   export MARKET_ASSET_IDS="$MARKET_IDS_CSV"
   export PREDICTOR_BLOCKED_SEGMENTS_PATH="$BLOCKLIST_PATH"
+  EXPECTED_DATA_LAKE_ROOT="${ROOT_DIR}/.tmp/real-dry-run-data-lake/${REPORT_TIMESTAMP}"
+  EXPECTED_REPORT_ROOT="${EXPECTED_DATA_LAKE_ROOT}/reports/${REPORT_TIMESTAMP}"
   set +e
-  "$ROOT_DIR/scripts/run_pre_live_dry_run.sh" --duration-seconds "$DURATION_SECONDS"
+  dry_run_output="$("$ROOT_DIR/scripts/run_pre_live_dry_run.sh" --duration-seconds "$DURATION_SECONDS" 2>&1)"
   dry_run_status=$?
   set -e
+  printf '%s\n' "$dry_run_output"
   if [[ "$dry_run_status" != "0" && "$dry_run_status" != "20" ]]; then
+    OUTPUT_DIR="${OUTPUT_DIR:-$EXPECTED_REPORT_ROOT}"
+    dry_run_reason="$(printf '%s\n' "$dry_run_output" | tail -n 1)"
+    dry_run_tail="$(printf '%s\n' "$dry_run_output" | tail -n 80)"
+    set +e
+    PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_failure \
+      --plan-json "$PLAN_JSON" \
+      --output-dir "$OUTPUT_DIR" \
+      --candidate-report-root "$EXPECTED_REPORT_ROOT" \
+      --exit-code "$dry_run_status" \
+      --reason "$dry_run_reason" \
+      --stage "pre_live_dry_run" \
+      --output-tail "$dry_run_tail" \
+      --json
+    failure_write_status=$?
+    set -e
+    if [[ "$failure_write_status" != "0" ]]; then
+      echo "warning: failed to write restricted_blocklist_observation_failure.json; preserving dry-run exit code $dry_run_status" >&2
+    fi
     exit "$dry_run_status"
   fi
   CANDIDATE_REPORT_ROOT="${RESEARCH_REPORT_ROOT:-${DATA_LAKE_ROOT:-$ROOT_DIR/.tmp/real-dry-run-data-lake/$REPORT_TIMESTAMP}/reports/$REPORT_TIMESTAMP}"
