@@ -66,6 +66,7 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
         'scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" || true'
         in script
     )
+    assert '"market_asset_ids_sha256"' in script
 
 
 def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(
@@ -129,3 +130,12 @@ def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(
     assert plan["blocklist_path"] == str(blocklist_path)
     assert plan["market_asset_ids_csv"] == "asset-1,asset-2"
     assert plan["can_execute_trades"] is False
+
+
+def test_restricted_blocklist_observation_finalizes_decision() -> None:
+    script = (ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "src.research.restricted_blocklist_decision" in script
+    assert "--observation-root \"$OUTPUT_DIR\"" in script

@@ -175,6 +175,22 @@ The wrapper reads the fixed market universe from
 Use `--candidate-report-root <restricted-report-root>` to evaluate an already
 completed restricted run without starting services.
 
+Close the restricted decision explicitly:
+
+```bash
+scripts/finalize_restricted_blocklist_decision.sh \
+  --observation-root "<restricted-report-root>"
+```
+
+This writes `restricted_blocklist_decision.json` with one of:
+
+- `REJECT`: protected metrics or the research promotion gate rejected the run;
+- `NEED_MORE_DATA`: the restricted run was not comparable or lacks evidence;
+- `REPEAT_OBSERVATION`: the candidate was accepted only for another observation.
+
+`REPEAT_OBSERVATION` is not live approval. All restricted blocklist artifacts
+remain research-only and keep `can_execute_trades=false`.
+
 The diagnostics also export:
 
 - `blocker_diagnostics/fixed_market_universe.json`;

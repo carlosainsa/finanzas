@@ -223,6 +223,7 @@ decision = json.loads((output / "research_promotion_decision.json").read_text(en
 summary = {
     **plan,
     "candidate_report_root": str(candidate),
+    "output_dir": str(output),
     "comparison_path": str(output / "comparison.json"),
     "research_promotion_decision_path": str(output / "research_promotion_decision.json"),
     "decision": decision.get("decision"),
@@ -235,5 +236,9 @@ summary = {
 )
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
+
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_decision \
+  --observation-root "$OUTPUT_DIR" \
+  --json
 
 exit 0

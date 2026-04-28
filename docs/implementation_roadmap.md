@@ -153,6 +153,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Compare unrestricted vs restricted dry-runs with `compare_runs --baseline-report-root ... --candidate-report-root ...` before accepting a blocklist.
    - Use the fixed `MARKET_ASSET_IDS` command emitted by `pre_live_blocker_diagnostics.json` for restricted follow-up runs; `compare_runs` must reject candidates whose recorded market-universe hash does not match the blocklist evaluation contract.
    - Use `scripts/run_restricted_blocklist_observation.sh` to run or evaluate restricted candidates and persist both `comparison.json` and `research_promotion_decision.json`.
+   - Finalize every restricted observation with `restricted_blocklist_decision.json`; `PROMOTE` from the generic research gate only becomes `REPEAT_OBSERVATION` for blocklists until repeated evidence is available.
    - Review `top_explanatory_buckets` and the defensive blocklist candidate before repeating a run so drawdown/adverse-selection fixes target concrete segments, not global thresholds.
    - Review segment-level improved/worsened/new/removed counts plus newly blocked/unblocked segment keys as the objective promotion evidence.
    - Treat `compare_runs` verdict `no_comparable` as a hard research blocker until both runs meet `segment_comparability_v2`: expected blocklist removals only, minimum shared segment coverage, minimum shared signal coverage, and minimum shared fill coverage.
