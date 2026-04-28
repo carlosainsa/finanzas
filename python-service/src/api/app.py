@@ -20,13 +20,15 @@ from src.api.models import (
     PositionsResponse,
     ReconciliationStatusResponse,
     NIMBudgetResponse,
+    ResearchRunDetailResponse,
+    ResearchRunsResponse,
     RiskResponse,
     RuntimeMetricsResponse,
     StatusResponse,
     StrategyMetricsResponse,
     StreamsResponse,
 )
-from src.api.research_service import latest_nim_budget
+from src.api.research_service import get_research_run, latest_nim_budget, list_research_runs
 from src.api.operator_service import (
     open_orders,
     positions,
@@ -261,6 +263,18 @@ async def get_prometheus_metrics(_: ReadAuthDependency, limit: int = 500) -> Res
 @router.get("/research/nim-budget", response_model=NIMBudgetResponse)
 async def research_nim_budget(_: ReadAuthDependency) -> dict[str, object]:
     return latest_nim_budget()
+
+
+@router.get("/research/runs", response_model=ResearchRunsResponse)
+async def research_runs(_: ReadAuthDependency, limit: int = 20) -> dict[str, object]:
+    return list_research_runs(limit=max(1, min(limit, 200)))
+
+
+@router.get("/research/runs/{run_id}", response_model=ResearchRunDetailResponse)
+async def research_run_detail(
+    run_id: str, _: ReadAuthDependency
+) -> dict[str, object]:
+    return get_research_run(run_id)
 
 
 @router.get("/reconciliation/status", response_model=ReconciliationStatusResponse)

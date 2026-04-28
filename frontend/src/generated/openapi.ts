@@ -276,6 +276,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Runs */
+        get: operations["research_runs_api_research_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Run Detail */
+        get: operations["research_run_detail_api_research_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/risk": {
         parameters: {
             query?: never;
@@ -608,6 +642,40 @@ export interface paths {
         };
         /** Research Nim Budget */
         get: operations["research_nim_budget_research_nim_budget_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/research/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Runs */
+        get: operations["research_runs_research_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/research/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Run Detail */
+        get: operations["research_run_detail_research_runs__run_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1016,6 +1084,61 @@ export interface components {
             stale_orders: number;
             /** Status */
             status: string;
+        };
+        /** ResearchRunDetailResponse */
+        ResearchRunDetailResponse: {
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Run */
+            run?: {
+                [key: string]: unknown;
+            } | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+        };
+        /** ResearchRunSummary */
+        ResearchRunSummary: {
+            /** Calibration Passed */
+            calibration_passed?: boolean | null;
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Created At */
+            created_at?: string | null;
+            /** Feature Research Decision */
+            feature_research_decision?: string | null;
+            /** Fill Rate */
+            fill_rate?: number | null;
+            /** Nim Budget Status */
+            nim_budget_status?: string | null;
+            /** Nim Estimated Cost */
+            nim_estimated_cost?: number | null;
+            /** Nim Model */
+            nim_model?: string | null;
+            /** Nim Total Tokens */
+            nim_total_tokens?: number | null;
+            /** Passed */
+            passed?: boolean | null;
+            /** Pre Live Gate Passed */
+            pre_live_gate_passed?: boolean | null;
+            /** Pre Live Promotion Passed */
+            pre_live_promotion_passed?: boolean | null;
+            /** Realized Edge */
+            realized_edge?: number | null;
+            /** Report Root */
+            report_root?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Source */
+            source?: string | null;
+        };
+        /** ResearchRunsResponse */
+        ResearchRunsResponse: {
+            /** Runs */
+            runs: components["schemas"]["ResearchRunSummary"][];
+            /** Source */
+            source: string;
         };
         /** ResumeRequest */
         ResumeRequest: {
@@ -1613,6 +1736,68 @@ export interface operations {
             };
         };
     };
+    research_runs_api_research_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_run_detail_api_research_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     risk_api_risk_get: {
         parameters: {
             query?: never;
@@ -2141,6 +2326,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NIMBudgetResponse"];
+                };
+            };
+        };
+    };
+    research_runs_research_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    research_run_detail_research_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchRunDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

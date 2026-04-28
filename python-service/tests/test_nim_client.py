@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -72,8 +74,9 @@ def test_generate_posts_openai_compatible_payload() -> None:
     assert requests[0].headers["authorization"] == "Bearer nvapi-test"
     assert requests[0].read()
     payload = requests[0].content.decode()
-    assert '"model":"deepseek-ai/deepseek-v3.2"' in payload
-    assert '"role":"system"' in payload
+    parsed_payload = json.loads(payload)
+    assert parsed_payload["model"] == "deepseek-ai/deepseek-v3.2"
+    assert parsed_payload["messages"][0]["role"] == "system"
 
 
 def test_generate_maps_http_errors_to_request_error() -> None:

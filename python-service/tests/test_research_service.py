@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
+from typing import cast
 
-from src.api.research_service import latest_nim_budget
+from src.api.research_service import get_research_run, latest_nim_budget, list_research_runs
 
 
 def test_latest_nim_budget_returns_missing_when_index_absent(tmp_path: Path) -> None:
@@ -55,3 +56,98 @@ def test_latest_nim_budget_reads_latest_manifest_row(tmp_path: Path) -> None:
     assert result["budget_status"] == "OK"
     assert result["budget_violations"] == []
     assert result["can_execute_trades"] is False
+
+
+def test_list_research_runs_returns_latest_first(tmp_path: Path) -> None:
+    manifest_root = seed_research_index(tmp_path)
+
+    result = list_research_runs(manifest_root, limit=1)
+
+    assert cast(str, result["source"]).endswith("research_runs.jsonl")
+    assert result["runs"] == [
+        {
+            "run_id": "run-2",
+            "created_at": "2026-04-27T00:00:00+00:00",
+            "source": "unit-test",
+            "report_root": "/tmp/run-2",
+            "passed": True,
+            "pre_live_gate_passed": True,
+            "calibration_passed": True,
+            "pre_live_promotion_passed": True,
+            "feature_research_decision": "KEEP_DIAGNOSTIC",
+            "realized_edge": 0.04,
+            "fill_rate": 0.5,
+            "nim_budget_status": "OK",
+            "nim_total_tokens": 266,
+            "nim_estimated_cost": 0.0,
+            "nim_model": "deepseek-ai/deepseek-v3.2",
+            "can_execute_trades": False,
+        }
+    ]
+
+
+def test_get_research_run_reads_run_manifest_by_id(tmp_path: Path) -> None:
+    manifest_root = seed_research_index(tmp_path)
+    runs_dir = manifest_root / "runs"
+    runs_dir.mkdir()
+    (runs_dir / "run-2.json").write_text(
+        json.dumps({"run_id": "run-2", "passed": True}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = get_research_run("run-2", manifest_root)
+
+    assert result["status"] == "ok"
+    assert result["run"] == {"run_id": "run-2", "passed": True}
+    assert result["can_execute_trades"] is False
+
+
+def test_get_research_run_rejects_path_traversal(tmp_path: Path) -> None:
+    manifest_root = seed_research_index(tmp_path)
+
+    result = get_research_run("../secret", manifest_root)
+
+    assert result["status"] == "invalid_run_id"
+    assert result["run"] is None
+    assert result["can_execute_trades"] is False
+
+
+def seed_research_index(tmp_path: Path) -> Path:
+    manifest_root = tmp_path / "research_runs"
+    manifest_root.mkdir()
+    (manifest_root / "research_runs.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "run_id": "run-1",
+                        "created_at": "2026-04-26T00:00:00+00:00",
+                        "counts": {},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "run_id": "run-2",
+                        "created_at": "2026-04-27T00:00:00+00:00",
+                        "source": "unit-test",
+                        "report_root": "/tmp/run-2",
+                        "passed": True,
+                        "pre_live_gate_passed": True,
+                        "calibration_passed": True,
+                        "pre_live_promotion_passed": True,
+                        "feature_research_decision": "KEEP_DIAGNOSTIC",
+                        "metrics": {"realized_edge": 0.04, "fill_rate": 0.5},
+                        "versions": {"nim_advisory_model": "deepseek-ai/deepseek-v3.2"},
+                        "counts": {
+                            "nim_advisory_total_tokens": 266,
+                            "nim_advisory_estimated_cost": 0.0,
+                            "nim_advisory_budget_status": "OK",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_root

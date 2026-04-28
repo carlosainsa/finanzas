@@ -45,6 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("positions")
     subparsers.add_parser("metrics")
     subparsers.add_parser("nim-budget")
+    research_runs = subparsers.add_parser("research-runs")
+    research_runs.add_argument("--limit", type=int)
+    research_run = subparsers.add_parser("research-run")
+    research_run.add_argument("run_id")
     reconciliation = subparsers.add_parser("reconciliation")
     reconciliation.add_argument("--limit", type=int)
     control_results = subparsers.add_parser("control-results")
@@ -91,6 +95,21 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
             return request_json(client, "GET", "/metrics", token=read_token(args))
         if args.command == "nim-budget":
             return request_json(client, "GET", "/research/nim-budget", token=read_token(args))
+        if args.command == "research-runs":
+            return request_json(
+                client,
+                "GET",
+                "/research/runs",
+                params=optional_params({"limit": args.limit}),
+                token=read_token(args),
+            )
+        if args.command == "research-run":
+            return request_json(
+                client,
+                "GET",
+                f"/research/runs/{args.run_id}",
+                token=read_token(args),
+            )
         if args.command == "reconciliation":
             return request_json(
                 client,
@@ -281,6 +300,23 @@ def print_command_table(command: str, value: object) -> None:
                 "violations",
             ],
         )
+        return
+    if command == "research-runs" and isinstance(value, dict):
+        print_rows(
+            value.get("runs"),
+            [
+                "run_id",
+                "created_at",
+                "passed",
+                "realized_edge",
+                "fill_rate",
+                "nim_budget_status",
+                "nim_total_tokens",
+            ],
+        )
+        return
+    if command == "research-run" and isinstance(value, dict):
+        print_table(value)
         return
     if command == "reconciliation" and isinstance(value, dict):
         print_rows(

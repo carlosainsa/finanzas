@@ -33,6 +33,10 @@ def test_cli_supports_metrics_and_control_results() -> None:
 
     assert parser.parse_args(["metrics"]).command == "metrics"
     assert parser.parse_args(["nim-budget"]).command == "nim-budget"
+    assert parser.parse_args(["research-runs"]).command == "research-runs"
+    run_args = parser.parse_args(["research-run", "run-1"])
+    assert run_args.command == "research-run"
+    assert run_args.run_id == "run-1"
     assert parser.parse_args(["reconciliation"]).command == "reconciliation"
     args = parser.parse_args(["control-results", "--limit", "5"])
 
@@ -166,3 +170,27 @@ def test_cli_prints_nim_budget_summary(capsys: pytest.CaptureFixture[str]) -> No
     assert "budget_status" in output
     assert "deepseek-ai/deepseek-v3.2" in output
     assert "266" in output
+
+
+def test_cli_prints_research_runs_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "research-runs",
+        {
+            "runs": [
+                {
+                    "run_id": "run-2",
+                    "created_at": "2026-04-27T00:00:00+00:00",
+                    "passed": True,
+                    "realized_edge": 0.04,
+                    "fill_rate": 0.5,
+                    "nim_budget_status": "OK",
+                    "nim_total_tokens": 266,
+                }
+            ]
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "run-2" in output
+    assert "realized_edge" in output
+    assert "OK" in output

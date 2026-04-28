@@ -189,6 +189,37 @@ class NIMBudgetResponse(BaseModel):
     updated_at: str | None = None
 
 
+class ResearchRunSummary(BaseModel):
+    run_id: str | None = None
+    created_at: str | None = None
+    source: str | None = None
+    report_root: str | None = None
+    passed: bool | None = None
+    pre_live_gate_passed: bool | None = None
+    calibration_passed: bool | None = None
+    pre_live_promotion_passed: bool | None = None
+    feature_research_decision: str | None = None
+    realized_edge: float | None = None
+    fill_rate: float | None = None
+    nim_budget_status: str | None = None
+    nim_total_tokens: int | None = None
+    nim_estimated_cost: float | None = None
+    nim_model: str | None = None
+    can_execute_trades: bool
+
+
+class ResearchRunsResponse(BaseModel):
+    runs: list[ResearchRunSummary]
+    source: str
+
+
+class ResearchRunDetailResponse(BaseModel):
+    status: str
+    source: str
+    run: dict[str, Any] | None = None
+    can_execute_trades: bool
+
+
 class ReconciliationEvent(BaseModel):
     event_id: str
     order_id: str | None = None

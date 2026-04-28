@@ -15,6 +15,7 @@ export type ControlPreview = components['schemas']['ControlPreviewResponse'];
 export type ReconciliationStatus = components['schemas']['ReconciliationStatusResponse'];
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 export type NIMBudget = components['schemas']['NIMBudgetResponse'];
+export type ResearchRunSummary = components['schemas']['ResearchRunSummary'];
 
 export type DashboardData = {
   status: StatusResponse;
@@ -29,6 +30,7 @@ export type DashboardData = {
   reconciliation: ReconciliationStatus;
   runtime: RuntimeMetrics;
   nimBudget: NIMBudget;
+  researchRuns: ResearchRunSummary[];
 };
 
 const API_BASE = import.meta.env.VITE_OPERATOR_API_BASE ?? '';
@@ -101,7 +103,7 @@ async function getJson<T>(path: keyof paths): Promise<T> {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const status = await getJson<StatusResponse>('/api/status');
-  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget] = await Promise.all([
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, researchRuns] = await Promise.all([
     getJson<RiskResponse>('/api/risk'),
     getJson<{ streams: StreamSummary[] }>('/api/streams'),
     getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
@@ -113,6 +115,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     client.GET('/api/reconciliation/status', { params: { query: { limit: 20 } } }),
     client.GET('/api/metrics', { params: { query: { limit: 500 } } }),
     optionalGet<NIMBudget>('/api/research/nim-budget', fallbackData.nimBudget),
+    optionalGet<{ runs: ResearchRunSummary[] }>('/api/research/runs', { runs: fallbackData.researchRuns }),
   ]);
 
   return {
@@ -128,6 +131,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     reconciliation: unwrap(reconciliation.data, reconciliation.error, '/api/reconciliation/status'),
     runtime: unwrap(runtime.data, runtime.error, '/api/metrics'),
     nimBudget,
+    researchRuns: researchRuns.runs,
   };
 }
 
@@ -279,4 +283,5 @@ export const fallbackData: DashboardData = {
     can_execute_trades: false,
     updated_at: null,
   },
+  researchRuns: [],
 };

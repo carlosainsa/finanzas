@@ -1,12 +1,15 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from src.config import settings
 
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+
 
 def latest_nim_budget(root: Path | None = None) -> dict[str, object]:
-    manifest_root = root or Path(settings.data_lake_root) / "research_runs"
+    manifest_root = resolved_manifest_root(root)
     index_path = manifest_root / "research_runs.jsonl"
     if not index_path.exists():
         return empty_nim_budget(index_path)
@@ -40,16 +43,96 @@ def latest_nim_budget(root: Path | None = None) -> dict[str, object]:
     }
 
 
-def latest_manifest(index_path: Path) -> dict[str, object] | None:
-    selected: dict[str, object] | None = None
+def list_research_runs(root: Path | None = None, limit: int = 20) -> dict[str, object]:
+    manifest_root = resolved_manifest_root(root)
+    index_path = manifest_root / "research_runs.jsonl"
+    if not index_path.exists():
+        return {"runs": [], "source": str(index_path)}
+    bounded_limit = max(1, min(limit, 200))
+    runs = [summarize_run(item) for item in read_manifest_index(index_path)]
+    return {"runs": list(reversed(runs))[:bounded_limit], "source": str(index_path)}
+
+
+def get_research_run(run_id: str, root: Path | None = None) -> dict[str, object]:
+    manifest_root = resolved_manifest_root(root)
+    if not RUN_ID_PATTERN.fullmatch(run_id):
+        return {
+            "status": "invalid_run_id",
+            "source": str(manifest_root / "runs"),
+            "run": None,
+            "can_execute_trades": False,
+        }
+    run_path = manifest_root / "runs" / f"{run_id}.json"
+    if not run_path.exists():
+        return {
+            "status": "missing",
+            "source": str(run_path),
+            "run": None,
+            "can_execute_trades": False,
+        }
+    try:
+        payload = json.loads(run_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "status": "invalid",
+            "source": str(run_path),
+            "run": None,
+            "can_execute_trades": False,
+        }
+    if not isinstance(payload, dict):
+        return {
+            "status": "invalid",
+            "source": str(run_path),
+            "run": None,
+            "can_execute_trades": False,
+        }
+    return {
+        "status": "ok",
+        "source": str(run_path),
+        "run": payload,
+        "can_execute_trades": False,
+    }
+
+
+def read_manifest_index(index_path: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     for line in index_path.read_text(encoding="utf-8").splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
             continue
         if isinstance(value, dict):
-            selected = value
-    return selected
+            rows.append(value)
+    return rows
+
+
+def latest_manifest(index_path: Path) -> dict[str, object] | None:
+    rows = read_manifest_index(index_path)
+    return rows[-1] if rows else None
+
+
+def summarize_run(item: dict[str, object]) -> dict[str, object]:
+    counts = typed_dict(item.get("counts"))
+    metrics = typed_dict(item.get("metrics"))
+    versions = typed_dict(item.get("versions"))
+    return {
+        "run_id": item.get("run_id"),
+        "created_at": item.get("created_at"),
+        "source": item.get("source"),
+        "report_root": item.get("report_root"),
+        "passed": item.get("passed"),
+        "pre_live_gate_passed": item.get("pre_live_gate_passed"),
+        "calibration_passed": item.get("calibration_passed"),
+        "pre_live_promotion_passed": item.get("pre_live_promotion_passed"),
+        "feature_research_decision": item.get("feature_research_decision"),
+        "realized_edge": metrics.get("realized_edge"),
+        "fill_rate": metrics.get("fill_rate"),
+        "nim_budget_status": counts.get("nim_advisory_budget_status"),
+        "nim_total_tokens": counts.get("nim_advisory_total_tokens"),
+        "nim_estimated_cost": counts.get("nim_advisory_estimated_cost"),
+        "nim_model": versions.get("nim_advisory_model"),
+        "can_execute_trades": False,
+    }
 
 
 def empty_nim_budget(index_path: Path) -> dict[str, object]:
@@ -72,6 +155,10 @@ def empty_nim_budget(index_path: Path) -> dict[str, object]:
         "can_execute_trades": False,
         "updated_at": None,
     }
+
+
+def resolved_manifest_root(root: Path | None = None) -> Path:
+    return root or Path(settings.data_lake_root) / "research_runs"
 
 
 def parse_violations(value: object) -> list[str]:

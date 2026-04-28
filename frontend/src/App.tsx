@@ -422,6 +422,21 @@ export function App() {
               headers={['Model', 'Avg latency ms', 'Cost', 'Violations']}
             />
           </Panel>
+
+          <Panel title="Research Runs" subtitle="latest offline manifests">
+            <Table
+              empty="No research runs indexed"
+              rows={data.researchRuns.slice(0, 6).map((run) => [
+                run.run_id ?? '-',
+                run.passed === null || run.passed === undefined ? '-' : run.passed ? 'pass' : 'fail',
+                formatNumber(run.realized_edge),
+                formatNumber(run.fill_rate),
+                run.nim_budget_status ?? '-',
+                run.feature_research_decision ?? '-',
+              ])}
+              headers={['Run', 'Passed', 'Edge', 'Fill rate', 'NIM budget', 'Feature decision']}
+            />
+          </Panel>
         </section>
 
         <section className="widePanel">

@@ -132,7 +132,7 @@ test('dashboard shows fallback and disables controls when status endpoint fails'
 
   await expect(page.getByRole('heading', { name: 'Trading control surface' })).toBeVisible();
   await expect(page.getByText('/api/status failed')).toBeVisible();
-  await expect(page.getByText('offline')).toBeVisible();
+  await expect(page.getByText('offline', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Resume' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Cancel bot' })).toBeDisabled();
@@ -167,13 +167,23 @@ test('dashboard shows NIM budget and tolerates research endpoint failure', async
 
   await expect(page.getByRole('heading', { name: 'NIM Budget' })).toBeVisible();
   await expect(page.getByText('deepseek-ai/deepseek-v3.2')).toBeVisible();
-  await expect(page.getByText('OK', { exact: true })).toBeVisible();
+  await expect(page.locator('.budgetBadge').filter({ hasText: /^OK$/ })).toBeVisible();
 
   failResearch = true;
   await page.getByRole('button', { name: 'Refresh dashboard' }).click();
 
   await expect(page.getByRole('heading', { name: 'NIM Budget' })).toBeVisible();
   await expect(page.getByText('API connected')).toBeVisible();
+});
+
+test('dashboard shows recent research runs', async ({ page }) => {
+  await mockOperatorApi(page);
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Research Runs' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: '20260427T000000Z' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'KEEP_DIAGNOSTIC' })).toBeVisible();
 });
 
 test('cancel-all preview failure does not submit destructive command', async ({ page }) => {
@@ -438,6 +448,29 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         budget_violations: [],
         can_execute_trades: false,
         updated_at: '2026-04-27T00:00:00+00:00',
+      };
+    case '/api/research/runs':
+      return {
+        runs: [
+          {
+            run_id: '20260427T000000Z',
+            created_at: '2026-04-27T00:00:00+00:00',
+            source: 'research_loop',
+            report_root: 'data_lake/reports/20260427T000000Z',
+            passed: true,
+            pre_live_gate_passed: true,
+            calibration_passed: true,
+            pre_live_promotion_passed: true,
+            feature_research_decision: 'KEEP_DIAGNOSTIC',
+            realized_edge: 0.04,
+            fill_rate: 0.5,
+            nim_budget_status: 'OK',
+            nim_total_tokens: 266,
+            nim_estimated_cost: 0,
+            nim_model: 'deepseek-ai/deepseek-v3.2',
+            can_execute_trades: false,
+          },
+        ],
       };
     default:
       return {};
