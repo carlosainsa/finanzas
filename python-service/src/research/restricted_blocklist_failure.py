@@ -59,8 +59,12 @@ def build_restricted_blocklist_failure(
         "candidate_report_root": str(report_root) if report_root else None,
         "output_dir": str(output_dir),
         "diagnostics": {
-            "classification": classify_failure(reason, report_root),
-            "diagnosis_hints": diagnosis_hints(reason, report_root),
+            "classification": classify_failure(
+                combined_diagnostic_text(reason, output_tail), report_root
+            ),
+            "diagnosis_hints": diagnosis_hints(
+                combined_diagnostic_text(reason, output_tail), report_root
+            ),
             "candidate_report_root_exists": bool(report_root and report_root.exists()),
             "data_lake_root": str(data_lake_root) if data_lake_root else None,
             "data_lake_root_exists": bool(data_lake_root and data_lake_root.exists()),
@@ -74,6 +78,10 @@ def build_restricted_blocklist_failure(
             else {},
         },
     }
+
+
+def combined_diagnostic_text(reason: str, output_tail: str | None) -> str:
+    return f"{reason}\n{output_tail or ''}"
 
 
 def inferred_candidate_report_root(plan: dict[str, object]) -> Path | None:
@@ -106,6 +114,8 @@ def classify_failure(reason: str, report_root: Path | None) -> str:
         return "preflight_no_stream_progress"
     if "missing real dry-run stream data" in normalized:
         return "missing_stream_data"
+    if "killed" in normalized or "exit 137" in normalized:
+        return "postprocess_resource_exhaustion"
     if report_root is not None and not report_root.exists():
         return "missing_candidate_report_root"
     return "restricted_observation_failed"
@@ -128,6 +138,14 @@ def diagnosis_hints(reason: str, report_root: Path | None) -> list[str]:
             [
                 "inspect_real_dry_run_preflight_report",
                 "check_stream_progress_before_full_capture",
+            ]
+        )
+    if "killed" in reason.lower() or "exit 137" in reason.lower():
+        hints.extend(
+            [
+                "reduce_restricted_dry_run_duration_or_data_volume",
+                "inspect_market_regime_memory_usage",
+                "split_heavy_research_postprocess_steps",
             ]
         )
     return sorted(set(hints))

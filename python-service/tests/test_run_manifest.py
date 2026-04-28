@@ -58,6 +58,23 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["restricted_blocklist_next_variant_name"] == (
         "restricted_input_plus_top_migrated_risk"
     )
+    assert counts["restricted_blocklist_history_observations"] == 3
+    assert counts["restricted_blocklist_history_complete_observations"] == 2
+    assert counts["restricted_blocklist_history_insufficient_evidence_observations"] == 1
+    assert counts["restricted_blocklist_history_blocklist_kinds"] == 2
+    assert counts["restricted_blocklist_history_stable_blocklist_kinds"] == 1
+    assert counts["restricted_blocklist_history_unstable_blocklist_kinds"] == 1
+    assert counts["restricted_blocklist_history_status_counts"] == (
+        '{"complete": 2, "insufficient_evidence": 1}'
+    )
+    assert counts["restricted_blocklist_history_failure_classification_counts"] == (
+        '{"preflight_no_stream_progress": 1}'
+    )
+    assert counts["restricted_blocklist_failure_status"] == "insufficient_evidence"
+    assert counts["restricted_blocklist_failure_classification"] == (
+        "postprocess_resource_exhaustion"
+    )
+    assert counts["restricted_blocklist_failure_exit_code"] == 137
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -68,6 +85,12 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     )
     assert versions["restricted_blocklist_next_variant_report"] == (
         "restricted_blocklist_next_variant_v1"
+    )
+    assert versions["restricted_blocklist_history_report"] == (
+        "restricted_blocklist_observation_history_v1"
+    )
+    assert versions["restricted_blocklist_failure_report"] == (
+        "restricted_blocklist_observation_failure_v1"
     )
     assert versions["nim_advisory_report"] == "nim_advisory_offline_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
@@ -90,6 +113,11 @@ def test_run_manifest_records_artifact_hashes(tmp_path: Path) -> None:
     feature_decision_artifact = [
         item for item in artifacts if item["relative_path"] == "feature_research_decision.json"
     ][0]
+    history_artifact = [
+        item
+        for item in artifacts
+        if item["relative_path"] == "restricted_blocklist_observation_history.json"
+    ][0]
     nim_advisory_artifact = [
         item for item in artifacts if item["relative_path"] == "nim_advisory.json"
     ][0]
@@ -98,6 +126,8 @@ def test_run_manifest_records_artifact_hashes(tmp_path: Path) -> None:
     assert summary_artifact["sha256"] == sha256_file(report_root / "research_summary.json")
     assert feature_decision_artifact["kind"] == "json"
     assert feature_decision_artifact["bytes"] > 0
+    assert history_artifact["kind"] == "json"
+    assert history_artifact["bytes"] > 0
     assert nim_advisory_artifact["kind"] == "json"
     assert nim_advisory_artifact["bytes"] > 0
 
@@ -186,11 +216,34 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["restricted_blocklist_next_variant_name"] == (
         "restricted_input_plus_top_migrated_risk"
     )
+    assert flat["restricted_blocklist_history_observations"] == 3
+    assert flat["restricted_blocklist_history_complete_observations"] == 2
+    assert flat["restricted_blocklist_history_insufficient_evidence_observations"] == 1
+    assert flat["restricted_blocklist_history_blocklist_kinds"] == 2
+    assert flat["restricted_blocklist_history_stable_blocklist_kinds"] == 1
+    assert flat["restricted_blocklist_history_unstable_blocklist_kinds"] == 1
+    assert flat["restricted_blocklist_history_status_counts"] == (
+        '{"complete": 2, "insufficient_evidence": 1}'
+    )
+    assert flat["restricted_blocklist_history_failure_classification_counts"] == (
+        '{"preflight_no_stream_progress": 1}'
+    )
+    assert flat["restricted_blocklist_failure_status"] == "insufficient_evidence"
+    assert flat["restricted_blocklist_failure_classification"] == (
+        "postprocess_resource_exhaustion"
+    )
+    assert flat["restricted_blocklist_failure_exit_code"] == 137
     assert flat["restricted_blocklist_ranking_report_version"] == (
         "restricted_blocklist_ranking_v1"
     )
     assert flat["restricted_blocklist_next_variant_report_version"] == (
         "restricted_blocklist_next_variant_v1"
+    )
+    assert flat["restricted_blocklist_history_report_version"] == (
+        "restricted_blocklist_observation_history_v1"
+    )
+    assert flat["restricted_blocklist_failure_report_version"] == (
+        "restricted_blocklist_observation_failure_v1"
     )
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
@@ -393,6 +446,50 @@ def seed_report_root(report_root: Path) -> Path:
             "variant": {
                 "name": "restricted_input_plus_top_migrated_risk",
                 "blocked_segments": 2,
+            },
+        },
+    )
+    write_json(
+        report_root / "restricted_blocklist_observation_history.json",
+        {
+            "report_version": "restricted_blocklist_observation_history_v1",
+            "summary": {
+                "observations": 3,
+                "complete_observations": 2,
+                "insufficient_evidence_observations": 1,
+                "missing_artifacts_observations": 0,
+                "blocklist_kinds": 2,
+                "stable_blocklist_kinds": 1,
+                "unstable_blocklist_kinds": 1,
+                "blocked_observations": 2,
+            },
+            "counts": {
+                "by_status": {"complete": 2, "insufficient_evidence": 1},
+                "by_recommendation": {
+                    "repair_pipeline_before_repeat": 1,
+                    "test_migrated_risk_variant": 2,
+                },
+                "by_failure_classification": {
+                    "preflight_no_stream_progress": 1
+                },
+                "by_blocklist_kind": {
+                    "migrated_risk_only": 2,
+                    "restricted_input_plus_top_migrated_risk": 1,
+                },
+            },
+            "blocklist_kind_stability": [],
+            "can_execute_trades": False,
+        },
+    )
+    write_json(
+        report_root / "restricted_blocklist_observation_failure.json",
+        {
+            "report_version": "restricted_blocklist_observation_failure_v1",
+            "status": "insufficient_evidence",
+            "exit_code": 137,
+            "can_execute_trades": False,
+            "diagnostics": {
+                "classification": "postprocess_resource_exhaustion",
             },
         },
     )

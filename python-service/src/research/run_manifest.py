@@ -41,6 +41,12 @@ def create_run_manifest(
     restricted_blocklist_next_variant = read_json(
         report_root / "restricted_blocklist_next_variant.json"
     )
+    restricted_blocklist_history = read_json(
+        report_root / "restricted_blocklist_observation_history.json"
+    )
+    restricted_blocklist_failure = read_json(
+        report_root / "restricted_blocklist_observation_failure.json"
+    )
     blocked_segments = read_json(report_root / "pre_live_promotion" / "blocked_segments.json")
     real_dry_run_evidence = read_json(report_root / "real_dry_run_evidence.json")
 
@@ -81,6 +87,12 @@ def create_run_manifest(
             "restricted_blocklist_next_variant_report": (
                 restricted_blocklist_next_variant.get("report_version")
             ),
+            "restricted_blocklist_history_report": restricted_blocklist_history.get(
+                "report_version"
+            ),
+            "restricted_blocklist_failure_report": restricted_blocklist_failure.get(
+                "report_version"
+            ),
             "nim_advisory_report": nim_advisory.get("report_version"),
             "nim_advisory_model": nim_advisory.get("model_version"),
             "nim_advisory_feature": nim_advisory.get("feature_version"),
@@ -106,6 +118,8 @@ def create_run_manifest(
             feature_blocklist_candidates,
             restricted_blocklist_ranking,
             restricted_blocklist_next_variant,
+            restricted_blocklist_history,
+            restricted_blocklist_failure,
             blocked_segments,
             real_dry_run_evidence,
         ),
@@ -222,6 +236,8 @@ def manifest_counts(
     feature_blocklist_candidates: dict[str, object],
     restricted_blocklist_ranking: dict[str, object],
     restricted_blocklist_next_variant: dict[str, object],
+    restricted_blocklist_history: dict[str, object],
+    restricted_blocklist_failure: dict[str, object],
     blocked_segments: dict[str, object] | None = None,
     real_dry_run_evidence: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -235,6 +251,12 @@ def manifest_counts(
     nim_summary = typed_dict(nim_advisory.get("summary"))
     feature_blocklist_counts = typed_dict(feature_blocklist_candidates.get("counts"))
     ranking_summary = typed_dict(restricted_blocklist_ranking.get("summary"))
+    history_summary = typed_dict(restricted_blocklist_history.get("summary"))
+    history_counts = typed_dict(restricted_blocklist_history.get("counts"))
+    history_by_status = typed_dict(history_counts.get("by_status"))
+    history_by_failure = typed_dict(history_counts.get("by_failure_classification"))
+    history_by_kind = typed_dict(history_counts.get("by_blocklist_kind"))
+    failure_diagnostics = typed_dict(restricted_blocklist_failure.get("diagnostics"))
     next_variant = typed_dict(restricted_blocklist_next_variant.get("variant"))
     backtest_exports = typed_dict(summary.get("backtest_exports"))
     return {
@@ -315,6 +337,43 @@ def manifest_counts(
         "restricted_blocklist_next_variant_segments": next_variant.get(
             "blocked_segments"
         ),
+        "restricted_blocklist_history_observations": history_summary.get(
+            "observations"
+        ),
+        "restricted_blocklist_history_complete_observations": history_summary.get(
+            "complete_observations"
+        ),
+        "restricted_blocklist_history_insufficient_evidence_observations": (
+            history_summary.get("insufficient_evidence_observations")
+        ),
+        "restricted_blocklist_history_missing_artifacts_observations": (
+            history_summary.get("missing_artifacts_observations")
+        ),
+        "restricted_blocklist_history_blocklist_kinds": history_summary.get(
+            "blocklist_kinds"
+        ),
+        "restricted_blocklist_history_stable_blocklist_kinds": history_summary.get(
+            "stable_blocklist_kinds"
+        ),
+        "restricted_blocklist_history_unstable_blocklist_kinds": history_summary.get(
+            "unstable_blocklist_kinds"
+        ),
+        "restricted_blocklist_history_status_counts": stable_json_object(
+            history_by_status
+        ),
+        "restricted_blocklist_history_failure_classification_counts": (
+            stable_json_object(history_by_failure)
+        ),
+        "restricted_blocklist_history_kind_counts": stable_json_object(history_by_kind),
+        "restricted_blocklist_failure_status": restricted_blocklist_failure.get(
+            "status"
+        ),
+        "restricted_blocklist_failure_classification": failure_diagnostics.get(
+            "classification"
+        ),
+        "restricted_blocklist_failure_exit_code": restricted_blocklist_failure.get(
+            "exit_code"
+        ),
         "blocked_segments": count_blocked_segments(blocked_segments),
         "runtime_blocked_segments": count_runtime_blocked_segments(real_dry_run_evidence),
     }
@@ -333,8 +392,10 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "feature_blocklist_candidates.json",
         "feature_research_decision.json",
         "restricted_blocklist_ranking.json",
+        "restricted_blocklist_observation_history.json",
         "restricted_blocklist_next_variant.json",
         "nim_advisory.json",
+        "restricted_blocklist_observation_failure.json",
         "calibration.json",
         "pre_live_promotion.json",
         "go_no_go.json",
@@ -489,6 +550,45 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "restricted_blocklist_next_variant_segments": counts.get(
             "restricted_blocklist_next_variant_segments"
         ),
+        "restricted_blocklist_history_observations": counts.get(
+            "restricted_blocklist_history_observations"
+        ),
+        "restricted_blocklist_history_complete_observations": counts.get(
+            "restricted_blocklist_history_complete_observations"
+        ),
+        "restricted_blocklist_history_insufficient_evidence_observations": counts.get(
+            "restricted_blocklist_history_insufficient_evidence_observations"
+        ),
+        "restricted_blocklist_history_missing_artifacts_observations": counts.get(
+            "restricted_blocklist_history_missing_artifacts_observations"
+        ),
+        "restricted_blocklist_history_blocklist_kinds": counts.get(
+            "restricted_blocklist_history_blocklist_kinds"
+        ),
+        "restricted_blocklist_history_stable_blocklist_kinds": counts.get(
+            "restricted_blocklist_history_stable_blocklist_kinds"
+        ),
+        "restricted_blocklist_history_unstable_blocklist_kinds": counts.get(
+            "restricted_blocklist_history_unstable_blocklist_kinds"
+        ),
+        "restricted_blocklist_history_status_counts": counts.get(
+            "restricted_blocklist_history_status_counts"
+        ),
+        "restricted_blocklist_history_failure_classification_counts": counts.get(
+            "restricted_blocklist_history_failure_classification_counts"
+        ),
+        "restricted_blocklist_history_kind_counts": counts.get(
+            "restricted_blocklist_history_kind_counts"
+        ),
+        "restricted_blocklist_failure_status": counts.get(
+            "restricted_blocklist_failure_status"
+        ),
+        "restricted_blocklist_failure_classification": counts.get(
+            "restricted_blocklist_failure_classification"
+        ),
+        "restricted_blocklist_failure_exit_code": counts.get(
+            "restricted_blocklist_failure_exit_code"
+        ),
         "blocked_segments": counts.get("blocked_segments"),
         "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
         "promotion_report_version": versions.get("promotion_report"),
@@ -511,6 +611,12 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         ),
         "restricted_blocklist_next_variant_report_version": versions.get(
             "restricted_blocklist_next_variant_report"
+        ),
+        "restricted_blocklist_history_report_version": versions.get(
+            "restricted_blocklist_history_report"
+        ),
+        "restricted_blocklist_failure_report_version": versions.get(
+            "restricted_blocklist_failure_report"
         ),
         "nim_advisory_report_version": versions.get("nim_advisory_report"),
         "nim_advisory_model_version": versions.get("nim_advisory_model"),
@@ -575,6 +681,12 @@ def stable_json_list(value: object) -> str:
     if isinstance(value, list):
         return json.dumps(value, sort_keys=True)
     return "[]"
+
+
+def stable_json_object(value: object) -> str:
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True)
+    return "{}"
 
 
 def git_commit(path: Path) -> str | None:

@@ -86,6 +86,8 @@ def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     )
     assert "src.research.restricted_blocklist_history" in script
     assert "restricted_blocklist_observation_history.json" in script
+    assert "restricted_blocklist_observation_failure" in script
+    assert "restricted_blocklist_observation_failure\" \\" in script
 
 
 def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(

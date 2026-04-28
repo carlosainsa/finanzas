@@ -121,3 +121,26 @@ def test_restricted_blocklist_failure_includes_preflight_report(
     assert "inspect_real_dry_run_preflight_report" in cast(
         list[str], diagnostics["diagnosis_hints"]
     )
+
+
+def test_restricted_blocklist_failure_classifies_postprocess_killed_output(
+    tmp_path: Path,
+) -> None:
+    report_root = tmp_path / "data_lake" / "reports" / "run-1"
+    report_root.mkdir(parents=True)
+
+    payload = build_restricted_blocklist_failure(
+        plan={"can_execute_trades": False},
+        output_dir=tmp_path / "failure",
+        candidate_report_root=report_root,
+        exit_code=137,
+        reason="blocker_names=research_manifest_available",
+        stage="pre_live_dry_run",
+        output_tail="scripts/run_research_loop.sh: line 109: 984714 Killed python3 -m src.research.market_regime",
+    )
+
+    diagnostics = cast(dict[str, Any], payload["diagnostics"])
+    assert diagnostics["classification"] == "postprocess_resource_exhaustion"
+    assert "inspect_market_regime_memory_usage" in cast(
+        list[str], diagnostics["diagnosis_hints"]
+    )

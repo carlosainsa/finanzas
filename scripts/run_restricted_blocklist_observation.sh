@@ -269,6 +269,35 @@ if [[ -z "$CANDIDATE_REPORT_ROOT" ]]; then
     set -e
     if [[ "$failure_write_status" != "0" ]]; then
       echo "warning: failed to write restricted_blocklist_observation_failure.json; preserving dry-run exit code $dry_run_status" >&2
+    else
+      set +e
+      PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_ranking \
+        --observation-root "$OUTPUT_DIR" \
+        --output "$OUTPUT_DIR/restricted_blocklist_ranking.json"
+      failure_ranking_status=$?
+      PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_history \
+        --observation-root "$OUTPUT_DIR" \
+        --output "$OUTPUT_DIR/restricted_blocklist_observation_history.json"
+      failure_history_status=$?
+      MANIFEST_ROOT="$(python3 - "$EXPECTED_REPORT_ROOT" <<'PY'
+import sys
+from pathlib import Path
+
+report_root = Path(sys.argv[1]).resolve()
+print(report_root.parent.parent / "research_runs")
+PY
+)"
+      PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.run_manifest \
+        --report-root "$OUTPUT_DIR" \
+        --manifest-root "$MANIFEST_ROOT" \
+        --run-id "$(basename "$OUTPUT_DIR")" \
+        --source "restricted_blocklist_observation_failure" \
+        > "$OUTPUT_DIR/research_manifest.json"
+      failure_manifest_status=$?
+      set -e
+      if [[ "$failure_ranking_status" != "0" || "$failure_history_status" != "0" || "$failure_manifest_status" != "0" ]]; then
+        echo "warning: failed to write one or more restricted failure index artifacts; preserving dry-run exit code $dry_run_status" >&2
+      fi
     fi
     exit "$dry_run_status"
   fi
