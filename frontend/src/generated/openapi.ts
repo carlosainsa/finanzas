@@ -293,6 +293,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/pre-live-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Pre Live Readiness */
+        get: operations["research_pre_live_readiness_api_research_pre_live_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/research/runs": {
         parameters: {
             query?: never;
@@ -676,6 +693,23 @@ export interface paths {
         };
         /** Research Nim Budget */
         get: operations["research_nim_budget_research_nim_budget_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/research/pre-live-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Pre Live Readiness */
+        get: operations["research_pre_live_readiness_research_pre_live_readiness_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1100,6 +1134,33 @@ export interface components {
             positions: components["schemas"]["Position"][];
             /** Source */
             source: string | string[];
+        };
+        /** PreLiveReadinessResponse */
+        PreLiveReadinessResponse: {
+            /** Artifacts */
+            artifacts: unknown;
+            /** Audit */
+            audit: unknown;
+            /** Blockers */
+            blockers: unknown[];
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Checks */
+            checks: unknown[];
+            /** Created At */
+            created_at?: string | null;
+            /** Go No Go */
+            go_no_go: unknown;
+            /** Report Root */
+            report_root?: string | null;
+            /** Report Version */
+            report_version: string;
+            /** Run Id */
+            run_id?: string | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
         };
         /** PredictorSummary */
         PredictorSummary: {
@@ -1833,6 +1894,26 @@ export interface operations {
             };
         };
     };
+    research_pre_live_readiness_api_research_pre_live_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreLiveReadinessResponse"];
+                };
+            };
+        };
+    };
     research_runs_api_research_runs_get: {
         parameters: {
             query?: {
@@ -2443,6 +2524,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NIMBudgetResponse"];
+                };
+            };
+        };
+    };
+    research_pre_live_readiness_research_pre_live_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreLiveReadinessResponse"];
                 };
             };
         };

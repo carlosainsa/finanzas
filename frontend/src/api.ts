@@ -16,6 +16,7 @@ export type ReconciliationStatus = components['schemas']['ReconciliationStatusRe
 export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 export type NIMBudget = components['schemas']['NIMBudgetResponse'];
 export type GoNoGo = components['schemas']['GoNoGoResponse'];
+export type PreLiveReadiness = components['schemas']['PreLiveReadinessResponse'];
 export type ResearchRunSummary = components['schemas']['ResearchRunSummary'];
 
 export type DashboardData = {
@@ -32,6 +33,7 @@ export type DashboardData = {
   runtime: RuntimeMetrics;
   nimBudget: NIMBudget;
   goNoGo: GoNoGo;
+  preLiveReadiness: PreLiveReadiness;
   researchRuns: ResearchRunSummary[];
 };
 
@@ -105,7 +107,7 @@ async function getJson<T>(path: keyof paths): Promise<T> {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const status = await getJson<StatusResponse>('/api/status');
-  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, goNoGo, researchRuns] = await Promise.all([
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, goNoGo, preLiveReadiness, researchRuns] = await Promise.all([
     getJson<RiskResponse>('/api/risk'),
     getJson<{ streams: StreamSummary[] }>('/api/streams'),
     getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
@@ -118,6 +120,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     client.GET('/api/metrics', { params: { query: { limit: 500 } } }),
     optionalGet<NIMBudget>('/api/research/nim-budget', fallbackData.nimBudget),
     optionalGet<GoNoGo>('/api/research/go-no-go', fallbackData.goNoGo),
+    optionalGet<PreLiveReadiness>('/api/research/pre-live-readiness', fallbackData.preLiveReadiness),
     optionalGet<{ runs: ResearchRunSummary[] }>('/api/research/runs', { runs: fallbackData.researchRuns }),
   ]);
 
@@ -135,6 +138,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     runtime: unwrap(runtime.data, runtime.error, '/api/metrics'),
     nimBudget,
     goNoGo,
+    preLiveReadiness,
     researchRuns: researchRuns.runs,
   };
 }
@@ -306,6 +310,20 @@ export const fallbackData: DashboardData = {
     pre_live_promotion_passed: null,
     agent_advisory_acceptable: null,
     nim_budget_status: null,
+  },
+  preLiveReadiness: {
+    report_version: 'pre_live_readiness_v1',
+    status: 'missing',
+    source: 'data_lake/research_runs/research_runs.jsonl',
+    run_id: null,
+    created_at: null,
+    report_root: null,
+    can_execute_trades: false,
+    go_no_go: { decision: 'NO_GO', profile: null, passed: false },
+    checks: [],
+    blockers: [],
+    audit: { status: 'not_checked', source: 'postgres' },
+    artifacts: {},
   },
   researchRuns: [],
 };

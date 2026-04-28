@@ -196,6 +196,17 @@ test('dashboard shows latest go no-go gate', async ({ page }) => {
   await expect(page.getByRole('cell', { name: 'positive_realized_edge' })).toBeVisible();
 });
 
+test('dashboard shows pre-live readiness report', async ({ page }) => {
+  await mockOperatorApi(page);
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Pre-Live Readiness' })).toBeVisible();
+  await expect(page.locator('.budgetBadge').filter({ hasText: /^blocked$/ })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'go_no_go_passed' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'pre_live', exact: true })).toBeVisible();
+});
+
 test('cancel-all preview failure does not submit destructive command', async ({ page }) => {
   const requests: Array<{ method: string; path: string; authorization: string | null }> = [];
   await mockOperatorApi(page, {
@@ -484,6 +495,34 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         pre_live_promotion_passed: false,
         agent_advisory_acceptable: true,
         nim_budget_status: 'OK',
+      };
+    case '/api/research/pre-live-readiness':
+      return {
+        report_version: 'pre_live_readiness_v1',
+        status: 'blocked',
+        source: 'data_lake/research_runs/research_runs.jsonl',
+        run_id: '20260427T000000Z',
+        created_at: '2026-04-27T00:00:00+00:00',
+        report_root: 'data_lake/reports/20260427T000000Z',
+        can_execute_trades: false,
+        go_no_go: { decision: 'NO_GO', profile: 'pre_live', passed: false },
+        checks: [
+          {
+            check_name: 'go_no_go_profile_pre_live',
+            passed: true,
+            metric_value: 'pre_live',
+            threshold: 'pre_live|live_candidate',
+          },
+          {
+            check_name: 'go_no_go_passed',
+            passed: false,
+            metric_value: 'NO_GO',
+            threshold: 'GO',
+          },
+        ],
+        blockers: [{ check_name: 'go_no_go_passed', passed: false }],
+        audit: { status: 'ok', source: 'postgres', control_results: 1 },
+        artifacts: {},
       };
     case '/api/research/runs':
       return {

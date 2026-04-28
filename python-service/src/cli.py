@@ -46,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("metrics")
     subparsers.add_parser("nim-budget")
     subparsers.add_parser("research-go-no-go")
+    subparsers.add_parser("pre-live-readiness")
     research_runs = subparsers.add_parser("research-runs")
     research_runs.add_argument("--limit", type=int)
     research_run = subparsers.add_parser("research-run")
@@ -98,6 +99,13 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
             return request_json(client, "GET", "/research/nim-budget", token=read_token(args))
         if args.command == "research-go-no-go":
             return request_json(client, "GET", "/research/go-no-go", token=read_token(args))
+        if args.command == "pre-live-readiness":
+            return request_json(
+                client,
+                "GET",
+                "/research/pre-live-readiness",
+                token=read_token(args),
+            )
         if args.command == "research-runs":
             return request_json(
                 client,
@@ -334,6 +342,29 @@ def print_command_table(command: str, value: object) -> None:
                 }
             ],
             ["run_id", "decision", "passed", "reason", "blockers"],
+        )
+        return
+    if command == "pre-live-readiness" and isinstance(value, dict):
+        go_no_go_value = value.get("go_no_go")
+        audit_value = value.get("audit")
+        go_no_go: dict[str, object] = (
+            go_no_go_value if isinstance(go_no_go_value, dict) else {}
+        )
+        audit: dict[str, object] = audit_value if isinstance(audit_value, dict) else {}
+        print_rows(
+            [
+                {
+                    "status": value.get("status"),
+                    "run_id": value.get("run_id"),
+                    "profile": go_no_go.get("profile"),
+                    "decision": go_no_go.get("decision"),
+                    "audit": audit.get("status"),
+                    "blockers": len(value.get("blockers", []))
+                    if isinstance(value.get("blockers"), list)
+                    else 0,
+                }
+            ],
+            ["status", "run_id", "profile", "decision", "audit", "blockers"],
         )
         return
     if command == "research-run" and isinstance(value, dict):

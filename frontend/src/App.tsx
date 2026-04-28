@@ -461,6 +461,46 @@ export function App() {
               headers={['Check', 'Metric', 'Threshold', 'Passed']}
             />
           </Panel>
+
+          <Panel title="Pre-Live Readiness" subtitle={data.preLiveReadiness.source}>
+            <div className="budgetHeader">
+              <span className={`budgetBadge ${readinessTone(data.preLiveReadiness.status)}`}>
+                {data.preLiveReadiness.status}
+              </span>
+              <code>{data.preLiveReadiness.run_id ?? 'no research run'}</code>
+            </div>
+            <div className="counterGrid">
+              <Counter
+                label="Checks"
+                value={data.preLiveReadiness.checks.length}
+              />
+              <Counter
+                label="Blockers"
+                value={data.preLiveReadiness.blockers.length}
+              />
+              <Counter
+                label="Trades"
+                value={data.preLiveReadiness.can_execute_trades ? 1 : 0}
+              />
+              <Counter
+                label="Audit"
+                value={String(asRecord(data.preLiveReadiness.audit).status ?? '') === 'ok' ? 1 : 0}
+              />
+            </div>
+            <Table
+              empty="No readiness checks"
+              rows={data.preLiveReadiness.checks.slice(0, 6).map((check) => {
+                const row = check as Record<string, unknown>;
+                return [
+                  String(row.check_name ?? '-'),
+                  String(row.passed ?? false),
+                  formatUnknown(row.metric_value),
+                  String(row.threshold ?? '-'),
+                ];
+              })}
+              headers={['Check', 'Passed', 'Metric', 'Threshold']}
+            />
+          </Panel>
         </section>
 
         <section className="widePanel">
@@ -548,6 +588,22 @@ function budgetTone(status: string | null | undefined): string {
     return 'danger';
   }
   return 'neutral';
+}
+
+function readinessTone(status: string | null | undefined): string {
+  if (status === 'ready') {
+    return 'good';
+  }
+  if (status === 'blocked') {
+    return 'danger';
+  }
+  return 'neutral';
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function Counter({ label, value }: { label: string; value: number }) {

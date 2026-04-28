@@ -92,6 +92,15 @@ def latest_go_no_go(root: Path | None = None) -> dict[str, object]:
     }
 
 
+def latest_pre_live_readiness(
+    root: Path | None = None,
+    audit_summary: dict[str, object] | None = None,
+) -> dict[str, object]:
+    from src.research.pre_live_readiness import build_pre_live_readiness
+
+    return build_pre_live_readiness(root, audit_summary=audit_summary)
+
+
 def list_research_runs(root: Path | None = None, limit: int = 20) -> dict[str, object]:
     manifest_root = resolved_manifest_root(root)
     index_path = manifest_root / "research_runs.jsonl"

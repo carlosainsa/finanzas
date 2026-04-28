@@ -152,6 +152,30 @@ async def control_results_from_postgres(
     return results
 
 
+async def control_audit_summary_from_postgres(pool: asyncpg.Pool) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "source": "postgres",
+        "orders": await table_count_from_pool(pool, "orders"),
+        "execution_reports": await table_count_from_pool(pool, "execution_reports"),
+        "trade_signals": await table_count_from_pool(pool, "trade_signals"),
+        "positions": await table_count_from_pool(pool, "positions"),
+        "reconciliation_events": await table_count_from_pool(
+            pool, "reconciliation_events"
+        ),
+        "control_commands": await table_count_from_pool(pool, "control_commands"),
+        "control_results": await table_count_from_pool(pool, "control_results"),
+    }
+
+
+async def table_count_from_pool(pool: asyncpg.Pool, table: str) -> int:
+    exists = await pool.fetchval("select to_regclass($1) is not null", f"public.{table}")
+    if not exists:
+        raise RuntimeError(f"missing table: {table}")
+    value = await pool.fetchval(f"select count(*) from {table}")
+    return int(value or 0)
+
+
 async def record_control_command_in_postgres(
     pool: asyncpg.Pool, command: dict[str, object]
 ) -> None:

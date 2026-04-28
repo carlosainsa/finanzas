@@ -34,6 +34,7 @@ def test_cli_supports_metrics_and_control_results() -> None:
     assert parser.parse_args(["metrics"]).command == "metrics"
     assert parser.parse_args(["nim-budget"]).command == "nim-budget"
     assert parser.parse_args(["research-go-no-go"]).command == "research-go-no-go"
+    assert parser.parse_args(["pre-live-readiness"]).command == "pre-live-readiness"
     assert parser.parse_args(["research-runs"]).command == "research-runs"
     run_args = parser.parse_args(["research-run", "run-1"])
     assert run_args.command == "research-run"
@@ -212,3 +213,21 @@ def test_cli_prints_go_no_go_summary(capsys: pytest.CaptureFixture[str]) -> None
     output = capsys.readouterr().out
     assert "NO_GO" in output
     assert "positive_realized_edge" in output
+
+
+def test_cli_prints_pre_live_readiness_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    cli.print_command_table(
+        "pre-live-readiness",
+        {
+            "status": "blocked",
+            "run_id": "run-2",
+            "go_no_go": {"profile": "pre_live", "decision": "NO_GO"},
+            "audit": {"status": "ok"},
+            "blockers": [{"check_name": "positive_realized_edge"}],
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "pre_live" in output
+    assert "blocked" in output
+    assert "NO_GO" in output

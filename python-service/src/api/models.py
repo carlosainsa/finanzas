@@ -210,6 +210,21 @@ class GoNoGoResponse(BaseModel):
     nim_budget_status: str | None = None
 
 
+class PreLiveReadinessResponse(BaseModel):
+    report_version: str
+    status: str
+    source: str
+    run_id: str | None = None
+    created_at: str | None = None
+    report_root: str | None = None
+    can_execute_trades: bool
+    go_no_go: Any
+    checks: list[Any]
+    blockers: list[Any]
+    audit: Any
+    artifacts: Any
+
+
 class ResearchRunSummary(BaseModel):
     run_id: str | None = None
     created_at: str | None = None

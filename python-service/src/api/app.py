@@ -19,6 +19,7 @@ from src.api.models import (
     MarketsDiscoverResponse,
     OrdersOpenResponse,
     PositionsResponse,
+    PreLiveReadinessResponse,
     ReconciliationStatusResponse,
     NIMBudgetResponse,
     ResearchRunDetailResponse,
@@ -33,6 +34,7 @@ from src.api.research_service import (
     get_research_run,
     latest_go_no_go,
     latest_nim_budget,
+    latest_pre_live_readiness,
     list_research_runs,
 )
 from src.api.operator_service import (
@@ -58,6 +60,7 @@ from src.api.operator_service import (
     RedisLike,
 )
 from src.api.state_store import (
+    control_audit_summary_from_postgres,
     control_results_from_postgres,
     execution_reports_from_postgres,
     reconciliation_status_from_postgres,
@@ -325,6 +328,18 @@ async def research_nim_budget(_: ReadAuthDependency) -> dict[str, object]:
 @router.get("/research/go-no-go", response_model=GoNoGoResponse)
 async def research_go_no_go(_: ReadAuthDependency) -> dict[str, object]:
     return latest_go_no_go()
+
+
+@router.get("/research/pre-live-readiness", response_model=PreLiveReadinessResponse)
+async def research_pre_live_readiness(_: ReadAuthDependency) -> dict[str, object]:
+    postgres_pool = await postgres_pool_or_503()
+    audit_summary = None
+    if postgres_pool is not None:
+        try:
+            audit_summary = await control_audit_summary_from_postgres(postgres_pool)
+        except RuntimeError as exc:
+            audit_summary = {"status": "error", "source": "postgres", "error": str(exc)}
+    return latest_pre_live_readiness(audit_summary=audit_summary)
 
 
 @router.get("/research/runs", response_model=ResearchRunsResponse)

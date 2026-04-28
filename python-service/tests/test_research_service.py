@@ -6,6 +6,7 @@ from src.api.research_service import (
     get_research_run,
     latest_go_no_go,
     latest_nim_budget,
+    latest_pre_live_readiness,
     list_research_runs,
 )
 
@@ -110,6 +111,90 @@ def test_latest_go_no_go_reads_latest_manifest_report(tmp_path: Path) -> None:
     assert result["can_execute_trades"] is False
     assert result["nim_budget_status"] == "OK"
     assert cast(dict[str, object], result["metrics"])["realized_edge"] == -0.01
+
+
+def test_latest_pre_live_readiness_blocks_missing_dry_run_evidence(tmp_path: Path) -> None:
+    manifest_root = tmp_path / "research_runs"
+    report_root = tmp_path / "run-2"
+    manifest_root.mkdir()
+    report_root.mkdir()
+    (report_root / "go_no_go.json").write_text(
+        json.dumps({"decision": "GO", "passed": True, "profile": "pre_live"}) + "\n",
+        encoding="utf-8",
+    )
+    (report_root / "research_summary.json").write_text("{}\n", encoding="utf-8")
+    (manifest_root / "research_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run-2",
+                "created_at": "2026-04-27T00:00:00+00:00",
+                "report_root": str(report_root),
+                "go_no_go_passed": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = latest_pre_live_readiness(
+        manifest_root,
+        audit_summary={"status": "ok", "source": "postgres"},
+    )
+
+    assert result["status"] == "blocked"
+    assert result["can_execute_trades"] is False
+    blockers_value = result["blockers"]
+    assert isinstance(blockers_value, list)
+    blockers = [
+        item.get("check_name")
+        for item in blockers_value
+        if isinstance(item, dict)
+    ]
+    assert "real_dry_run_evidence_available" in blockers
+
+
+def test_latest_pre_live_readiness_ready_with_artifacts_and_audit(tmp_path: Path) -> None:
+    manifest_root = tmp_path / "research_runs"
+    report_root = tmp_path / "run-ready"
+    manifest_root.mkdir()
+    report_root.mkdir()
+    (report_root / "go_no_go.json").write_text(
+        json.dumps({"decision": "GO", "passed": True, "profile": "pre_live"}) + "\n",
+        encoding="utf-8",
+    )
+    (report_root / "research_summary.json").write_text(
+        json.dumps({"status": "ok"}) + "\n",
+        encoding="utf-8",
+    )
+    (report_root / "real_dry_run_evidence.json").write_text(
+        json.dumps({"execution_mode": "dry_run"}) + "\n",
+        encoding="utf-8",
+    )
+    (report_root / "pre_live_promotion.json").write_text(
+        json.dumps({"passed": True}) + "\n",
+        encoding="utf-8",
+    )
+    (manifest_root / "research_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run-ready",
+                "created_at": "2026-04-27T00:00:00+00:00",
+                "report_root": str(report_root),
+                "go_no_go_passed": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = latest_pre_live_readiness(
+        manifest_root,
+        audit_summary={"status": "ok", "source": "postgres"},
+    )
+
+    assert result["status"] == "ready"
+    assert result["run_id"] == "run-ready"
+    assert cast(dict[str, object], result["go_no_go"])["profile"] == "pre_live"
 
 
 def test_list_research_runs_returns_latest_first(tmp_path: Path) -> None:

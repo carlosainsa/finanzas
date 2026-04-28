@@ -18,7 +18,7 @@ export OPERATOR_CONTROL_TOKEN="${OPERATOR_CONTROL_TOKEN:-real-dry-run-control}"
 export OPERATOR_API_URL="${OPERATOR_API_URL:-http://127.0.0.1:${TEST_OPERATOR_API_PORT}}"
 export DISABLE_MARKET_WS="${DISABLE_MARKET_WS:-false}"
 export ORDER_RECONCILIATION_TIMEOUT_MS="${ORDER_RECONCILIATION_TIMEOUT_MS:-1000}"
-export REAL_DRY_RUN_SECONDS="${REAL_DRY_RUN_SECONDS:-900}"
+export REAL_DRY_RUN_SECONDS="${REAL_DRY_RUN_SECONDS:-3600}"
 export DISCOVERY_LIMIT="${DISCOVERY_LIMIT:-25}"
 export DISCOVERY_MIN_LIQUIDITY="${DISCOVERY_MIN_LIQUIDITY:-100}"
 export DISCOVERY_MIN_VOLUME="${DISCOVERY_MIN_VOLUME:-100}"
@@ -30,8 +30,9 @@ export PREDICTOR_NEAR_TOUCH_TICK_SIZE="${PREDICTOR_NEAR_TOUCH_TICK_SIZE:-0.01}"
 export PREDICTOR_NEAR_TOUCH_OFFSET_TICKS="${PREDICTOR_NEAR_TOUCH_OFFSET_TICKS:-0}"
 export PREDICTOR_NEAR_TOUCH_MAX_SPREAD_FRACTION="${PREDICTOR_NEAR_TOUCH_MAX_SPREAD_FRACTION:-1.0}"
 export DATA_LAKE_EXPORT_COUNT="${DATA_LAKE_EXPORT_COUNT:-50000}"
-export PRE_LIVE_MIN_CAPTURE_DURATION_MS="${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-$((REAL_DRY_RUN_SECONDS * 1000 / 2))}"
-export PRE_LIVE_MIN_SIGNALS="${PRE_LIVE_MIN_SIGNALS:-10}"
+export GO_NO_GO_PROFILE="${GO_NO_GO_PROFILE:-pre_live}"
+export PRE_LIVE_MIN_CAPTURE_DURATION_MS="${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-$((REAL_DRY_RUN_SECONDS * 1000))}"
+export PRE_LIVE_MIN_SIGNALS="${PRE_LIVE_MIN_SIGNALS:-250}"
 export PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE="${PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE:-0.01}"
 export PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA="${PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA:-0.75}"
 export ALLOW_RESEARCH_GATE_FAILURE="${ALLOW_RESEARCH_GATE_FAILURE:-1}"
@@ -76,6 +77,7 @@ data_lake_root=$DATA_LAKE_ROOT
 duckdb=$DATA_LAKE_DUCKDB
 report_root=$RESEARCH_REPORT_ROOT
 manifest_root=${RESEARCH_MANIFEST_ROOT:-$DATA_LAKE_ROOT/research_runs}
+go_no_go_profile=$GO_NO_GO_PROFILE
 redis_url=$REDIS_URL
 capture_seconds=$REAL_DRY_RUN_SECONDS
 blocked_segments_path=${PREDICTOR_BLOCKED_SEGMENTS_PATH:-}
@@ -278,6 +280,17 @@ set -e
 research_exit_code="0"
 if [[ -f "$RESEARCH_REPORT_ROOT/research_exit_code.txt" ]]; then
   research_exit_code="$(tr -d '[:space:]' < "$RESEARCH_REPORT_ROOT/research_exit_code.txt")"
+fi
+
+set +e
+PYTHONPATH=python-service python3 -m src.research.pre_live_readiness \
+  --manifest-root "${RESEARCH_MANIFEST_ROOT:-${DATA_LAKE_ROOT}/research_runs}" \
+  --database-url "$DATABASE_URL" \
+  --output "$RESEARCH_REPORT_ROOT/pre_live_readiness.json"
+readiness_status=$?
+set -e
+if [[ "$readiness_status" != "0" ]]; then
+  echo "Pre-live readiness is not ready; inspect $RESEARCH_REPORT_ROOT/pre_live_readiness.json." >&2
 fi
 
 if [[ "$research_status" == "0" ]]; then

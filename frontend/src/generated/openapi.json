@@ -1156,6 +1156,91 @@
         "title": "PositionsResponse",
         "type": "object"
       },
+      "PreLiveReadinessResponse": {
+        "properties": {
+          "artifacts": {
+            "title": "Artifacts"
+          },
+          "audit": {
+            "title": "Audit"
+          },
+          "blockers": {
+            "items": {},
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_execute_trades": {
+            "title": "Can Execute Trades",
+            "type": "boolean"
+          },
+          "checks": {
+            "items": {},
+            "title": "Checks",
+            "type": "array"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "go_no_go": {
+            "title": "Go No Go"
+          },
+          "report_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Root"
+          },
+          "report_version": {
+            "title": "Report Version",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_version",
+          "status",
+          "source",
+          "can_execute_trades",
+          "go_no_go",
+          "checks",
+          "blockers",
+          "audit",
+          "artifacts"
+        ],
+        "title": "PreLiveReadinessResponse",
+        "type": "object"
+      },
       "PredictorSummary": {
         "properties": {
           "min_confidence": {
@@ -2699,6 +2784,29 @@
         "summary": "Research Nim Budget"
       }
     },
+    "/api/research/pre-live-readiness": {
+      "get": {
+        "operationId": "research_pre_live_readiness_api_research_pre_live_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreLiveReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Pre Live Readiness"
+      }
+    },
     "/api/research/runs": {
       "get": {
         "operationId": "research_runs_api_research_runs_get",
@@ -3549,6 +3657,29 @@
           }
         ],
         "summary": "Research Nim Budget"
+      }
+    },
+    "/research/pre-live-readiness": {
+      "get": {
+        "operationId": "research_pre_live_readiness_research_pre_live_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreLiveReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Pre Live Readiness"
       }
     },
     "/research/runs": {
