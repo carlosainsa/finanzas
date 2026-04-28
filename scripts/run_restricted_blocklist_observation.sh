@@ -9,6 +9,8 @@ DURATION_SECONDS="${REAL_DRY_RUN_SECONDS:-900}"
 CANDIDATE_REPORT_ROOT=""
 OUTPUT_DIR=""
 PRINT_PLAN=0
+RANKING_OBSERVATION_ROOTS=()
+RANKING_OUTPUT_DIR=""
 
 usage() {
   cat <<'EOF'
@@ -18,6 +20,8 @@ Runs or evaluates a restricted blocklist observation using the fixed market
 universe recorded by pre_live_blocker_diagnostics.json. It writes:
   comparison.json
   research_promotion_decision.json
+  restricted_blocklist_ranking.json
+  restricted_blocklist_next_variant.json when a migrated-risk variant is indicated
 
 Options:
   --baseline-report-root PATH   Unrestricted baseline report root.
@@ -29,6 +33,9 @@ Options:
   --duration-seconds N          Restricted dry-run duration. Default: REAL_DRY_RUN_SECONDS or 900.
   --candidate-report-root PATH  Skip execution and evaluate an existing restricted report root.
   --output-dir PATH             Defaults to candidate report root when available, otherwise baseline/restricted_observation.
+  --ranking-observation-root PATH
+                                Additional restricted observation root to include in ranking. Repeatable.
+  --ranking-output-dir PATH      Defaults to output dir.
   --print-plan                  Print resolved JSON plan and exit.
 EOF
 }
@@ -57,6 +64,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir)
       OUTPUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --ranking-observation-root)
+      RANKING_OBSERVATION_ROOTS+=("${2:-}")
+      shift 2
+      ;;
+    --ranking-output-dir)
+      RANKING_OUTPUT_DIR="${2:-}"
       shift 2
       ;;
     --print-plan)
@@ -291,5 +306,48 @@ PY
 PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_decision \
   --observation-root "$OUTPUT_DIR" \
   --json
+
+RANKING_OUTPUT_DIR="${RANKING_OUTPUT_DIR:-$OUTPUT_DIR}"
+mkdir -p "$RANKING_OUTPUT_DIR"
+RANKING_ARGS=(--observation-root "$OUTPUT_DIR")
+for root in "${RANKING_OBSERVATION_ROOTS[@]}"; do
+  if [[ -z "$root" ]]; then
+    echo "ranking observation root cannot be empty" >&2
+    exit 64
+  fi
+  if [[ ! -d "$root" ]]; then
+    echo "ranking observation root does not exist: $root" >&2
+    exit 64
+  fi
+  if [[ "$root" != "$OUTPUT_DIR" ]]; then
+    RANKING_ARGS+=(--observation-root "$root")
+  fi
+done
+
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_ranking \
+  "${RANKING_ARGS[@]}" \
+  --output "$RANKING_OUTPUT_DIR/restricted_blocklist_ranking.json"
+
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_next_variant \
+  --ranking "$RANKING_OUTPUT_DIR/restricted_blocklist_ranking.json" \
+  --output-dir "$RANKING_OUTPUT_DIR" \
+  --json
+
+if [[ "$RANKING_OUTPUT_DIR" == "$CANDIDATE_REPORT_ROOT" && -f "$CANDIDATE_REPORT_ROOT/research_manifest.json" ]]; then
+  MANIFEST_ROOT="$(python3 - "$CANDIDATE_REPORT_ROOT" <<'PY'
+import sys
+from pathlib import Path
+
+report_root = Path(sys.argv[1]).resolve()
+print(report_root.parent.parent / "research_runs")
+PY
+)"
+  PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.run_manifest \
+    --report-root "$CANDIDATE_REPORT_ROOT" \
+    --manifest-root "$MANIFEST_ROOT" \
+    --run-id "$(basename "$CANDIDATE_REPORT_ROOT")" \
+    --source "restricted_blocklist_observation" \
+    > "$CANDIDATE_REPORT_ROOT/research_manifest.json"
+fi
 
 exit 0

@@ -216,4 +216,11 @@ def test_restricted_blocklist_observation_finalizes_decision() -> None:
     assert "restricted_blocklist_diagnostics.json" in script
     assert "migrated_risk_blocklist_variants.json" in script
     assert "src.research.restricted_blocklist_decision" in script
+    assert "src.research.restricted_blocklist_ranking" in script
+    assert "restricted_blocklist_ranking.json" in script
+    assert "src.research.restricted_blocklist_next_variant" in script
+    assert "restricted_blocklist_next_variant.json" in script
+    assert "--ranking-observation-root" in script
+    assert "src.research.run_manifest" in script
+    assert "restricted_blocklist_observation" in script
     assert "--observation-root \"$OUTPUT_DIR\"" in script
