@@ -148,9 +148,23 @@ but it is still research-only. It should be used only for a restricted follow-up
 dry-run:
 
 ```bash
+MARKET_ASSET_IDS="<asset ids from fixed_market_universe.market_asset_ids_csv>" \
 PREDICTOR_BLOCKED_SEGMENTS_PATH="$RESEARCH_REPORT_ROOT/blocker_diagnostics/blocked_segments_candidate.json" \
 scripts/run_pre_live_dry_run.sh --duration-seconds 900
 ```
+
+`pre_live_blocker_diagnostics.json` includes a ready-to-run command under
+`next_restricted_run.command`. Use that command when available so the restricted
+run reuses the same fixed market universe. `compare_runs` rejects restricted
+comparisons when the candidate run's recorded `MARKET_ASSET_IDS` hash does not
+match the blocklist evaluation contract.
+
+The diagnostics also export:
+
+- `blocker_diagnostics/fixed_market_universe.json`;
+- `blocker_diagnostics/blocked_segments_defensive_candidate.json`;
+- `top_explanatory_buckets`, which attributes drawdown and adverse-selection
+  pressure by market, market/asset, strategy, and full segment.
 
 Compare unrestricted versus restricted runs before accepting the blocklist:
 

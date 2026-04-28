@@ -304,6 +304,7 @@ def segment_comparability(
     baseline_keys = key_set(baseline, keys)
     candidate_keys = key_set(candidate, keys)
     expected_removed_keys = expected_restricted_blocked_segments(candidate_report_root)
+    fixed_universe = fixed_market_universe_assessment(candidate_report_root)
     expected_removed = (baseline_keys - candidate_keys) & expected_removed_keys
     unexpected_removed = (baseline_keys - candidate_keys) - expected_removed_keys
     unexpected_new = candidate_keys - baseline_keys
@@ -322,6 +323,10 @@ def segment_comparability(
         reason = "missing_baseline_segment_keys"
     elif missing_segment_columns(candidate):
         reason = "missing_candidate_segment_keys"
+    elif fixed_universe.get("status") == "mismatch":
+        reason = "fixed_market_universe_mismatch"
+    elif fixed_universe.get("status") == "missing_candidate_evidence":
+        reason = "fixed_market_universe_missing_candidate_evidence"
     elif baseline_keys == candidate_keys:
         reason = None
     elif unexpected_removed:
@@ -346,6 +351,7 @@ def segment_comparability(
             "min_shared_signal_coverage_ratio": MIN_SHARED_SIGNAL_COVERAGE_RATIO,
             "min_shared_fill_coverage_ratio": MIN_SHARED_FILL_COVERAGE_RATIO,
         },
+        "fixed_market_universe": fixed_universe,
         "baseline_segments_available": baseline_exists,
         "candidate_segments_available": candidate_exists,
         "baseline_segment_path": str(baseline_path),
@@ -730,12 +736,60 @@ def expected_restricted_blocked_segments(
     path_value = evidence.get("blocked_segments_path")
     if not isinstance(path_value, str) or not path_value:
         return set()
-    blocklist_path = Path(path_value)
-    if not blocklist_path.is_absolute():
-        repo_relative = Path.cwd() / blocklist_path
-        report_relative = candidate_report_root / blocklist_path
-        blocklist_path = repo_relative if repo_relative.exists() else report_relative
-    return load_blocked_segments_from_json(blocklist_path)
+    return load_blocked_segments_from_json(resolve_report_path(candidate_report_root, path_value))
+
+
+def fixed_market_universe_assessment(
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    if candidate_report_root is None:
+        return {"status": "not_applicable"}
+    payload = restricted_blocklist_payload(candidate_report_root)
+    contract = typed_dict(payload.get("evaluation_contract"))
+    fixed_universe = typed_dict(contract.get("fixed_market_universe"))
+    expected_hash = fixed_universe.get("market_asset_ids_sha256")
+    if not isinstance(expected_hash, str) or not expected_hash:
+        return {"status": "not_applicable"}
+    evidence = read_json(candidate_report_root / "real_dry_run_evidence.json")
+    actual_hash = evidence.get("market_asset_ids_sha256")
+    if not isinstance(actual_hash, str) or not actual_hash:
+        return {
+            "status": "missing_candidate_evidence",
+            "expected_market_asset_ids_sha256": expected_hash,
+            "expected_market_asset_ids_count": fixed_universe.get(
+                "market_asset_ids_count"
+            ),
+        }
+    status = "match" if actual_hash == expected_hash else "mismatch"
+    return {
+        "status": status,
+        "expected_market_asset_ids_sha256": expected_hash,
+        "actual_market_asset_ids_sha256": actual_hash,
+        "expected_market_asset_ids_count": fixed_universe.get(
+            "market_asset_ids_count"
+        ),
+        "actual_market_asset_ids_count": evidence.get("market_asset_ids_count"),
+    }
+
+
+def restricted_blocklist_payload(candidate_report_root: Path) -> dict[str, object]:
+    evidence = read_json(candidate_report_root / "real_dry_run_evidence.json")
+    if evidence.get("blocked_segments_enabled") is not True:
+        return {}
+    path_value = evidence.get("blocked_segments_path")
+    if not isinstance(path_value, str) or not path_value:
+        return {}
+    path = resolve_report_path(candidate_report_root, path_value)
+    return read_json(path)
+
+
+def resolve_report_path(report_root: Path, path_value: str) -> Path:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    repo_relative = Path.cwd() / path
+    report_relative = report_root / path
+    return repo_relative if repo_relative.exists() else report_relative
 
 
 def load_blocked_segments(report_root: Path | None) -> set[tuple[str, str, str, str, str]]:

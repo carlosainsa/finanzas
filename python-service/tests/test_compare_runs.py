@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 from typing import Any, cast
 
@@ -188,6 +189,61 @@ def test_compare_report_roots_allows_expected_restricted_segment_loss(
     assert comparability["expected_removed_segments"] == 1
     assert comparability["unexpected_removed_segments"] == 0
     assert comparability["shared_segment_ratio"] == pytest.approx(1.0)
+
+
+def test_compare_report_roots_requires_fixed_market_universe_match(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(
+        baseline,
+        [
+            segment_row("market-1", "asset-1", realized_edge=0.01),
+            segment_row("market-2", "asset-2", realized_edge=-0.02),
+        ],
+    )
+    write_segments(
+        candidate,
+        [segment_row("market-1", "asset-1", realized_edge=0.04)],
+    )
+    blocklist_path = tmp_path / "blocked_segments_candidate.json"
+    expected_hash = hashlib.sha256("asset-1,asset-2".encode("utf-8")).hexdigest()
+    write_candidate_blocklist(
+        blocklist_path,
+        [blocked_segment("market-2", "asset-2")],
+        fixed_market_universe={
+            "version": "fixed_market_universe_v1",
+            "market_asset_ids": ["asset-1", "asset-2"],
+            "market_asset_ids_count": 2,
+            "market_asset_ids_csv": "asset-1,asset-2",
+            "market_asset_ids_sha256": expected_hash,
+        },
+    )
+    write_real_dry_run_evidence(
+        candidate,
+        blocklist_path,
+        market_asset_ids=["asset-1", "asset-3"],
+    )
+    override_metric(candidate, "realized_edge", 0.07)
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
+    fixed_universe = cast(dict[str, Any], comparability["fixed_market_universe"])
+    assert comparison["verdict"] == "no_comparable"
+    assert comparability["reason"] == "fixed_market_universe_mismatch"
+    assert fixed_universe["status"] == "mismatch"
+    assert fixed_universe["expected_market_asset_ids_sha256"] == expected_hash
 
 
 def test_compare_report_roots_rejects_restricted_run_with_low_shared_coverage(
@@ -471,19 +527,39 @@ def write_blocked_segments(report_root: Path, rows: list[dict[str, object]]) -> 
     )
 
 
-def write_candidate_blocklist(path: Path, rows: list[dict[str, object]]) -> None:
-    payload = {
+def write_candidate_blocklist(
+    path: Path,
+    rows: list[dict[str, object]],
+    fixed_market_universe: dict[str, object] | None = None,
+) -> None:
+    payload: dict[str, object] = {
         "version": "blocked_segments_v1",
         "source_report_version": "pre_live_blocker_diagnostics_v1",
         "segments": rows,
     }
+    if fixed_market_universe is not None:
+        payload["evaluation_contract"] = {
+            "version": "blocked_segments_evaluation_contract_v1",
+            "fixed_market_universe": fixed_market_universe,
+        }
     path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def write_real_dry_run_evidence(report_root: Path, blocklist_path: Path) -> None:
+def write_real_dry_run_evidence(
+    report_root: Path,
+    blocklist_path: Path,
+    market_asset_ids: list[str] | None = None,
+) -> None:
+    resolved_market_asset_ids = market_asset_ids or []
+    market_asset_ids_csv = ",".join(resolved_market_asset_ids)
     payload = {
         "blocked_segments_enabled": True,
         "blocked_segments_path": str(blocklist_path),
+        "market_asset_ids": resolved_market_asset_ids,
+        "market_asset_ids_count": len(resolved_market_asset_ids),
+        "market_asset_ids_sha256": hashlib.sha256(
+            market_asset_ids_csv.encode("utf-8")
+        ).hexdigest(),
     }
     (report_root / "real_dry_run_evidence.json").write_text(
         json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"

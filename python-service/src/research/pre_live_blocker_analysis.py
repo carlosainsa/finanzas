@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 from datetime import UTC, datetime
 from numbers import Real
@@ -60,6 +61,25 @@ def create_blocker_diagnostics(
         drawdown_segments + adverse_candidate_segments,
         limit=max_candidates,
     )
+    defensive_segments = defensive_candidate_segments(
+        segments,
+        adverse,
+        drawdown_threshold=drawdown_threshold,
+        adverse_threshold=adverse_threshold,
+        min_segment_signals=min_segment_signals,
+        min_adverse_filled_events=min_adverse_filled_events,
+        limit=max_candidates,
+    )
+    explanatory_buckets = bucket_attribution(
+        segments,
+        adverse,
+        drawdown_threshold=drawdown_threshold,
+        adverse_threshold=adverse_threshold,
+        min_segment_signals=min_segment_signals,
+        min_adverse_filled_events=min_adverse_filled_events,
+        limit=max_candidates,
+    )
+    fixed_universe = fixed_market_universe_payload(segments, report_root=report_root)
     blocked_segments = blocked_segments_payload(
         candidate_segments,
         report_root=report_root,
@@ -75,13 +95,36 @@ def create_blocker_diagnostics(
         candidate_segments,
         segments=segments,
         report_root=report_root,
+        fixed_universe=fixed_universe,
         min_segment_signals=min_segment_signals,
         min_adverse_filled_events=min_adverse_filled_events,
     )
     blocked_segments["evaluation_contract"] = evaluation_contract
     resolved_output_dir = output_dir or report_root / "blocker_diagnostics"
     blocked_path = resolved_output_dir / "blocked_segments_candidate.json"
+    defensive_blocked_path = resolved_output_dir / "blocked_segments_defensive_candidate.json"
+    fixed_universe_path = resolved_output_dir / "fixed_market_universe.json"
     diagnostics_path = resolved_output_dir / "pre_live_blocker_diagnostics.json"
+    defensive_blocked_segments = blocked_segments_payload(
+        defensive_segments,
+        report_root=report_root,
+        config={
+            "max_drawdown": drawdown_threshold,
+            "max_adverse_selection_rate": adverse_threshold,
+            "min_segment_signals": min_segment_signals,
+            "min_adverse_filled_events": min_adverse_filled_events,
+            "max_candidates": max_candidates,
+            "policy": "defensive_drawdown_adverse_selection",
+        },
+    )
+    defensive_blocked_segments["evaluation_contract"] = blocklist_evaluation_contract(
+        defensive_segments,
+        segments=segments,
+        report_root=report_root,
+        fixed_universe=fixed_universe,
+        min_segment_signals=min_segment_signals,
+        min_adverse_filled_events=min_adverse_filled_events,
+    )
     narrow_variants = narrow_candidate_variants(
         candidate_segments,
         segments=segments,
@@ -95,8 +138,34 @@ def create_blocker_diagnostics(
             "min_adverse_filled_events": min_adverse_filled_events,
             "max_candidates": max_candidates,
         },
+        fixed_universe=fixed_universe,
         min_segment_signals=min_segment_signals,
         min_adverse_filled_events=min_adverse_filled_events,
+    )
+    defensive_variants = narrow_candidate_variants(
+        defensive_segments,
+        segments=segments,
+        report_root=report_root,
+        output_dir=resolved_output_dir,
+        candidate_limits=candidate_limits,
+        config={
+            "max_drawdown": drawdown_threshold,
+            "max_adverse_selection_rate": adverse_threshold,
+            "min_segment_signals": min_segment_signals,
+            "min_adverse_filled_events": min_adverse_filled_events,
+            "max_candidates": max_candidates,
+            "policy": "defensive_drawdown_adverse_selection",
+        },
+        fixed_universe=fixed_universe,
+        min_segment_signals=min_segment_signals,
+        min_adverse_filled_events=min_adverse_filled_events,
+        filename_prefix="blocked_segments_defensive_candidate_top",
+        variant_name_prefix="defensive_top",
+    )
+    fixed_universe_prefix = (
+        f"MARKET_ASSET_IDS={shell_quote(str(fixed_universe['market_asset_ids_csv']))} "
+        if fixed_universe.get("market_asset_ids_csv")
+        else ""
     )
     report = {
         "report_version": REPORT_VERSION,
@@ -117,16 +186,28 @@ def create_blocker_diagnostics(
             "adverse_selection_segments": len(adverse_segments),
             "adverse_selection_candidate_segments": len(adverse_candidate_segments),
             "candidate_blocked_segments": len(candidate_segments),
+            "defensive_candidate_blocked_segments": len(defensive_segments),
+            "fixed_market_asset_ids": fixed_universe.get("market_asset_ids_count", 0),
         },
         "top_drawdown_segments": drawdown_segments,
         "top_adverse_selection_segments": adverse_segments,
+        "top_explanatory_buckets": explanatory_buckets,
+        "defensive_candidate_blocked_segments": defensive_segments,
         "candidate_blocked_segments": candidate_segments,
         "narrow_candidate_variants": narrow_variants,
+        "defensive_candidate_variants": defensive_variants,
+        "fixed_market_universe": fixed_universe,
+        "fixed_market_universe_path": str(fixed_universe_path),
         "evaluation_contract": evaluation_contract,
         "blocked_segments_path": str(blocked_path),
+        "defensive_blocked_segments_path": str(defensive_blocked_path),
         "next_restricted_run": {
             "command": (
-                f"PREDICTOR_BLOCKED_SEGMENTS_PATH={blocked_path} "
+                f"{fixed_universe_prefix}PREDICTOR_BLOCKED_SEGMENTS_PATH={blocked_path} "
+                "scripts/run_pre_live_dry_run.sh --duration-seconds 900"
+            ),
+            "defensive_command": (
+                f"{fixed_universe_prefix}PREDICTOR_BLOCKED_SEGMENTS_PATH={defensive_blocked_path} "
                 "scripts/run_pre_live_dry_run.sh --duration-seconds 900"
             ),
             "compare_command": (
@@ -137,7 +218,15 @@ def create_blocker_diagnostics(
         },
         "can_execute_trades": False,
     }
-    write_outputs(resolved_output_dir, diagnostics_path, blocked_path, report, blocked_segments)
+    write_outputs(
+        resolved_output_dir,
+        diagnostics_path,
+        blocked_path,
+        report,
+        blocked_segments,
+    )
+    write_json_atomic(defensive_blocked_path, defensive_blocked_segments)
+    write_json_atomic(fixed_universe_path, fixed_universe)
     return report
 
 
@@ -295,6 +384,251 @@ def merge_candidate_segments(
     )[:limit]
 
 
+def defensive_candidate_segments(
+    segments: pd.DataFrame,
+    adverse: pd.DataFrame,
+    *,
+    drawdown_threshold: float,
+    adverse_threshold: float,
+    min_segment_signals: int,
+    min_adverse_filled_events: int,
+    limit: int,
+) -> list[dict[str, object]]:
+    if segments.empty:
+        return []
+    frame = segments.copy()
+    for column in ("signals", "filled_signals", "max_drawdown", "realized_edge", "pnl"):
+        frame[column] = pd.to_numeric(frame.get(column), errors="coerce")
+    frame["signals"] = frame["signals"].fillna(0)
+    frame["filled_signals"] = frame["filled_signals"].fillna(0)
+    frame["max_drawdown"] = frame["max_drawdown"].fillna(0)
+    frame["realized_edge"] = frame["realized_edge"].fillna(0)
+    frame["pnl"] = frame["pnl"].fillna(0)
+    frame = frame[frame["signals"] >= min_segment_signals]
+    if frame.empty:
+        return []
+    if not adverse.empty and {
+        "market_id",
+        "side",
+        "strategy",
+        "filled_events",
+        "adverse_30s_rate",
+    }.issubset(set(adverse.columns)):
+        adverse_frame = adverse.copy()
+        adverse_frame["filled_events"] = pd.to_numeric(
+            adverse_frame.get("filled_events"), errors="coerce"
+        ).fillna(0)
+        adverse_frame["adverse_30s_rate"] = pd.to_numeric(
+            adverse_frame.get("adverse_30s_rate"), errors="coerce"
+        ).fillna(0)
+        frame = frame.merge(
+            adverse_frame[
+                [
+                    "market_id",
+                    "side",
+                    "strategy",
+                    "filled_events",
+                    "adverse_30s_rate",
+                    "avg_pnl_30s",
+                ]
+            ],
+            on=["market_id", "side", "strategy"],
+            how="left",
+        )
+    else:
+        frame["filled_events"] = 0.0
+        frame["adverse_30s_rate"] = 0.0
+        frame["avg_pnl_30s"] = None
+    frame["filled_events"] = pd.to_numeric(
+        frame.get("filled_events"), errors="coerce"
+    ).fillna(0)
+    frame["adverse_30s_rate"] = pd.to_numeric(
+        frame.get("adverse_30s_rate"), errors="coerce"
+    ).fillna(0)
+    frame["drawdown_excess"] = (frame["max_drawdown"] - drawdown_threshold).clip(
+        lower=0
+    )
+    frame["adverse_excess"] = (
+        frame["adverse_30s_rate"] - adverse_threshold
+    ).clip(lower=0)
+    frame = frame[
+        (
+            (frame["drawdown_excess"] > 0)
+            | (
+                (frame["adverse_excess"] > 0)
+                & (frame["filled_events"] >= min_adverse_filled_events)
+            )
+        )
+        & ((frame["realized_edge"] <= 0) | (frame["pnl"] <= 0))
+    ]
+    if frame.empty:
+        return []
+    frame["sample_weight"] = (frame["signals"] + frame["filled_signals"]).clip(lower=1)
+    frame["diagnostic_score"] = (
+        frame["drawdown_excess"]
+        + frame["adverse_excess"]
+        + frame["realized_edge"].clip(upper=0).abs()
+    ) * frame["sample_weight"].pow(0.5)
+    return [
+        segment_record(row, reason=defensive_reason(row))
+        for _, row in frame.sort_values(
+            ["diagnostic_score", "signals"], ascending=False
+        )
+        .head(limit)
+        .iterrows()
+    ]
+
+
+def defensive_reason(row: pd.Series) -> str:
+    reasons = []
+    if float_value(row.get("drawdown_excess"), 0) > 0:
+        reasons.append("bounded_drawdown")
+    if float_value(row.get("adverse_excess"), 0) > 0:
+        reasons.append("adverse_selection")
+    if float_value(row.get("realized_edge"), 0) <= 0 or float_value(row.get("pnl"), 0) <= 0:
+        reasons.append("negative_edge")
+    return ",".join(reasons) if reasons else "defensive_risk"
+
+
+def bucket_attribution(
+    segments: pd.DataFrame,
+    adverse: pd.DataFrame,
+    *,
+    drawdown_threshold: float,
+    adverse_threshold: float,
+    min_segment_signals: int,
+    min_adverse_filled_events: int,
+    limit: int,
+) -> list[dict[str, object]]:
+    if segments.empty:
+        return []
+    frame = segments.copy()
+    for column in ("signals", "filled_signals", "pnl", "realized_edge", "max_drawdown"):
+        frame[column] = pd.to_numeric(frame.get(column), errors="coerce").fillna(0)
+    if not adverse.empty and {
+        "market_id",
+        "side",
+        "strategy",
+        "filled_events",
+        "adverse_30s_rate",
+    }.issubset(set(adverse.columns)):
+        adverse_frame = adverse.copy()
+        adverse_frame["filled_events"] = pd.to_numeric(
+            adverse_frame.get("filled_events"), errors="coerce"
+        ).fillna(0)
+        adverse_frame["adverse_30s_rate"] = pd.to_numeric(
+            adverse_frame.get("adverse_30s_rate"), errors="coerce"
+        ).fillna(0)
+        frame = frame.merge(
+            adverse_frame[
+                ["market_id", "side", "strategy", "filled_events", "adverse_30s_rate"]
+            ],
+            on=["market_id", "side", "strategy"],
+            how="left",
+        )
+    else:
+        frame["filled_events"] = 0.0
+        frame["adverse_30s_rate"] = 0.0
+    frame["filled_events"] = pd.to_numeric(
+        frame.get("filled_events"), errors="coerce"
+    ).fillna(0)
+    frame["adverse_30s_rate"] = pd.to_numeric(
+        frame.get("adverse_30s_rate"), errors="coerce"
+    ).fillna(0)
+    bucket_specs = (
+        ("market", ["market_id"]),
+        ("market_asset", ["market_id", "asset_id"]),
+        ("strategy", ["strategy"]),
+        ("market_asset_strategy", ["market_id", "asset_id", "strategy"]),
+        ("segment", ["market_id", "asset_id", "side", "strategy", "model_version"]),
+    )
+    records: list[dict[str, object]] = []
+    for bucket_type, keys in bucket_specs:
+        if any(key not in frame.columns for key in keys):
+            continue
+        grouped = frame.groupby(keys, dropna=False)
+        for group_key, group in grouped:
+            signals = float(group["signals"].sum())
+            if signals < min_segment_signals:
+                continue
+            filled_signals = float(group["filled_signals"].sum())
+            pnl = float(group["pnl"].sum())
+            realized_edge = weighted_average(
+                group["realized_edge"],
+                group["filled_signals"],
+            )
+            max_drawdown = float(group["max_drawdown"].max())
+            filled_events = float(group["filled_events"].max())
+            adverse_rate = float(group["adverse_30s_rate"].max())
+            drawdown_excess = max(0.0, max_drawdown - drawdown_threshold)
+            adverse_excess = (
+                max(0.0, adverse_rate - adverse_threshold)
+                if filled_events >= min_adverse_filled_events
+                else 0.0
+            )
+            bad_segments = int(
+                (
+                    (group["max_drawdown"] > drawdown_threshold)
+                    | (group["realized_edge"] < 0)
+                    | (group["pnl"] < 0)
+                ).sum()
+            )
+            candidate_segments = int(
+                (
+                    (group["max_drawdown"] > drawdown_threshold)
+                    | (
+                        (group["adverse_30s_rate"] > adverse_threshold)
+                        & (group["filled_events"] >= min_adverse_filled_events)
+                    )
+                ).sum()
+            )
+            if drawdown_excess <= 0 and adverse_excess <= 0 and bad_segments == 0:
+                continue
+            diagnostic_score = (
+                drawdown_excess
+                + adverse_excess
+                + abs(min(realized_edge or 0.0, 0.0))
+            ) * max(signals, 1.0) ** 0.5
+            records.append(
+                {
+                    "bucket_type": bucket_type,
+                    "bucket": bucket_value(keys, group_key),
+                    "segments": int(len(group.index)),
+                    "signals": signals,
+                    "filled_signals": filled_signals,
+                    "pnl": pnl,
+                    "realized_edge": realized_edge,
+                    "max_drawdown": max_drawdown,
+                    "drawdown_excess": drawdown_excess,
+                    "adverse_30s_rate": adverse_rate,
+                    "adverse_excess": adverse_excess,
+                    "adverse_filled_events": filled_events,
+                    "bad_segment_count": bad_segments,
+                    "candidate_segment_count": candidate_segments,
+                    "diagnostic_score": diagnostic_score,
+                }
+            )
+    return sorted(
+        records,
+        key=lambda item: float_value(item.get("diagnostic_score"), 0),
+        reverse=True,
+    )[:limit]
+
+
+def weighted_average(values: pd.Series, weights: pd.Series) -> float | None:
+    clean_values = pd.to_numeric(values, errors="coerce").fillna(0)
+    clean_weights = pd.to_numeric(weights, errors="coerce").fillna(0)
+    total_weight = float(clean_weights.sum())
+    if total_weight <= 0:
+        return None
+    return float((clean_values * clean_weights).sum() / total_weight)
+
+
+def bucket_value(keys: list[str], group_key: object) -> dict[str, str]:
+    values = group_key if isinstance(group_key, tuple) else (group_key,)
+    return {key: str(value or "") for key, value in zip(keys, values, strict=True)}
+
+
 def blocked_segments_payload(
     segments: list[dict[str, object]],
     *,
@@ -321,8 +655,11 @@ def narrow_candidate_variants(
     output_dir: Path,
     candidate_limits: tuple[int, ...],
     config: dict[str, object],
+    fixed_universe: dict[str, object],
     min_segment_signals: int,
     min_adverse_filled_events: int,
+    filename_prefix: str = "blocked_segments_candidate_top",
+    variant_name_prefix: str = "top",
 ) -> list[dict[str, object]]:
     output_dir.mkdir(parents=True, exist_ok=True)
     variants: list[dict[str, object]] = []
@@ -330,7 +667,7 @@ def narrow_candidate_variants(
         if limit >= len(candidate_segments):
             continue
         variant_segments = candidate_segments[:limit]
-        path = output_dir / f"blocked_segments_candidate_top_{limit}.json"
+        path = output_dir / f"{filename_prefix}_{limit}.json"
         payload = blocked_segments_payload(
             variant_segments,
             report_root=report_root,
@@ -340,16 +677,18 @@ def narrow_candidate_variants(
             variant_segments,
             segments=segments,
             report_root=report_root,
+            fixed_universe=fixed_universe,
             min_segment_signals=min_segment_signals,
             min_adverse_filled_events=min_adverse_filled_events,
         )
         variants.append(
             {
-                "name": f"top_{limit}",
+                "name": f"{variant_name_prefix}_{limit}",
                 "candidate_limit": limit,
                 "blocked_segments": len(variant_segments),
                 "path": str(path),
                 "next_command": (
+                    f"{fixed_universe_command_prefix(fixed_universe)}"
                     f"PREDICTOR_BLOCKED_SEGMENTS_PATH={path} "
                     "scripts/run_pre_live_dry_run.sh --duration-seconds 900"
                 ),
@@ -364,6 +703,7 @@ def blocklist_evaluation_contract(
     *,
     segments: pd.DataFrame,
     report_root: Path,
+    fixed_universe: dict[str, object],
     min_segment_signals: int,
     min_adverse_filled_events: int,
 ) -> dict[str, object]:
@@ -375,6 +715,7 @@ def blocklist_evaluation_contract(
         "source_report_root": str(report_root),
         "can_promote_live": False,
         "required_outcome": "restricted_run_must_remain_comparable",
+        "fixed_market_universe": fixed_universe,
         "expected_removed_segments": expected_removed,
         "expected_removed_segments_count": len(expected_removed),
         "expected_coverage_impact": coverage,
@@ -387,6 +728,7 @@ def blocklist_evaluation_contract(
         },
         "acceptance_criteria": [
             "compare_runs verdict is not no_comparable",
+            "restricted run uses the fixed MARKET_ASSET_IDS universe recorded in this contract",
             "all missing candidate segments are listed in expected_removed_segments",
             "shared segment, signal, and fill coverage meet minimums",
             "realized_edge does not regress",
@@ -398,11 +740,50 @@ def blocklist_evaluation_contract(
         "rejection_criteria": [
             "unexpected candidate segment loss",
             "unexpected new candidate segments",
+            "candidate market universe hash does not match the fixed contract",
             "insufficient shared coverage",
             "simulator quality regression",
             "single-run-only evidence",
         ],
     }
+
+
+def fixed_market_universe_payload(
+    segments: pd.DataFrame,
+    *,
+    report_root: Path,
+) -> dict[str, object]:
+    asset_ids: list[str] = []
+    if not segments.empty and "asset_id" in segments.columns:
+        asset_ids = sorted(
+            {
+                str(value)
+                for value in segments["asset_id"].dropna().tolist()
+                if str(value)
+            }
+        )
+    asset_ids_csv = ",".join(asset_ids)
+    return {
+        "version": "fixed_market_universe_v1",
+        "source_report_root": str(report_root),
+        "market_asset_ids": asset_ids,
+        "market_asset_ids_count": len(asset_ids),
+        "market_asset_ids_csv": asset_ids_csv,
+        "market_asset_ids_sha256": hashlib.sha256(
+            asset_ids_csv.encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def fixed_universe_command_prefix(fixed_universe: dict[str, object]) -> str:
+    value = fixed_universe.get("market_asset_ids_csv")
+    if not isinstance(value, str) or not value:
+        return ""
+    return f"MARKET_ASSET_IDS={shell_quote(value)} "
+
+
+def shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 def expected_coverage_impact(

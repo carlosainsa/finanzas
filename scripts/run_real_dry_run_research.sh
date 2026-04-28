@@ -213,6 +213,7 @@ capture_with_service_monitoring
 
 PYTHONPATH=python-service python3 - <<'PY'
 import asyncio
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -246,6 +247,12 @@ async def main() -> None:
     for item in parsed:
         status = str(item.get("status", "UNKNOWN"))
         status_counts[status] = status_counts.get(status, 0) + 1
+    market_asset_ids = [
+        item.strip()
+        for item in os.environ.get("MARKET_ASSET_IDS", "").split(",")
+        if item.strip()
+    ]
+    market_asset_ids_csv = ",".join(market_asset_ids)
     evidence = {
         "status": "ok",
         "run_id": os.environ["REPORT_TIMESTAMP"],
@@ -254,7 +261,11 @@ async def main() -> None:
         "go_no_go_profile": os.environ["GO_NO_GO_PROFILE"],
         "disable_market_ws": os.environ["DISABLE_MARKET_WS"],
         "capture_seconds": int(os.environ["REAL_DRY_RUN_SECONDS"]),
-        "market_asset_ids_count": len([item for item in os.environ.get("MARKET_ASSET_IDS", "").split(",") if item.strip()]),
+        "market_asset_ids_count": len(market_asset_ids),
+        "market_asset_ids": market_asset_ids,
+        "market_asset_ids_sha256": hashlib.sha256(
+            market_asset_ids_csv.encode("utf-8")
+        ).hexdigest(),
         "stream_lengths": lengths,
         "recent_report_status_counts": status_counts,
         "data_lake_root": os.environ["DATA_LAKE_ROOT"],

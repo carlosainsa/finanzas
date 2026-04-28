@@ -38,6 +38,11 @@ def test_blocker_diagnostics_exports_candidate_blocklist(tmp_path: Path) -> None
     assert coverage["baseline_signals"] == 63.0
     assert coverage["candidate_blocked_signals"] == 55.0
     assert coverage["signal_coverage_rate"] == 8.0 / 63.0
+    fixed_universe = contract["fixed_market_universe"]
+    assert fixed_universe["market_asset_ids"] == ["asset-1", "asset-2", "asset-3"]
+    next_run = cast(dict[str, object], report["next_restricted_run"])
+    assert "MARKET_ASSET_IDS=" in str(next_run["command"])
+    assert Path(str(report["fixed_market_universe_path"])).exists()
     variants = report["narrow_candidate_variants"]
     assert isinstance(variants, list)
     assert len(variants) == 1
@@ -56,6 +61,23 @@ def test_blocker_diagnostics_exports_candidate_blocklist(tmp_path: Path) -> None
     drawdown_metrics = drawdown_segment["metrics"]
     assert isinstance(drawdown_metrics, dict)
     assert drawdown_metrics["diagnostic_score"] == 0.4
+    buckets = cast(list[object], report["top_explanatory_buckets"])
+    assert buckets
+    market_bucket = next(
+        item
+        for item in buckets
+        if isinstance(item, dict)
+        and item["bucket_type"] == "market"
+        and item["bucket"] == {"market_id": "market-1"}
+    )
+    assert isinstance(market_bucket, dict)
+    assert market_bucket["candidate_segment_count"] == 2
+    defensive_path = Path(str(report["defensive_blocked_segments_path"]))
+    defensive_payload = json.loads(defensive_path.read_text(encoding="utf-8"))
+    assert defensive_payload["can_apply_live"] is False
+    assert defensive_payload["decision_policy"] == (
+        "candidate_requires_restricted_run_comparison"
+    )
 
 
 def test_blocker_diagnostics_summary_includes_next_command(tmp_path: Path) -> None:
