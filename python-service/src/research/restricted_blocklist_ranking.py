@@ -125,6 +125,7 @@ def observation_row(observation_root: Path) -> dict[str, object]:
         "realized_edge_delta": metric_deltas.get("realized_edge"),
         "fill_rate_delta": metric_deltas.get("fill_rate"),
         "drawdown_delta": metric_deltas.get("drawdown"),
+        "adverse_selection_delta": metric_deltas.get("adverse_selection"),
         "max_abs_simulator_fill_rate_delta_delta": metric_deltas.get(
             "max_abs_simulator_fill_rate_delta"
         ),

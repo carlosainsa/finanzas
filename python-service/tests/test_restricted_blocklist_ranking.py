@@ -188,6 +188,10 @@ def seed_observation(
                         "delta": drawdown_delta,
                     },
                     {
+                        "metric": "adverse_selection",
+                        "delta": -0.02,
+                    },
+                    {
                         "metric": "max_abs_simulator_fill_rate_delta",
                         "delta": -0.01,
                     },

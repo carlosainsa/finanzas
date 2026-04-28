@@ -41,6 +41,9 @@ def build_restricted_blocklist_history(
         "blocklist_kind_stability": [
             blocklist_kind_stability(kind, rows) for kind, rows in sorted(by_kind.items())
         ],
+        "variant_family_summary": [
+            variant_family_summary(kind, rows) for kind, rows in sorted(by_kind.items())
+        ],
         "observations": [compact_observation(item) for item in observations],
         "can_execute_trades": False,
     }
@@ -131,6 +134,85 @@ def blocklist_kind_stability(
     }
 
 
+def variant_family_summary(
+    variant_family: str,
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    complete = [item for item in observations if item.get("status") == "complete"]
+    scores = numeric_values(observations, "score")
+    risk_migration_count = sum(
+        1
+        for item in complete
+        if item.get("risk_migration_status") == "risk_migration_detected"
+    )
+    unexpected_count = sum(
+        1
+        for item in complete
+        if numeric_or_default(item.get("unexpected_blocked_segments"), 0.0) > 0
+    )
+    unexpected_values = numeric_values(complete, "unexpected_blocked_segments")
+    recommendation = stable_variant_recommendation(
+        variant_family=variant_family,
+        complete=complete,
+        risk_migration_count=risk_migration_count,
+        unexpected_count=unexpected_count,
+    )
+    return {
+        "variant_family": variant_family,
+        "observations": len(observations),
+        "complete_observations": len(complete),
+        "score_min": min(scores) if scores else None,
+        "score_max": max(scores) if scores else None,
+        "score_avg": sum(scores) / len(scores) if scores else None,
+        "risk_migration_detected_count": risk_migration_count,
+        "risk_migration_detected_rate": (
+            risk_migration_count / len(complete) if complete else None
+        ),
+        "unexpected_blocked_segments_count": unexpected_count,
+        "unexpected_blocked_segments_rate": (
+            unexpected_count / len(complete) if complete else None
+        ),
+        "unexpected_blocked_segments_total": (
+            sum(unexpected_values) if unexpected_values else None
+        ),
+        "unexpected_blocked_segments_avg": (
+            sum(unexpected_values) / len(unexpected_values)
+            if unexpected_values
+            else None
+        ),
+        "realized_edge_delta_avg": average_metric(complete, "realized_edge_delta"),
+        "fill_rate_delta_avg": average_metric(complete, "fill_rate_delta"),
+        "drawdown_delta_avg": average_metric(complete, "drawdown_delta"),
+        "adverse_selection_delta_avg": average_metric(
+            complete, "adverse_selection_delta"
+        ),
+        "stable_recommendation": recommendation,
+        "can_execute_trades": False,
+    }
+
+
+def stable_variant_recommendation(
+    *,
+    variant_family: str,
+    complete: list[dict[str, object]],
+    risk_migration_count: int,
+    unexpected_count: int,
+) -> str:
+    if not complete:
+        return "NEED_MORE_EVIDENCE"
+    if risk_migration_count or unexpected_count:
+        if variant_family == "restricted_input_plus_all_migrated_risk":
+            return "REDESIGN_STRATEGY"
+        return "TRY_ALL_MIGRATED"
+    decisions = {item.get("restricted_decision") for item in complete}
+    recommendations = {item.get("recommendation") for item in complete}
+    if decisions == {"REPEAT_OBSERVATION"} or recommendations == {"repeat_observation"}:
+        return "REPEAT"
+    if decisions == {"REJECT"}:
+        return "REJECT"
+    return "REDESIGN_STRATEGY"
+
+
 def compact_observation(row: dict[str, object]) -> dict[str, object]:
     return {
         "observation_root": row.get("observation_root"),
@@ -140,6 +222,10 @@ def compact_observation(row: dict[str, object]) -> dict[str, object]:
         "restricted_decision": row.get("restricted_decision"),
         "failure_classification": row.get("failure_classification"),
         "score": row.get("score"),
+        "realized_edge_delta": row.get("realized_edge_delta"),
+        "fill_rate_delta": row.get("fill_rate_delta"),
+        "drawdown_delta": row.get("drawdown_delta"),
+        "adverse_selection_delta": row.get("adverse_selection_delta"),
         "can_execute_trades": False,
     }
 
@@ -185,6 +271,19 @@ def count_values(
             value = "missing"
         counter[str(value)] += 1
     return dict(sorted(counter.items()))
+
+
+def numeric_values(observations: list[dict[str, object]], key: str) -> list[float]:
+    return [
+        numeric_or_default(item.get(key), 0.0)
+        for item in observations
+        if item.get(key) is not None
+    ]
+
+
+def average_metric(observations: list[dict[str, object]], key: str) -> float | None:
+    values = numeric_values(observations, key)
+    return sum(values) / len(values) if values else None
 
 
 def main() -> int:
