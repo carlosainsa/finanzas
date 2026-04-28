@@ -155,6 +155,8 @@ These steps improve the trading platform before introducing heavier models. The 
    - Treat `compare_runs` verdict `no_comparable` as a hard research blocker until both runs meet `segment_comparability_v2`: expected blocklist removals only, minimum shared segment coverage, minimum shared signal coverage, and minimum shared fill coverage.
    - Require `comparison.restricted_blocklist_assessment.status` to be `accepted_for_observation` before repeating a candidate blocklist; reject it immediately when protected metrics regress even if aggregate `verdict` says `candidate_improved`.
    - Keep every generated blocker blocklist candidate research-only with an embedded evaluation contract; never apply it live from one run.
+   - When a multi-segment blocklist is rejected, test a narrower generated variant such as `blocked_segments_candidate_top_1.json` before changing model or risk thresholds.
+   - Use simulator regression diagnostics to identify whether protected metric regressions come from observed errors, missing future orderbook evidence, no dry-run reports, or synthetic-only fills.
    - Use `research_promotion_decision` to convert a comparable comparison into `PROMOTE`, `REJECT`, or `NEED_MORE_DATA`; do not promote from aggregate metrics alone.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.

@@ -140,6 +140,8 @@ This writes:
 
 - `blocker_diagnostics/pre_live_blocker_diagnostics.json`
 - `blocker_diagnostics/blocked_segments_candidate.json`
+- `blocker_diagnostics/blocked_segments_candidate_top_1.json` when the full
+  candidate has more than one segment
 
 The candidate blocklist is compatible with `PREDICTOR_BLOCKED_SEGMENTS_PATH`,
 but it is still research-only. It should be used only for a restricted follow-up
@@ -174,6 +176,10 @@ For restricted runs, read `comparison.restricted_blocklist_assessment` before
 looking at the aggregate verdict. `candidate_improved` is not enough. A
 candidate blocklist remains rejected if protected metrics regress, including
 realized edge, fill-rate, simulator-quality delta, or reconciliation divergence.
+When rejected for simulator-quality regression, inspect
+`comparison.restricted_blocklist_assessment.simulator_regression_diagnostics`;
+it lists the worst market/asset/side segments and attaches dominant unfilled
+reasons from the candidate run.
 
 ## Exit Codes
 

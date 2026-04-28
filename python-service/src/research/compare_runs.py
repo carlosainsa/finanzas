@@ -423,6 +423,10 @@ def restricted_blocklist_assessment(
             "can_promote_blocklist": False,
             "regressions": regressions,
             "coverage_assessment": coverage,
+            "simulator_regression_diagnostics": simulator_regression_diagnostics(
+                baseline_report_root,
+                candidate_report_root,
+            ),
         }
     return {
         "status": "accepted_for_observation",
@@ -454,6 +458,154 @@ def protected_metric_regressions(
         for item in deltas
         if item.get("metric") in protected and item.get("improved") is False
     ]
+
+
+def simulator_regression_diagnostics(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+    limit: int = 10,
+) -> dict[str, object]:
+    baseline = load_simulator_quality(baseline_report_root)
+    candidate = load_simulator_quality(candidate_report_root)
+    reasons = load_unfilled_reason_summary(candidate_report_root)
+    if baseline.empty or candidate.empty:
+        return {
+            "status": "missing_data",
+            "baseline_segments": len(baseline.index),
+            "candidate_segments": len(candidate.index),
+            "segments": [],
+        }
+    keys = ["market_id", "asset_id", "side", "strategy", "model_version"]
+    if any(key not in baseline.columns or key not in candidate.columns for key in keys):
+        return {
+            "status": "missing_segment_keys",
+            "baseline_segments": len(baseline.index),
+            "candidate_segments": len(candidate.index),
+            "segments": [],
+        }
+    merged = baseline.merge(candidate, on=keys, suffixes=("_baseline", "_candidate"))
+    if merged.empty:
+        return {
+            "status": "no_shared_segments",
+            "baseline_segments": len(baseline.index),
+            "candidate_segments": len(candidate.index),
+            "segments": [],
+        }
+    for metric in (
+        "signals",
+        "dry_run_reports",
+        "dry_run_observed_fill_rate",
+        "synthetic_fill_rate",
+        "fill_rate_delta_vs_synthetic",
+        "dry_run_filled_signals",
+    ):
+        baseline_metric = f"{metric}_baseline"
+        candidate_metric = f"{metric}_candidate"
+        if baseline_metric in merged.columns:
+            merged[baseline_metric] = pd.to_numeric(merged[baseline_metric], errors="coerce")
+        if candidate_metric in merged.columns:
+            merged[candidate_metric] = pd.to_numeric(merged[candidate_metric], errors="coerce")
+    merged["abs_delta_baseline"] = merged["fill_rate_delta_vs_synthetic_baseline"].abs()
+    merged["abs_delta_candidate"] = merged["fill_rate_delta_vs_synthetic_candidate"].abs()
+    merged["abs_delta_regression"] = (
+        merged["abs_delta_candidate"] - merged["abs_delta_baseline"]
+    )
+    merged["dry_run_fill_rate_delta"] = (
+        merged["dry_run_observed_fill_rate_candidate"]
+        - merged["dry_run_observed_fill_rate_baseline"]
+    )
+    merged["synthetic_fill_rate_delta"] = (
+        merged["synthetic_fill_rate_candidate"] - merged["synthetic_fill_rate_baseline"]
+    )
+    rows = merged.sort_values("abs_delta_regression", ascending=False).head(limit)
+    records = []
+    for row in rows.to_dict(orient="records"):
+        record = normalize_row(row)
+        reason_summary = dominant_unfilled_reasons(
+            reasons,
+            market_id=str(record.get("market_id") or ""),
+            side=str(record.get("side") or ""),
+        )
+        record["candidate_unfilled_reasons"] = reason_summary
+        record["diagnosis"] = simulator_regression_label(record, reason_summary)
+        records.append(record)
+    return {
+        "status": "ok",
+        "baseline_segments": len(baseline.index),
+        "candidate_segments": len(candidate.index),
+        "shared_segments": len(merged.index),
+        "segments": records,
+    }
+
+
+def load_simulator_quality(report_root: Path | None) -> pd.DataFrame:
+    if report_root is None:
+        return pd.DataFrame()
+    path = report_root / "backtest" / "dry_run_simulator_quality.parquet"
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(path)
+
+
+def load_unfilled_reason_summary(report_root: Path | None) -> pd.DataFrame:
+    if report_root is None:
+        return pd.DataFrame()
+    path = report_root / "backtest" / "unfilled_reason_summary.parquet"
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(path)
+
+
+def dominant_unfilled_reasons(
+    reasons: pd.DataFrame,
+    *,
+    market_id: str,
+    side: str,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    if reasons.empty:
+        return []
+    required = {"market_id", "side", "unfilled_reason", "market_evidence_reason", "signals"}
+    if not required.issubset(set(reasons.columns)):
+        return []
+    frame = reasons[
+        (reasons["market_id"].astype(str) == market_id)
+        & (reasons["side"].astype(str) == side)
+    ].copy()
+    if frame.empty:
+        return []
+    frame["signals"] = pd.to_numeric(frame["signals"], errors="coerce").fillna(0)
+    rows = frame.sort_values("signals", ascending=False).head(limit).to_dict(orient="records")
+    return [normalize_row(row) for row in rows]
+
+
+def simulator_regression_label(
+    row: dict[str, object],
+    reason_summary: list[dict[str, object]],
+) -> str:
+    candidate_reports = numeric_or_none(row.get("dry_run_reports_candidate")) or 0.0
+    candidate_observed = numeric_or_none(row.get("dry_run_observed_fill_rate_candidate"))
+    candidate_synthetic = numeric_or_none(row.get("synthetic_fill_rate_candidate"))
+    if candidate_reports <= 0:
+        return "no_candidate_dry_run_reports"
+    if candidate_observed == 0 and candidate_synthetic and candidate_synthetic > 0:
+        return "synthetic_fills_without_observed_dry_run_fills"
+    if any(
+        item.get("unfilled_reason") == "observed_error"
+        for item in reason_summary
+    ):
+        return "observed_errors_dominate_unfilled"
+    if any(
+        item.get("market_evidence_reason") == "no_future_orderbook_snapshot"
+        for item in reason_summary
+    ):
+        return "insufficient_future_orderbook_evidence"
+    if any(
+        item.get("market_evidence_reason") == "future_book_never_touched_limit"
+        for item in reason_summary
+    ):
+        return "future_book_never_touched_limit"
+    return "simulator_observed_fill_rate_divergence"
 
 
 def joined_segment_frame(

@@ -38,6 +38,15 @@ def test_blocker_diagnostics_exports_candidate_blocklist(tmp_path: Path) -> None
     assert coverage["baseline_signals"] == 63.0
     assert coverage["candidate_blocked_signals"] == 55.0
     assert coverage["signal_coverage_rate"] == 8.0 / 63.0
+    variants = report["narrow_candidate_variants"]
+    assert isinstance(variants, list)
+    assert len(variants) == 1
+    variant = variants[0]
+    assert isinstance(variant, dict)
+    variant_path = Path(str(variant["path"]))
+    variant_payload = json.loads(variant_path.read_text(encoding="utf-8"))
+    assert variant_payload["evaluation_contract"]["expected_removed_segments_count"] == 1
+    assert len(variant_payload["segments"]) == 1
     reasons = {segment["reason"] for segment in payload["segments"]}
     assert "adverse_selection,bounded_drawdown" in reasons
     assert "adverse_selection" in reasons
@@ -56,6 +65,7 @@ def test_blocker_diagnostics_summary_includes_next_command(tmp_path: Path) -> No
 
     assert "pre_live_blocker_diagnostics" in output
     assert "candidate_blocked_segments=2" in output
+    assert "variant_top_1_command=" in output
     assert "PREDICTOR_BLOCKED_SEGMENTS_PATH=" in output
 
 

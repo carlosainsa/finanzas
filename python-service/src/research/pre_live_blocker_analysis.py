@@ -26,6 +26,7 @@ def create_blocker_diagnostics(
     max_candidates: int = 20,
     min_segment_signals: int = 10,
     min_adverse_filled_events: int = 10,
+    candidate_limits: tuple[int, ...] = (1,),
 ) -> dict[str, object]:
     go_no_go = read_json(report_root / GO_NO_GO)
     config = object_dict(go_no_go.get("config"))
@@ -81,6 +82,22 @@ def create_blocker_diagnostics(
     resolved_output_dir = output_dir or report_root / "blocker_diagnostics"
     blocked_path = resolved_output_dir / "blocked_segments_candidate.json"
     diagnostics_path = resolved_output_dir / "pre_live_blocker_diagnostics.json"
+    narrow_variants = narrow_candidate_variants(
+        candidate_segments,
+        segments=segments,
+        report_root=report_root,
+        output_dir=resolved_output_dir,
+        candidate_limits=candidate_limits,
+        config={
+            "max_drawdown": drawdown_threshold,
+            "max_adverse_selection_rate": adverse_threshold,
+            "min_segment_signals": min_segment_signals,
+            "min_adverse_filled_events": min_adverse_filled_events,
+            "max_candidates": max_candidates,
+        },
+        min_segment_signals=min_segment_signals,
+        min_adverse_filled_events=min_adverse_filled_events,
+    )
     report = {
         "report_version": REPORT_VERSION,
         "source_report_root": str(report_root),
@@ -104,6 +121,7 @@ def create_blocker_diagnostics(
         "top_drawdown_segments": drawdown_segments,
         "top_adverse_selection_segments": adverse_segments,
         "candidate_blocked_segments": candidate_segments,
+        "narrow_candidate_variants": narrow_variants,
         "evaluation_contract": evaluation_contract,
         "blocked_segments_path": str(blocked_path),
         "next_restricted_run": {
@@ -295,6 +313,52 @@ def blocked_segments_payload(
     }
 
 
+def narrow_candidate_variants(
+    candidate_segments: list[dict[str, object]],
+    *,
+    segments: pd.DataFrame,
+    report_root: Path,
+    output_dir: Path,
+    candidate_limits: tuple[int, ...],
+    config: dict[str, object],
+    min_segment_signals: int,
+    min_adverse_filled_events: int,
+) -> list[dict[str, object]]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    variants: list[dict[str, object]] = []
+    for limit in sorted({item for item in candidate_limits if item > 0}):
+        if limit >= len(candidate_segments):
+            continue
+        variant_segments = candidate_segments[:limit]
+        path = output_dir / f"blocked_segments_candidate_top_{limit}.json"
+        payload = blocked_segments_payload(
+            variant_segments,
+            report_root=report_root,
+            config={**config, "variant_candidate_limit": limit},
+        )
+        payload["evaluation_contract"] = blocklist_evaluation_contract(
+            variant_segments,
+            segments=segments,
+            report_root=report_root,
+            min_segment_signals=min_segment_signals,
+            min_adverse_filled_events=min_adverse_filled_events,
+        )
+        variants.append(
+            {
+                "name": f"top_{limit}",
+                "candidate_limit": limit,
+                "blocked_segments": len(variant_segments),
+                "path": str(path),
+                "next_command": (
+                    f"PREDICTOR_BLOCKED_SEGMENTS_PATH={path} "
+                    "scripts/run_pre_live_dry_run.sh --duration-seconds 900"
+                ),
+            }
+        )
+        write_json_atomic(path, payload)
+    return variants
+
+
 def blocklist_evaluation_contract(
     candidate_segments: list[dict[str, object]],
     *,
@@ -468,6 +532,11 @@ def main() -> int:
     parser.add_argument("--max-candidates", type=int, default=20)
     parser.add_argument("--min-segment-signals", type=int, default=10)
     parser.add_argument("--min-adverse-filled-events", type=int, default=10)
+    parser.add_argument(
+        "--candidate-limits",
+        default="1",
+        help="comma-separated narrower candidate limits to export, e.g. 1,2",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -477,12 +546,23 @@ def main() -> int:
         max_candidates=args.max_candidates,
         min_segment_signals=args.min_segment_signals,
         min_adverse_filled_events=args.min_adverse_filled_events,
+        candidate_limits=parse_candidate_limits(args.candidate_limits),
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
         print(format_summary(report))
     return 0
+
+
+def parse_candidate_limits(value: str) -> tuple[int, ...]:
+    limits: list[int] = []
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        limits.append(int(part))
+    return tuple(limits)
 
 
 def format_summary(report: dict[str, object]) -> str:
@@ -500,6 +580,11 @@ def format_summary(report: dict[str, object]) -> str:
     next_run = object_dict(report.get("next_restricted_run"))
     if next_run.get("command"):
         lines.append(f"next_command={next_run['command']}")
+    variants = report.get("narrow_candidate_variants")
+    if isinstance(variants, list):
+        for item in variants:
+            if isinstance(item, dict) and item.get("next_command"):
+                lines.append(f"variant_{item.get('name')}_command={item['next_command']}")
     return "\n".join(lines)
 
 

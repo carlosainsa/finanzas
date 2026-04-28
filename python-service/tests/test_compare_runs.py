@@ -251,6 +251,40 @@ def test_compare_report_roots_rejects_restricted_blocklist_on_protected_regressi
     blocklist_path = tmp_path / "blocked_segments_candidate.json"
     write_candidate_blocklist(blocklist_path, [])
     write_real_dry_run_evidence(candidate, blocklist_path)
+    write_simulator_quality(
+        baseline,
+        [
+            simulator_quality_row(
+                "market-1",
+                "asset-1",
+                dry_run_observed_fill_rate=1.0,
+                synthetic_fill_rate=0.9,
+            )
+        ],
+    )
+    write_simulator_quality(
+        candidate,
+        [
+            simulator_quality_row(
+                "market-1",
+                "asset-1",
+                dry_run_observed_fill_rate=0.0,
+                synthetic_fill_rate=1.0,
+            )
+        ],
+    )
+    write_unfilled_reason_summary(
+        candidate,
+        [
+            {
+                "market_id": "market-1",
+                "side": "BUY",
+                "unfilled_reason": "observed_error",
+                "market_evidence_reason": "synthetic_fill_available",
+                "signals": 3,
+            }
+        ],
+    )
     override_metric(baseline, "max_abs_simulator_fill_rate_delta", 0.1)
     override_metric(candidate, "max_abs_simulator_fill_rate_delta", 1.0)
     write_report_manifest(
@@ -274,6 +308,17 @@ def test_compare_report_roots_rejects_restricted_blocklist_on_protected_regressi
     assert {item["metric"] for item in regressions} == {
         "max_abs_simulator_fill_rate_delta"
     }
+    diagnostics = cast(
+        dict[str, Any], blocklist_assessment["simulator_regression_diagnostics"]
+    )
+    diagnostic_segments = cast(list[dict[str, Any]], diagnostics["segments"])
+    assert diagnostics["status"] == "ok"
+    assert diagnostic_segments[0]["diagnosis"] == (
+        "synthetic_fills_without_observed_dry_run_fills"
+    )
+    assert diagnostic_segments[0]["candidate_unfilled_reasons"][0][
+        "unfilled_reason"
+    ] == "observed_error"
 
 
 def test_compare_report_roots_keeps_verdict_when_segments_match(tmp_path: Path) -> None:
@@ -451,6 +496,35 @@ def write_report_manifest(report_root: Path, manifest: dict[str, object]) -> Non
     )
 
 
+def write_simulator_quality(report_root: Path, rows: list[dict[str, object]]) -> None:
+    output_dir = report_root / "backtest"
+    output_dir.mkdir(exist_ok=True)
+    pd.DataFrame(rows).to_parquet(
+        output_dir / "dry_run_simulator_quality.parquet", index=False
+    )
+
+
+def write_unfilled_reason_summary(
+    report_root: Path,
+    rows: list[dict[str, object]],
+) -> None:
+    output_dir = report_root / "backtest"
+    output_dir.mkdir(exist_ok=True)
+    normalized = [
+        {
+            "strategy": "near_touch",
+            "model_version": "predictor_v1",
+            "data_version": "data_v1",
+            "feature_version": "features_v1",
+            **row,
+        }
+        for row in rows
+    ]
+    pd.DataFrame(normalized).to_parquet(
+        output_dir / "unfilled_reason_summary.parquet", index=False
+    )
+
+
 def segment_row(
     market_id: str,
     asset_id: str,
@@ -471,6 +545,32 @@ def segment_row(
         "fill_rate": 0.5,
         "dry_run_observed_fill_rate": 0.5,
         "abs_simulator_fill_rate_delta": 0.1,
+    }
+
+
+def simulator_quality_row(
+    market_id: str,
+    asset_id: str,
+    *,
+    dry_run_observed_fill_rate: float,
+    synthetic_fill_rate: float,
+) -> dict[str, object]:
+    return {
+        "market_id": market_id,
+        "asset_id": asset_id,
+        "side": "BUY",
+        "strategy": "near_touch",
+        "model_version": "predictor_v1",
+        "data_version": "data_v1",
+        "feature_version": "features_v1",
+        "signals": 4,
+        "dry_run_reports": 4,
+        "dry_run_filled_signals": 4 * dry_run_observed_fill_rate,
+        "dry_run_observed_fill_rate": dry_run_observed_fill_rate,
+        "synthetic_fill_rate": synthetic_fill_rate,
+        "fill_rate_delta_vs_synthetic": dry_run_observed_fill_rate - synthetic_fill_rate,
+        "dry_run_avg_slippage": 0.0,
+        "synthetic_avg_slippage": 0.0,
     }
 
 
