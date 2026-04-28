@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import cast
 
 import duckdb
 import pytest
@@ -10,6 +11,7 @@ from src.research.backtest import create_backtest_views
 from src.research.data_lake import create_duckdb_views, export_data_lake
 from src.research.synthetic_fills import (
     SYNTHETIC_FILL_MODEL_VERSION,
+    SyntheticFillConfig,
     create_synthetic_fill_views,
     export_synthetic_fill_report,
 )
@@ -91,6 +93,17 @@ def test_synthetic_fills_do_not_fill_without_future_touch(tmp_path: Path) -> Non
     assert row == (0,)
 
 
+def test_synthetic_fills_respect_execution_min_confidence(tmp_path: Path) -> None:
+    db_path = seed_synthetic_fill_db(tmp_path, confidence=0.54)
+
+    create_synthetic_fill_views(db_path, SyntheticFillConfig(min_confidence=0.55))
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute("select count(*) from synthetic_execution_reports").fetchone()
+
+    assert row == (0,)
+
+
 def test_export_synthetic_fill_report_writes_artifacts(tmp_path: Path) -> None:
     db_path = seed_synthetic_fill_db(tmp_path)
     output_dir = tmp_path / "synthetic_fills"
@@ -98,6 +111,8 @@ def test_export_synthetic_fill_report_writes_artifacts(tmp_path: Path) -> None:
     report = export_synthetic_fill_report(db_path, output_dir)
 
     assert report["model_version"] == SYNTHETIC_FILL_MODEL_VERSION
+    config = cast(dict[str, object], report["config"])
+    assert config["min_confidence"] == 0.55
     assert report["counts"] == {
         "synthetic_fill_candidates": 1,
         "synthetic_execution_reports": 1,
@@ -107,7 +122,11 @@ def test_export_synthetic_fill_report_writes_artifacts(tmp_path: Path) -> None:
     assert (output_dir / "synthetic_execution_reports.parquet").exists()
 
 
-def seed_synthetic_fill_db(tmp_path: Path, touch_limit: bool = True) -> Path:
+def seed_synthetic_fill_db(
+    tmp_path: Path,
+    touch_limit: bool = True,
+    confidence: float = 0.8,
+) -> Path:
     redis = FakeRedis()
     redis.add_payload(
         settings.signals_stream,
@@ -118,7 +137,7 @@ def seed_synthetic_fill_db(tmp_path: Path, touch_limit: bool = True) -> Path:
             "side": "BUY",
             "price": 0.45,
             "size": 2.0,
-            "confidence": 0.8,
+            "confidence": confidence,
             "timestamp_ms": 1_000,
             "strategy": "test-strategy",
         },

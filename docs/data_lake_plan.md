@@ -122,7 +122,9 @@ This writes `synthetic_fills.json`, `synthetic_fill_candidates.parquet`,
 `synthetic_execution_reports.parquet`, and `synthetic_fill_summary.parquet`.
 The model `conservative_orderbook_fill_v1` only fills a BUY signal if a later
 best ask touches or improves the limit price, and only fills a SELL signal if a
-later best bid touches or improves the limit price. These reports are offline
+later best bid touches or improves the limit price. It also filters out signals
+below the configured execution `MIN_CONFIDENCE`, matching the Rust risk gate for
+research comparisons. These reports are offline
 research artifacts; they are not published to Redis and do not affect live
 execution.
 

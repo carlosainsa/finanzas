@@ -18,6 +18,7 @@ class SyntheticFillConfig:
     max_fill_delay_ms: int = 300_000
     min_fill_size: float = 0.000001
     max_fill_fraction: float = 1.0
+    min_confidence: float = 0.55
 
 
 def create_synthetic_fill_views(
@@ -66,6 +67,7 @@ def create_synthetic_fill_views(
               and s.event_timestamp_ms is not null
               and s.price is not null
               and s.size is not null
+              and s.confidence >= {config.min_confidence}
               and (
                 (s.side = 'BUY' and book.best_ask is not null and book.best_ask <= s.price)
                 or
@@ -170,6 +172,11 @@ def main() -> int:
         type=float,
         default=SyntheticFillConfig.max_fill_fraction,
     )
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=SyntheticFillConfig.min_confidence,
+    )
     args = parser.parse_args()
 
     report = export_synthetic_fill_report(
@@ -179,6 +186,7 @@ def main() -> int:
             max_fill_delay_ms=args.max_fill_delay_ms,
             min_fill_size=args.min_fill_size,
             max_fill_fraction=args.max_fill_fraction,
+            min_confidence=args.min_confidence,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

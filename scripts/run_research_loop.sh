@@ -95,7 +95,8 @@ PYTHONPATH=python-service python3 -m src.research.deterministic_baseline \
   > "$REPORT_ROOT/baseline.json"
 PYTHONPATH=python-service python3 -m src.research.synthetic_fills \
   --duckdb "$DUCKDB_PATH" \
-  --output-dir "$REPORT_ROOT/synthetic_fills" > "$REPORT_ROOT/synthetic_fills.json"
+  --output-dir "$REPORT_ROOT/synthetic_fills" \
+  --min-confidence "${MIN_CONFIDENCE:-0.55}" > "$REPORT_ROOT/synthetic_fills.json"
 PYTHONPATH=python-service python3 -m src.research.backtest \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/backtest" \

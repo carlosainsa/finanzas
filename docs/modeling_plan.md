@@ -234,7 +234,10 @@ hard gates.
 Synthetic fills are implemented as `src.research.synthetic_fills`. They are
 research-only estimates from future orderbook snapshots and are useful when
 short `dry_run` samples have no observed fills. They are not exchange fills and
-must not be used as live execution evidence.
+must not be used as live execution evidence. They apply the same minimum
+confidence threshold used by the execution risk gate (`MIN_CONFIDENCE`) so
+offline fill estimates do not count signals that Rust would reject before order
+creation.
 
 Backtest exports include `observed_vs_synthetic_fill_summary`. This report is
 the guardrail for synthetic fills: it compares observed fills, synthetic fills,
