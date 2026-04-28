@@ -263,6 +263,83 @@ def test_restricted_blocklist_observation_print_plan_uses_migrated_variant(
     assert plan["market_asset_ids_csv"] == "asset-1,asset-2"
 
 
+def test_restricted_blocklist_observation_print_plan_uses_top_migrated_variant(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+    variants_dir = baseline / "restricted" / "migrated_risk_variants"
+    variants_dir.mkdir(parents=True)
+    variant_path = (
+        variants_dir / "blocked_segments_restricted_input_plus_top_migrated_risk.json"
+    )
+    variant_path.write_text(
+        json.dumps(
+            {
+                "version": "blocked_segments_v1",
+                "segments": [
+                    {
+                        "market_id": "market-2",
+                        "asset_id": "asset-2",
+                        "side": "BUY",
+                        "strategy": "near_touch",
+                        "model_version": "predictor_v1",
+                    }
+                ],
+                "evaluation_contract": {
+                    "fixed_market_universe": {
+                        "market_asset_ids_csv": "asset-1,asset-2",
+                        "market_asset_ids_count": 2,
+                        "market_asset_ids_sha256": "hash",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    variants_path = baseline / "restricted" / "migrated_risk_blocklist_variants.json"
+    variants_path.write_text(
+        json.dumps(
+            {
+                "report_version": "migrated_risk_blocklist_variants_v1",
+                "variants": [
+                    {
+                        "name": "restricted_input_plus_top_migrated_risk",
+                        "path": str(variant_path),
+                        "blocked_segments": 1,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_restricted_blocklist_observation.sh",
+            "--baseline-report-root",
+            str(baseline),
+            "--diagnostics",
+            str(variants_path),
+            "--blocklist-kind",
+            "restricted_input_plus_top_migrated_risk",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["blocklist_kind"] == "restricted_input_plus_top_migrated_risk"
+    assert plan["blocklist_path"] == str(variant_path)
+    assert plan["market_asset_ids_csv"] == "asset-1,asset-2"
+
+
 def test_restricted_blocklist_observation_finalizes_decision() -> None:
     script = (ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh").read_text(
         encoding="utf-8"
@@ -270,10 +347,11 @@ def test_restricted_blocklist_observation_finalizes_decision() -> None:
 
     assert "src.research.restricted_blocklist_diagnostics" in script
     assert "restricted_blocklist_diagnostics.json" in script
-    assert "migrated_risk_blocklist_variants.json" in script
     assert "src.research.restricted_blocklist_decision" in script
     assert "src.research.restricted_blocklist_ranking" in script
     assert "restricted_blocklist_ranking.json" in script
+    assert "src.research.restricted_blocklist_summary" in script
+    assert "restricted_blocklist_observation_summary.json" in script
     assert "src.research.restricted_blocklist_next_variant" in script
     assert "restricted_blocklist_next_variant.json" in script
     assert "src.research.restricted_blocklist_failure" in script

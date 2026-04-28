@@ -337,37 +337,24 @@ if [[ "$decision_status" != "0" && "$decision_status" != "2" ]]; then
   exit "$decision_status"
 fi
 
-python3 - "$PLAN_JSON" "$CANDIDATE_REPORT_ROOT" "$OUTPUT_DIR" "$decision_status" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-plan = json.loads(sys.argv[1])
-candidate = Path(sys.argv[2])
-output = Path(sys.argv[3])
-decision_status = int(sys.argv[4])
-decision = json.loads((output / "research_promotion_decision.json").read_text(encoding="utf-8"))
-summary = {
-    **plan,
-    "candidate_report_root": str(candidate),
-    "output_dir": str(output),
-    "comparison_path": str(output / "comparison.json"),
-    "restricted_blocklist_diagnostics_path": str(output / "restricted_blocklist_diagnostics.json"),
-    "migrated_risk_blocklist_variants_path": str(output / "migrated_risk_blocklist_variants.json"),
-    "research_promotion_decision_path": str(output / "research_promotion_decision.json"),
-    "decision": decision.get("decision"),
-    "decision_exit_code": decision_status,
-    "can_execute_trades": False,
-}
-(output / "restricted_blocklist_observation_summary.json").write_text(
-    json.dumps(summary, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8",
-)
-print(json.dumps(summary, indent=2, sort_keys=True))
-PY
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_summary \
+  --plan-json "$PLAN_JSON" \
+  --candidate-report-root "$CANDIDATE_REPORT_ROOT" \
+  --output-dir "$OUTPUT_DIR" \
+  --decision-status "$decision_status" \
+  --output "$OUTPUT_DIR/restricted_blocklist_observation_summary.json" \
+  --json
 
 PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_decision \
   --observation-root "$OUTPUT_DIR" \
+  --json
+
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_summary \
+  --plan-json "$PLAN_JSON" \
+  --candidate-report-root "$CANDIDATE_REPORT_ROOT" \
+  --output-dir "$OUTPUT_DIR" \
+  --decision-status "$decision_status" \
+  --output "$OUTPUT_DIR/restricted_blocklist_observation_summary.json" \
   --json
 
 RANKING_OUTPUT_DIR="${RANKING_OUTPUT_DIR:-$OUTPUT_DIR}"

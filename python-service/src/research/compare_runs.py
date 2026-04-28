@@ -15,6 +15,7 @@ DEFAULT_METRICS = (
     "dry_run_observed_fill_rate",
     "slippage",
     "drawdown",
+    "adverse_selection",
     "max_abs_simulator_fill_rate_delta",
     "blocked_segments",
     "runtime_blocked_segments",
@@ -26,6 +27,7 @@ DEFAULT_METRICS = (
 LOWER_IS_BETTER = {
     "slippage",
     "drawdown",
+    "adverse_selection",
     "max_abs_simulator_fill_rate_delta",
     "blocked_segments",
     "stale_data_rate",

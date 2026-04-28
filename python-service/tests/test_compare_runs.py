@@ -40,6 +40,8 @@ def test_compare_runs_detects_candidate_improvement(tmp_path: Path) -> None:
     assert deltas["runtime_blocked_segments"]["direction"] == "neutral"
     assert deltas["runtime_blocked_segments"]["improved"] is None
     assert deltas["drawdown"]["improved"] is True
+    assert deltas["adverse_selection"]["direction"] == "lower_is_better"
+    assert deltas["adverse_selection"]["improved"] is True
     assert deltas["advisory_failed"]["improved"] is False
 
 
@@ -599,10 +601,12 @@ def seed_manifest_index(tmp_path: Path) -> Path:
     override_metric(run_1, "realized_edge", 0.04)
     override_metric(run_1, "filled_signals", 4)
     override_metric(run_1, "drawdown", 0.03)
+    override_metric(run_1, "adverse_selection", 0.35)
     override_advisory(run_1, failed=0)
     override_metric(run_2, "realized_edge", 0.07)
     override_metric(run_2, "filled_signals", 4)
     override_metric(run_2, "drawdown", 0.01)
+    override_metric(run_2, "adverse_selection", 0.25)
     override_advisory(run_2, failed=1)
     write_segments(
         run_1,
