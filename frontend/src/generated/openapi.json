@@ -596,6 +596,17 @@
             ],
             "title": "Pre Live Promotion Passed"
           },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          },
           "reason": {
             "anyOf": [
               {
@@ -625,6 +636,17 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "threshold_set_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold Set Version"
           }
         },
         "required": [
@@ -1412,6 +1434,17 @@
               }
             ],
             "title": "Go No Go Passed"
+          },
+          "go_no_go_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Go No Go Profile"
           },
           "nim_budget_status": {
             "anyOf": [

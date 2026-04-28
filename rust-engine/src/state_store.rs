@@ -612,5 +612,9 @@ fn migrations() -> Vec<(&'static str, &'static str)> {
             "0007_reconciliation_events",
             include_str!("../../shared/migrations/0007_reconciliation_events.sql"),
         ),
+        (
+            "0008_control_commands",
+            include_str!("../../shared/migrations/0008_control_commands.sql"),
+        ),
     ]
 }

@@ -135,6 +135,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Use the pre-live gate and calibration reports as promotion checks; walk-forward splits, Brier score, log loss, reliability buckets, and realized edge by confidence bucket are now generated offline.
    - Pre-live promotion report `pre_live_promotion_v1` is implemented offline and combines realized edge, fill-rate, slippage, adverse selection, drawdown, stale-data rate, reconciliation divergence rate, and calibration quality.
    - Go/no-go report `go_no_go_v1` is implemented as the single read-only quantitative decision artifact. It is exposed through API, CLI, dashboard, manifests, and `scripts/run_research_loop.sh`, but always keeps `can_execute_trades=false`.
+   - Go/no-go thresholds are versioned as `go_no_go_thresholds_v1` with explicit `dev`, `paper`, `pre_live`, and `live_candidate` profiles. `GO_NO_GO_PROFILE=pre_live` is the default production research posture until enough long-run evidence exists for `live_candidate`.
    - Agent advisory report `agent_advisory_offline_v1` is implemented as auditable offline reviewers; it does not authorize live trades.
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
@@ -152,6 +153,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Use `research_promotion_decision` to convert a comparable comparison into `PROMOTE`, `REJECT`, or `NEED_MORE_DATA`; do not promote from aggregate metrics alone.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
+   - Operator command intents are persisted in Postgres `control_commands` before Redis Stream publication when Postgres is configured, and production/control-required mode fails closed if that audit store is unavailable.
    - Keep Rust risk limits as the final authority for size, exposure, stale signals, kill switch, and cancellation behavior.
    - In `APP_ENV=production` or `REQUIRE_POSTGRES_STATE=true`, API reads for orders, positions, reports, control results, reconciliation, strategy metrics, runtime metrics, and Prometheus metrics must come from Postgres or fail closed with `503`.
 

@@ -195,6 +195,8 @@ class GoNoGoResponse(BaseModel):
     run_id: str | None = None
     created_at: str | None = None
     decision: str
+    profile: str | None = None
+    threshold_set_version: str | None = None
     passed: bool
     can_execute_trades: bool
     reason: str | None = None
@@ -220,6 +222,7 @@ class ResearchRunSummary(BaseModel):
     go_no_go_passed: bool | None = None
     feature_research_decision: str | None = None
     go_no_go_decision: str | None = None
+    go_no_go_profile: str | None = None
     realized_edge: float | None = None
     fill_rate: float | None = None
     nim_budget_status: str | None = None

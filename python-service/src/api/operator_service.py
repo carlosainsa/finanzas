@@ -7,7 +7,11 @@ from uuid import uuid4
 import asyncpg  # type: ignore[import-untyped]
 
 from src.config import settings
-from src.api.state_store import open_orders_from_postgres, positions_from_postgres
+from src.api.state_store import (
+    open_orders_from_postgres,
+    positions_from_postgres,
+    record_control_command_in_postgres,
+)
 
 
 class RedisLike(Protocol):
@@ -47,16 +51,22 @@ async def kill_switch_enabled(redis: RedisLike) -> bool:
 
 
 async def set_kill_switch(
-    redis: RedisLike, enabled: bool, reason: str, operator: str | None
+    redis: RedisLike,
+    enabled: bool,
+    reason: str,
+    operator: str | None,
+    postgres_pool: asyncpg.Pool | None = None,
 ) -> dict[str, object]:
-    await redis.set(settings.operator_kill_switch_key, "1" if enabled else "0")
     command: dict[str, object] = {
         "type": "kill_switch",
+        "command_id": str(uuid4()),
         "enabled": enabled,
         "reason": reason,
         "operator": operator,
         "timestamp_ms": now_ms(),
     }
+    await persist_control_command(command, postgres_pool)
+    await redis.set(settings.operator_kill_switch_key, "1" if enabled else "0")
     await redis.xadd(settings.operator_commands_stream, {"payload": json.dumps(command)})
     return {"kill_switch": enabled, "command": command}
 
@@ -67,6 +77,7 @@ async def request_cancel_all(
     operator: str | None,
     confirm: bool,
     confirmation_phrase: str | None,
+    postgres_pool: asyncpg.Pool | None = None,
 ) -> dict[str, object]:
     return await publish_control_command(
         redis,
@@ -78,13 +89,19 @@ async def request_cancel_all(
             "confirmation_phrase": confirmation_phrase,
             "scope": "account",
         },
+        postgres_pool=postgres_pool,
     )
 
 
 async def request_cancel_bot_open(
-    redis: RedisLike, reason: str, operator: str | None
+    redis: RedisLike,
+    reason: str,
+    operator: str | None,
+    postgres_pool: asyncpg.Pool | None = None,
 ) -> dict[str, object]:
-    return await publish_control_command(redis, "cancel_bot_open", reason, operator)
+    return await publish_control_command(
+        redis, "cancel_bot_open", reason, operator, postgres_pool=postgres_pool
+    )
 
 
 async def preview_cancel_bot_open(
@@ -138,6 +155,7 @@ async def publish_control_command(
     reason: str,
     operator: str | None,
     extra_fields: dict[str, object] | None = None,
+    postgres_pool: asyncpg.Pool | None = None,
 ) -> dict[str, object]:
     command_id = str(uuid4())
     command: dict[str, object] = {
@@ -149,8 +167,17 @@ async def publish_control_command(
     }
     if extra_fields:
         command.update(extra_fields)
+    await persist_control_command(command, postgres_pool)
     await redis.xadd(settings.operator_commands_stream, {"payload": json.dumps(command)})
     return {"accepted": True, "command": command}
+
+
+async def persist_control_command(
+    command: dict[str, object], postgres_pool: asyncpg.Pool | None
+) -> None:
+    if postgres_pool is None:
+        return
+    await record_control_command_in_postgres(postgres_pool, command)
 
 
 async def stream_summary(redis: RedisLike) -> list[dict[str, object]]:

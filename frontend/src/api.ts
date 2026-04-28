@@ -293,6 +293,8 @@ export const fallbackData: DashboardData = {
     run_id: null,
     created_at: null,
     decision: 'NO_GO',
+    profile: null,
+    threshold_set_version: null,
     passed: false,
     can_execute_trades: false,
     reason: 'missing_research_run',

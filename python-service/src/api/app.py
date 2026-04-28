@@ -116,8 +116,13 @@ async def enable_kill_switch(
     request: KillSwitchRequest, _: ControlAuthDependency
 ) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
     return await set_kill_switch(
-        redis, enabled=True, reason=request.reason, operator=request.operator
+        redis,
+        enabled=True,
+        reason=request.reason,
+        operator=request.operator,
+        postgres_pool=postgres_pool,
     )
 
 
@@ -126,8 +131,13 @@ async def resume(request: ResumeRequest, _: ControlAuthDependency) -> dict[str, 
     if not request.confirm:
         raise HTTPException(status_code=400, detail="confirm=true is required to resume")
     redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
     return await set_kill_switch(
-        redis, enabled=False, reason=request.reason, operator=request.operator
+        redis,
+        enabled=False,
+        reason=request.reason,
+        operator=request.operator,
+        postgres_pool=postgres_pool,
     )
 
 
@@ -166,12 +176,14 @@ async def cancel_all(
             detail='cancel-all requires confirm=true and confirmation_phrase="CANCEL ALL OPEN ORDERS"',
         )
     redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
     return await request_cancel_all(
         redis,
         reason=request.reason,
         operator=request.operator,
         confirm=request.confirm,
         confirmation_phrase=request.confirmation_phrase,
+        postgres_pool=postgres_pool,
     )
 
 
@@ -185,8 +197,12 @@ async def cancel_bot_open(
     request: CancelBotOpenRequest,
 ) -> dict[str, object]:
     redis = cast(RedisLike, await get_redis())
+    postgres_pool = await postgres_pool_or_503()
     return await request_cancel_bot_open(
-        redis, reason=request.reason, operator=request.operator
+        redis,
+        reason=request.reason,
+        operator=request.operator,
+        postgres_pool=postgres_pool,
     )
 
 

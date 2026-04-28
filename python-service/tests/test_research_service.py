@@ -73,6 +73,8 @@ def test_latest_go_no_go_reads_latest_manifest_report(tmp_path: Path) -> None:
             {
                 "decision": "NO_GO",
                 "passed": False,
+                "profile": "pre_live",
+                "threshold_set_version": "go_no_go_thresholds_v1",
                 "reason": "quantitative_gate_failure",
                 "blockers": [{"check_name": "positive_realized_edge", "passed": False}],
                 "metrics": {"realized_edge": -0.01, "fill_rate": 0.2},
@@ -102,6 +104,8 @@ def test_latest_go_no_go_reads_latest_manifest_report(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     assert result["run_id"] == "run-2"
     assert result["decision"] == "NO_GO"
+    assert result["profile"] == "pre_live"
+    assert result["threshold_set_version"] == "go_no_go_thresholds_v1"
     assert result["passed"] is False
     assert result["can_execute_trades"] is False
     assert result["nim_budget_status"] == "OK"
@@ -127,6 +131,7 @@ def test_list_research_runs_returns_latest_first(tmp_path: Path) -> None:
             "go_no_go_passed": True,
             "feature_research_decision": "KEEP_DIAGNOSTIC",
             "go_no_go_decision": "GO",
+            "go_no_go_profile": "dev",
             "realized_edge": 0.04,
             "fill_rate": 0.5,
             "nim_budget_status": "OK",
@@ -193,6 +198,7 @@ def seed_research_index(tmp_path: Path) -> Path:
                             "realized_edge": 0.04,
                             "fill_rate": 0.5,
                             "go_no_go_decision": "GO",
+                            "go_no_go_profile": "dev",
                         },
                         "versions": {"nim_advisory_model": "deepseek-ai/deepseek-v3.2"},
                         "counts": {

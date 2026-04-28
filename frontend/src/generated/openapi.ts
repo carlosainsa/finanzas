@@ -961,6 +961,8 @@ export interface components {
             pre_live_gate_passed?: boolean | null;
             /** Pre Live Promotion Passed */
             pre_live_promotion_passed?: boolean | null;
+            /** Profile */
+            profile?: string | null;
             /** Reason */
             reason?: string | null;
             /** Run Id */
@@ -969,6 +971,8 @@ export interface components {
             source: string;
             /** Status */
             status: string;
+            /** Threshold Set Version */
+            threshold_set_version?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1181,6 +1185,8 @@ export interface components {
             go_no_go_decision?: string | null;
             /** Go No Go Passed */
             go_no_go_passed?: boolean | null;
+            /** Go No Go Profile */
+            go_no_go_profile?: string | null;
             /** Nim Budget Status */
             nim_budget_status?: string | null;
             /** Nim Estimated Cost */

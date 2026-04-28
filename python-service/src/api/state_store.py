@@ -152,6 +152,49 @@ async def control_results_from_postgres(
     return results
 
 
+async def record_control_command_in_postgres(
+    pool: asyncpg.Pool, command: dict[str, object]
+) -> None:
+    command_id = command.get("command_id")
+    if not isinstance(command_id, str) or not command_id:
+        raise ValueError("control command must include command_id")
+    command_type = command.get("type")
+    if not isinstance(command_type, str) or not command_type:
+        raise ValueError("control command must include type")
+    created_at_ms = command.get("timestamp_ms")
+    if not isinstance(created_at_ms, int):
+        raise ValueError("control command must include integer timestamp_ms")
+    await pool.execute(
+        """
+        insert into control_commands (
+            command_id,
+            command_type,
+            status,
+            operator,
+            reason,
+            payload,
+            created_at_ms
+        )
+        values ($1, $2, $3, $4, $5, $6, $7)
+        on conflict (command_id) do update set
+            command_type = excluded.command_type,
+            status = excluded.status,
+            operator = excluded.operator,
+            reason = excluded.reason,
+            payload = excluded.payload,
+            created_at_ms = excluded.created_at_ms,
+            updated_at = now()
+        """,
+        command_id,
+        command_type,
+        str(command.get("status") or "PUBLISHED"),
+        command.get("operator") if isinstance(command.get("operator"), str) else None,
+        command.get("reason") if isinstance(command.get("reason"), str) else None,
+        json.dumps(command),
+        created_at_ms,
+    )
+
+
 async def reconciliation_status_from_postgres(
     pool: asyncpg.Pool, limit: int
 ) -> dict[str, Any]:

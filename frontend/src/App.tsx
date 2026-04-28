@@ -430,12 +430,13 @@ export function App() {
                 run.run_id ?? '-',
                 run.passed === null || run.passed === undefined ? '-' : run.passed ? 'pass' : 'fail',
                 run.go_no_go_decision ?? '-',
+                run.go_no_go_profile ?? '-',
                 formatNumber(run.realized_edge),
                 formatNumber(run.fill_rate),
                 run.nim_budget_status ?? '-',
                 run.feature_research_decision ?? '-',
               ])}
-              headers={['Run', 'Passed', 'Go/No-Go', 'Edge', 'Fill rate', 'NIM budget', 'Feature decision']}
+              headers={['Run', 'Passed', 'Go/No-Go', 'Profile', 'Edge', 'Fill rate', 'NIM budget', 'Feature decision']}
             />
           </Panel>
 
@@ -444,7 +445,7 @@ export function App() {
               <span className={`budgetBadge ${data.goNoGo.passed ? 'good' : 'danger'}`}>
                 {data.goNoGo.decision}
               </span>
-              <code>{data.goNoGo.run_id ?? 'no research run'}</code>
+              <code>{data.goNoGo.profile ?? 'no profile'} / {data.goNoGo.run_id ?? 'no research run'}</code>
             </div>
             <Table
               empty="No quantitative blockers"

@@ -56,6 +56,8 @@ def create_run_manifest(
         "versions": {
             "promotion_report": promotion.get("report_version"),
             "go_no_go_report": go_no_go.get("report_version"),
+            "go_no_go_threshold_set": go_no_go.get("threshold_set_version"),
+            "go_no_go_profile": go_no_go.get("profile"),
             "advisory_report": advisory.get("report_version"),
             "advisory_model": advisory.get("model_version"),
             "advisory_data": advisory.get("data_version"),
@@ -158,6 +160,8 @@ def manifest_metrics(
         "test_brier_score": promotion_metrics.get("test_brier_score"),
         "test_log_loss": promotion_metrics.get("test_log_loss"),
         "go_no_go_decision": go_no_go.get("decision"),
+        "go_no_go_profile": go_no_go.get("profile"),
+        "go_no_go_threshold_set_version": go_no_go.get("threshold_set_version"),
         "go_no_go_blockers": stable_json_list(
             [
                 typed_dict(item).get("check_name")
@@ -402,6 +406,8 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
         "promotion_report_version": versions.get("promotion_report"),
         "go_no_go_report_version": versions.get("go_no_go_report"),
+        "go_no_go_threshold_set_version": versions.get("go_no_go_threshold_set"),
+        "go_no_go_profile": versions.get("go_no_go_profile"),
         "advisory_report_version": versions.get("advisory_report"),
         "advisory_model_version": versions.get("advisory_model"),
         "advisory_data_version": versions.get("advisory_data"),

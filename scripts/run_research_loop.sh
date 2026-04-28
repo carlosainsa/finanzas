@@ -10,30 +10,60 @@ BASELINE_QUOTE_PLACEMENT="${BASELINE_QUOTE_PLACEMENT:-passive_bid}"
 BASELINE_NEAR_TOUCH_TICK_SIZE="${BASELINE_NEAR_TOUCH_TICK_SIZE:-0.01}"
 BASELINE_NEAR_TOUCH_OFFSET_TICKS="${BASELINE_NEAR_TOUCH_OFFSET_TICKS:-0}"
 BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION="${BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION:-1.0}"
+GO_NO_GO_PROFILE="${GO_NO_GO_PROFILE:-dev}"
 PRE_LIVE_PROMOTION_ARGS=()
+GO_NO_GO_ARGS=(--profile "$GO_NO_GO_PROFILE")
 if [[ -n "${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--min-capture-duration-ms "$PRE_LIVE_MIN_CAPTURE_DURATION_MS")
+  GO_NO_GO_ARGS+=(--min-capture-duration-ms "$PRE_LIVE_MIN_CAPTURE_DURATION_MS")
 fi
 if [[ -n "${PRE_LIVE_MIN_SIGNALS:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--min-signals "$PRE_LIVE_MIN_SIGNALS")
+  GO_NO_GO_ARGS+=(--min-signals "$PRE_LIVE_MIN_SIGNALS")
 fi
 if [[ -n "${PRE_LIVE_MIN_REALIZED_EDGE:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--min-realized-edge "$PRE_LIVE_MIN_REALIZED_EDGE")
+  GO_NO_GO_ARGS+=(--min-realized-edge "$PRE_LIVE_MIN_REALIZED_EDGE")
 fi
 if [[ -n "${PRE_LIVE_MIN_FILL_RATE:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--min-fill-rate "$PRE_LIVE_MIN_FILL_RATE")
+  GO_NO_GO_ARGS+=(--min-fill-rate "$PRE_LIVE_MIN_FILL_RATE")
 fi
 if [[ -n "${PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--min-dry-run-observed-fill-rate "$PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE")
+  GO_NO_GO_ARGS+=(--min-dry-run-observed-fill-rate "$PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE")
 fi
 if [[ -n "${PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--max-abs-simulator-fill-rate-delta "$PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA")
+  GO_NO_GO_ARGS+=(--max-abs-simulator-fill-rate-delta "$PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA")
 fi
 if [[ -n "${PRE_LIVE_MAX_ABS_SLIPPAGE:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--max-abs-slippage "$PRE_LIVE_MAX_ABS_SLIPPAGE")
+  GO_NO_GO_ARGS+=(--max-abs-slippage "$PRE_LIVE_MAX_ABS_SLIPPAGE")
+fi
+if [[ -n "${PRE_LIVE_MAX_ADVERSE_SELECTION_RATE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-adverse-selection-rate "$PRE_LIVE_MAX_ADVERSE_SELECTION_RATE")
+  GO_NO_GO_ARGS+=(--max-adverse-selection-rate "$PRE_LIVE_MAX_ADVERSE_SELECTION_RATE")
+fi
+if [[ -n "${PRE_LIVE_MAX_DRAWDOWN:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-drawdown "$PRE_LIVE_MAX_DRAWDOWN")
+  GO_NO_GO_ARGS+=(--max-drawdown "$PRE_LIVE_MAX_DRAWDOWN")
+fi
+if [[ -n "${PRE_LIVE_MAX_STALE_DATA_RATE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-stale-data-rate "$PRE_LIVE_MAX_STALE_DATA_RATE")
+  GO_NO_GO_ARGS+=(--max-stale-data-rate "$PRE_LIVE_MAX_STALE_DATA_RATE")
 fi
 if [[ -n "${PRE_LIVE_MAX_RECONCILIATION_DIVERGENCE_RATE:-}" ]]; then
   PRE_LIVE_PROMOTION_ARGS+=(--max-reconciliation-divergence-rate "$PRE_LIVE_MAX_RECONCILIATION_DIVERGENCE_RATE")
+  GO_NO_GO_ARGS+=(--max-reconciliation-divergence-rate "$PRE_LIVE_MAX_RECONCILIATION_DIVERGENCE_RATE")
+fi
+if [[ -n "${PRE_LIVE_MAX_BRIER_SCORE:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--max-brier-score "$PRE_LIVE_MAX_BRIER_SCORE")
+  GO_NO_GO_ARGS+=(--max-brier-score "$PRE_LIVE_MAX_BRIER_SCORE")
+fi
+if [[ -n "${PRE_LIVE_STALE_GAP_MS:-}" ]]; then
+  PRE_LIVE_PROMOTION_ARGS+=(--stale-gap-ms "$PRE_LIVE_STALE_GAP_MS")
+  GO_NO_GO_ARGS+=(--stale-gap-ms "$PRE_LIVE_STALE_GAP_MS")
 fi
 REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 REPORT_ROOT="${RESEARCH_REPORT_ROOT:-$DATA_LAKE_ROOT/reports/$REPORT_TIMESTAMP}"
@@ -95,7 +125,8 @@ PYTHONPATH=python-service python3 -m src.research.pre_live_promotion \
   "${PRE_LIVE_PROMOTION_ARGS[@]}" > "$REPORT_ROOT/pre_live_promotion.json"
 PYTHONPATH=python-service python3 -m src.research.go_no_go \
   --duckdb "$DUCKDB_PATH" \
-  --output-dir "$REPORT_ROOT/go_no_go" > "$REPORT_ROOT/go_no_go.json"
+  --output-dir "$REPORT_ROOT/go_no_go" \
+  "${GO_NO_GO_ARGS[@]}" > "$REPORT_ROOT/go_no_go.json"
 PYTHONPATH=python-service python3 -m src.research.agent_advisory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"

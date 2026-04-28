@@ -1,6 +1,6 @@
 import json
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -59,6 +59,28 @@ class FakeRedis:
         return entries if count is None else entries[:count]
 
 
+class FakePostgresPool:
+    def __init__(self, redis: FakeRedis | None = None) -> None:
+        self.redis = redis
+        self.commands: list[dict[str, object]] = []
+
+    async def execute(self, query: str, *args: object) -> str:
+        if self.redis is not None:
+            assert settings.operator_commands_stream not in self.redis.streams
+        self.commands.append(
+            {
+                "command_id": args[0],
+                "command_type": args[1],
+                "status": args[2],
+                "operator": args[3],
+                "reason": args[4],
+                "payload": json.loads(cast(str, args[5])),
+                "created_at_ms": args[6],
+            }
+        )
+        return "INSERT 0 1"
+
+
 def test_kill_switch_state_is_written_and_read() -> None:
     redis = FakeRedis()
 
@@ -71,6 +93,28 @@ def test_kill_switch_state_is_written_and_read() -> None:
     assert asyncio.run(kill_switch_enabled(redis)) is True
     command = json.loads(redis.streams[settings.operator_commands_stream][0][1]["payload"])
     assert command["reason"] == "maintenance"
+
+
+def test_kill_switch_command_is_audited_before_stream_publish() -> None:
+    redis = FakeRedis()
+    postgres = FakePostgresPool(redis)
+
+    result = asyncio.run(
+        set_kill_switch(
+            redis,
+            True,
+            "maintenance",
+            "operator-1",
+            postgres_pool=cast(Any, postgres),
+        )
+    )
+
+    command = cast(dict[str, object], result["command"])
+    assert command["command_id"]
+    assert postgres.commands[0]["command_id"] == command["command_id"]
+    assert postgres.commands[0]["command_type"] == "kill_switch"
+    assert postgres.commands[0]["status"] == "PUBLISHED"
+    assert settings.operator_commands_stream in redis.streams
 
 
 def test_cancel_all_command_is_published() -> None:
@@ -92,6 +136,25 @@ def test_cancel_all_command_is_published() -> None:
     assert command["reason"] == "risk off"
     assert command["command_id"]
     assert command["confirmation_phrase"] == "CANCEL ALL OPEN ORDERS"
+
+
+def test_cancel_command_is_audited_before_stream_publish() -> None:
+    redis = FakeRedis()
+    postgres = FakePostgresPool(redis)
+
+    result = asyncio.run(
+        request_cancel_bot_open(
+            redis,
+            "rebalance",
+            "operator-1",
+            postgres_pool=cast(Any, postgres),
+        )
+    )
+
+    command = cast(dict[str, object], result["command"])
+    assert postgres.commands[0]["command_id"] == command["command_id"]
+    assert postgres.commands[0]["command_type"] == "cancel_bot_open"
+    assert settings.operator_commands_stream in redis.streams
 
 
 def test_cancel_bot_open_command_is_published() -> None:
@@ -591,6 +654,24 @@ def test_required_postgres_state_returns_503_instead_of_redis_fallback(
         "/metrics/prometheus",
     ):
         response = client.get(path)
+        assert response.status_code == 503
+        assert "DATABASE_URL is required" in response.json()["detail"]
+
+    post_cases = (
+        ("/control/kill-switch", {"reason": "pause"}),
+        ("/control/resume", {"confirm": True, "reason": "resume"}),
+        (
+            "/orders/cancel-all",
+            {
+                "reason": "risk off",
+                "confirm": True,
+                "confirmation_phrase": "CANCEL ALL OPEN ORDERS",
+            },
+        ),
+        ("/orders/cancel-bot-open", {"reason": "rebalance"}),
+    )
+    for path, payload in post_cases:
+        response = client.post(path, json=payload)
         assert response.status_code == 503
         assert "DATABASE_URL is required" in response.json()["detail"]
 

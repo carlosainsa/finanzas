@@ -15,7 +15,13 @@ from src.research.pre_live_promotion import (
     create_promotion_views,
     export_promotion_report,
 )
-from src.research.go_no_go import GO_NO_GO_REPORT_VERSION, create_go_no_go_report, export_go_no_go_report
+from src.research.go_no_go import (
+    GO_NO_GO_REPORT_VERSION,
+    THRESHOLD_SET_VERSION,
+    config_for_profile,
+    create_go_no_go_report,
+    export_go_no_go_report,
+)
 
 
 class FakeRedis:
@@ -75,6 +81,8 @@ def test_go_no_go_report_summarizes_quantitative_gate(tmp_path: Path) -> None:
     )
 
     assert report["report_version"] == GO_NO_GO_REPORT_VERSION
+    assert report["profile"] == "dev"
+    assert report["threshold_set_version"] == THRESHOLD_SET_VERSION
     assert report["decision"] == "GO"
     assert report["passed"] is True
     assert report["can_execute_trades"] is False
@@ -97,6 +105,16 @@ def test_go_no_go_report_blocks_failed_quantitative_gate(tmp_path: Path) -> None
     assert report["decision"] == "NO_GO"
     assert report["passed"] is False
     assert any(blocker["check_name"] == "has_signals" for blocker in blockers)
+
+
+def test_go_no_go_profiles_are_versioned_and_progressively_stricter() -> None:
+    dev = config_for_profile("dev")
+    pre_live = config_for_profile("pre_live")
+    live_candidate = config_for_profile("live_candidate")
+
+    assert pre_live.min_signals > dev.min_signals
+    assert live_candidate.min_signals > pre_live.min_signals
+    assert live_candidate.max_drawdown < pre_live.max_drawdown
 
 
 def test_export_go_no_go_report_writes_json(tmp_path: Path) -> None:
