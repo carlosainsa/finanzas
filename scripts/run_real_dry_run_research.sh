@@ -293,25 +293,9 @@ set -e
 if [[ "$readiness_status" != "0" ]]; then
   echo "Pre-live readiness is not ready; inspect $RESEARCH_REPORT_ROOT/pre_live_readiness.json." >&2
 fi
-PYTHONPATH=python-service python3 - "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-if not path.exists():
-    raise SystemExit(0)
-report = json.loads(path.read_text(encoding="utf-8"))
-go_no_go = report.get("go_no_go") if isinstance(report.get("go_no_go"), dict) else {}
-blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
-print("pre_live_readiness_summary")
-print(f"status={report.get('status')}")
-print(f"run_id={report.get('run_id')}")
-print(f"profile={go_no_go.get('profile')}")
-print(f"decision={go_no_go.get('decision')}")
-print(f"blockers={len(blockers)}")
-print(f"path={path}")
-PY
+if [[ -f "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" ]]; then
+  scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" || true
+fi
 
 if [[ "$research_status" == "0" ]]; then
   if [[ "$readiness_status" != "0" && "$ALLOW_RESEARCH_GATE_FAILURE" != "1" && "$ALLOW_RESEARCH_GATE_FAILURE" != "true" ]]; then

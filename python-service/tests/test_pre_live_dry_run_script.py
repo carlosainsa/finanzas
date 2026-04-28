@@ -62,4 +62,7 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
     assert '"go_no_go_profile": os.environ["GO_NO_GO_PROFILE"]' in script
     assert 'if [[ "$readiness_status" != "0"' in script
     assert "ALLOW_RESEARCH_GATE_FAILURE" in script
-    assert "pre_live_readiness_summary" in script
+    assert (
+        'scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" || true'
+        in script
+    )

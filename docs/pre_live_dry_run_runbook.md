@@ -91,8 +91,15 @@ The script prints a `pre_live_readiness_summary` block with:
 For manual inspection:
 
 ```bash
-jq '.status, .go_no_go, .blockers, .audit' \
-  "$RESEARCH_REPORT_ROOT/pre_live_readiness.json"
+scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json"
+```
+
+For machine-readable automation:
+
+```bash
+PYTHONPATH=python-service python3 -m src.research.pre_live_readiness \
+  --input "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" \
+  --format summary-json
 ```
 
 ## Interpreting `pre_live_readiness.json`

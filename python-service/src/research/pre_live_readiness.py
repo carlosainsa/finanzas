@@ -244,24 +244,134 @@ def string_value(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def load_readiness_report(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid readiness report: {path}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"readiness report must be a JSON object: {path}")
+    return value
+
+
+def summarize_readiness_report(report: dict[str, object]) -> dict[str, object]:
+    go_no_go = object_dict(report.get("go_no_go"))
+    audit = object_dict(report.get("audit"))
+    blockers = object_list(report.get("blockers"))
+    artifacts = object_dict(report.get("artifacts"))
+    status = string_value(report.get("status")) or "missing"
+    return {
+        "status": status,
+        "recommendation": readiness_recommendation(status, blockers),
+        "run_id": report.get("run_id"),
+        "report_root": report.get("report_root"),
+        "can_execute_trades": False,
+        "go_no_go_decision": go_no_go.get("decision"),
+        "go_no_go_profile": go_no_go.get("profile"),
+        "audit_status": audit.get("status"),
+        "blocker_count": len(blockers),
+        "blockers": blocker_names(blockers),
+        "artifact_paths": artifact_paths(artifacts),
+    }
+
+
+def format_readiness_summary(summary: dict[str, object]) -> str:
+    lines = [
+        "pre_live_readiness_summary",
+        f"status={summary.get('status')}",
+        f"recommendation={summary.get('recommendation')}",
+        f"run_id={summary.get('run_id')}",
+        f"profile={summary.get('go_no_go_profile')}",
+        f"decision={summary.get('go_no_go_decision')}",
+        f"audit={summary.get('audit_status')}",
+        f"blockers={summary.get('blocker_count')}",
+        "can_execute_trades=false",
+    ]
+    blockers = object_list(summary.get("blockers"))
+    if blockers:
+        lines.append("blocker_names=" + ",".join(str(item) for item in blockers))
+    artifact_paths_value = object_dict(summary.get("artifact_paths"))
+    for name, path in sorted(artifact_paths_value.items()):
+        lines.append(f"artifact.{name}={path}")
+    return "\n".join(lines) + "\n"
+
+
+def readiness_recommendation(status: str, blockers: list[object]) -> str:
+    if status == "ready":
+        return "advance_to_second_comparable_pre_live_run"
+    if status == "missing":
+        return "generate_pre_live_dry_run_artifacts"
+    if blockers:
+        return "investigate_blockers_before_repeat"
+    return "repeat_pre_live_dry_run"
+
+
+def blocker_names(blockers: list[object]) -> list[str]:
+    names: list[str] = []
+    for blocker in blockers:
+        blocker_dict = object_dict(blocker)
+        name = blocker_dict.get("check_name") or blocker_dict.get("name")
+        if name is not None:
+            names.append(str(name))
+        else:
+            names.append(str(blocker))
+    return names
+
+
+def artifact_paths(artifacts: dict[str, object]) -> dict[str, str | None]:
+    paths: dict[str, str | None] = {}
+    for name, value in artifacts.items():
+        item = object_dict(value)
+        path = item.get("path")
+        paths[name] = str(path) if path is not None else None
+    return paths
+
+
+def object_dict(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def object_list(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="pre-live-readiness")
+    parser.add_argument("--input", type=Path)
     parser.add_argument("--manifest-root", type=Path)
     parser.add_argument("--database-url", default=settings.database_url)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--format",
+        choices=("full-json", "summary", "summary-json"),
+        default="full-json",
+    )
     args = parser.parse_args(argv)
 
-    audit = None
-    if args.database_url:
-        audit = asyncio.run(postgres_audit_summary(args.database_url))
-    report = build_pre_live_readiness(args.manifest_root, audit_summary=audit)
-    payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
+    if args.input:
+        report = load_readiness_report(args.input)
+    else:
+        audit = None
+        if args.database_url:
+            audit = asyncio.run(postgres_audit_summary(args.database_url))
+        report = build_pre_live_readiness(args.manifest_root, audit_summary=audit)
+    payload = format_report_payload(report, args.format)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(payload, encoding="utf-8")
     else:
         print(payload, end="")
     return 0 if report["status"] == "ready" else 2
+
+
+def format_report_payload(report: dict[str, object], output_format: str) -> str:
+    if output_format == "summary":
+        return format_readiness_summary(summarize_readiness_report(report))
+    if output_format == "summary-json":
+        return json.dumps(
+            summarize_readiness_report(report), indent=2, sort_keys=True
+        ) + "\n"
+    return json.dumps(report, indent=2, sort_keys=True) + "\n"
 
 
 if __name__ == "__main__":
