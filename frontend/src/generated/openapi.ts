@@ -952,9 +952,7 @@ export interface components {
             /** Decision */
             decision: string;
             /** Metrics */
-            metrics: {
-                [key: string]: unknown;
-            };
+            metrics: unknown;
             /** Nim Budget Status */
             nim_budget_status?: string | null;
             /** Passed */

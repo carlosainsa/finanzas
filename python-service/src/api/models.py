@@ -199,7 +199,7 @@ class GoNoGoResponse(BaseModel):
     can_execute_trades: bool
     reason: str | None = None
     blockers: list[Any]
-    metrics: dict[str, Any]
+    metrics: Any
     checks: list[Any]
     pre_live_gate_passed: bool | None = None
     calibration_passed: bool | None = None
