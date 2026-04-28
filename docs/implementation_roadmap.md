@@ -140,6 +140,9 @@ These steps improve the trading platform before introducing heavier models. The 
    - Evaluate gradient boosting only after the deterministic baseline is reproducible, calibrated, and better than `passive_spread_capture_v1`.
 
 10. Live promotion gates
+   - Use [pre_live_dry_run_runbook.md](pre_live_dry_run_runbook.md) as the operator procedure for real-market pre-live evidence runs.
+   - Run `scripts/run_pre_live_dry_run.sh` for managed isolated pre-live captures; use `--print-plan` before scheduled runs to verify resolved gates.
+   - Treat `pre_live_readiness.json` as the single readiness summary for a run; it is advisory and always keeps `can_execute_trades=false`.
    - Feed the pre-live promotion report and advisory report with isolated long runs from `scripts/run_real_dry_run_research.sh`, not only unit-test fixtures.
    - Require `observed_vs_synthetic_fill_summary` review for real dry-run samples before treating synthetic fills as a reliable baseline.
    - Require `unfilled_reason_summary` review before tuning predictor thresholds or risk limits.

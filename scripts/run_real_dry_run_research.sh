@@ -250,6 +250,7 @@ async def main() -> None:
         "run_id": os.environ["REPORT_TIMESTAMP"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "execution_mode": os.environ["EXECUTION_MODE"],
+        "go_no_go_profile": os.environ["GO_NO_GO_PROFILE"],
         "disable_market_ws": os.environ["DISABLE_MARKET_WS"],
         "capture_seconds": int(os.environ["REAL_DRY_RUN_SECONDS"]),
         "market_asset_ids_count": len([item for item in os.environ.get("MARKET_ASSET_IDS", "").split(",") if item.strip()]),
@@ -292,8 +293,31 @@ set -e
 if [[ "$readiness_status" != "0" ]]; then
   echo "Pre-live readiness is not ready; inspect $RESEARCH_REPORT_ROOT/pre_live_readiness.json." >&2
 fi
+PYTHONPATH=python-service python3 - "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    raise SystemExit(0)
+report = json.loads(path.read_text(encoding="utf-8"))
+go_no_go = report.get("go_no_go") if isinstance(report.get("go_no_go"), dict) else {}
+blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
+print("pre_live_readiness_summary")
+print(f"status={report.get('status')}")
+print(f"run_id={report.get('run_id')}")
+print(f"profile={go_no_go.get('profile')}")
+print(f"decision={go_no_go.get('decision')}")
+print(f"blockers={len(blockers)}")
+print(f"path={path}")
+PY
 
 if [[ "$research_status" == "0" ]]; then
+  if [[ "$readiness_status" != "0" && "$ALLOW_RESEARCH_GATE_FAILURE" != "1" && "$ALLOW_RESEARCH_GATE_FAILURE" != "true" ]]; then
+    echo "Pre-live readiness failed and ALLOW_RESEARCH_GATE_FAILURE is disabled." >&2
+    exit 20
+  fi
   if [[ "$research_exit_code" == "2" ]]; then
     echo "Research infra succeeded but promotion gates failed; inspect $RESEARCH_REPORT_ROOT/research_summary.json." >&2
     exit 20

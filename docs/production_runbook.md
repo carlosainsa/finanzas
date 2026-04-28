@@ -73,7 +73,18 @@ scripts/run_integration_smoke.sh
 
 The managed smoke starts Redis, Postgres, Rust, the API, and the Python consumer locally with `DISABLE_MARKET_WS=true`, so it does not depend on external Polymarket market data.
 
-For real public market data while still preventing live execution, run:
+For the standard pre-live evidence run, use the dedicated runbook:
+
+```bash
+scripts/run_pre_live_dry_run.sh
+```
+
+See [pre_live_dry_run_runbook.md](pre_live_dry_run_runbook.md) for the
+required interpretation of `pre_live_readiness.json`, exit codes, and promotion
+rules.
+
+For a lower-level real public market dry-run while still preventing live
+execution, run:
 
 ```bash
 REAL_DRY_RUN_SECONDS=300 scripts/run_real_dry_run_research.sh
@@ -91,10 +102,11 @@ the opposite best level touches the submitted limit price. These execution
 reports remain simulation artifacts, but they exercise the same report and
 state-store paths as live reconciliation.
 
-For a longer research-quality run that does not mix with the default data lake:
+For a longer research-quality run that does not mix with the default data lake,
+prefer the wrapper:
 
 ```bash
-REAL_DRY_RUN_SECONDS=900 scripts/run_real_dry_run_research.sh
+scripts/run_pre_live_dry_run.sh --duration-seconds 3600
 ```
 
 Real dry-run research is isolated by default under `.tmp/real-dry-run-data-lake/<run_id>/`.

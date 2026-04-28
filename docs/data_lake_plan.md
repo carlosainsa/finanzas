@@ -388,26 +388,23 @@ and reconciliation divergence.
 To collect real public market data without live trading:
 
 ```bash
-REAL_DRY_RUN_SECONDS=300 \
-DISCOVERY_LIMIT=25 \
-PREDICTOR_MIN_SPREAD=0.001 \
-scripts/run_real_dry_run_research.sh
+scripts/run_pre_live_dry_run.sh
 ```
 
-The script refuses to run unless `EXECUTION_MODE=dry_run` and
-`DISABLE_MARKET_WS=false`. It starts Redis, Postgres, Rust, the API, and the
+The wrapper refuses to run unless execution remains `dry_run` with the public
+market WebSocket enabled. It starts Redis, Postgres, Rust, the API, and the
 Python consumer; discovers `MARKET_ASSET_IDS` through Gamma when they are not
 provided; waits for real orderbooks, signals, and dry-run execution reports;
-then runs the research loop. A short dry-run may fail promotion or calibration
-gates; that means the research data was collected but is not yet sufficient for
-live promotion.
+then runs the research loop and writes `pre_live_readiness.json`.
+
+Use [pre_live_dry_run_runbook.md](pre_live_dry_run_runbook.md) as the operating
+procedure for interpreting the readiness result.
 
 To run a restricted dry-run with a promotion-generated segment blocklist:
 
 ```bash
 PREDICTOR_BLOCKED_SEGMENTS_PATH=/abs/path/to/blocked_segments.json \
-REAL_DRY_RUN_SECONDS=300 \
-scripts/run_real_dry_run_research.sh
+scripts/run_pre_live_dry_run.sh --duration-seconds 3600
 ```
 
 The script validates that the blocklist path exists before starting services and
@@ -415,11 +412,12 @@ records the path in `real_dry_run_evidence.json`. Use the report-root comparator
 above to compare the unrestricted and restricted runs before accepting a
 blocklist.
 
-Real dry-runs pass stricter promotion thresholds into the research loop by
+Pre-live dry-runs pass stricter promotion thresholds into the research loop by
 default:
 
-- `PRE_LIVE_MIN_CAPTURE_DURATION_MS`, defaulting to half the capture window;
-- `PRE_LIVE_MIN_SIGNALS=10`;
+- `GO_NO_GO_PROFILE=pre_live`;
+- `PRE_LIVE_MIN_CAPTURE_DURATION_MS`, defaulting to the full capture window;
+- `PRE_LIVE_MIN_SIGNALS=250`;
 - `PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE=0.01`;
 - `PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA=0.75`.
 
@@ -430,17 +428,14 @@ do not loosen them to make a single short run pass.
 For longer isolated runs that should not mix with the default `data_lake/`, use:
 
 ```bash
-REAL_DRY_RUN_SECONDS=900 \
-DISCOVERY_LIMIT=25 \
-PREDICTOR_MIN_SPREAD=0.001 \
-scripts/run_real_dry_run_research.sh
+scripts/run_pre_live_dry_run.sh --duration-seconds 3600
 ```
 
 The script runs isolated by default and writes reports, DuckDB, manifests, and Parquet parts under
 `.tmp/real-dry-run-data-lake/<run_id>/`.
 Use `REAL_DRY_RUN_ISOLATED=0` only when deliberately exporting into the shared
 `data_lake/` root. Each run also writes `real_dry_run_evidence.json` with stream
-lengths, report status counts, paths, and capture settings.
+lengths, report status counts, paths, `go_no_go_profile`, and capture settings.
 
 ## Notes
 
