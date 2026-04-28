@@ -137,5 +137,7 @@ def test_restricted_blocklist_observation_finalizes_decision() -> None:
         encoding="utf-8"
     )
 
+    assert "src.research.restricted_blocklist_diagnostics" in script
+    assert "restricted_blocklist_diagnostics.json" in script
     assert "src.research.restricted_blocklist_decision" in script
     assert "--observation-root \"$OUTPUT_DIR\"" in script

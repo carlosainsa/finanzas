@@ -15,6 +15,10 @@ def test_restricted_decision_rejects_research_rejection(tmp_path: Path) -> None:
     assert payload["restricted_decision"] == "REJECT"
     assert payload["reason"] == "research_promotion_decision_rejected"
     assert payload["can_execute_trades"] is False
+    inputs = cast(dict[str, Any], payload["inputs"])
+    assert inputs["restricted_blocklist_diagnostics_path"] == str(
+        root / "restricted_blocklist_diagnostics.json"
+    )
 
 
 def test_restricted_decision_needs_more_data_when_not_comparable(

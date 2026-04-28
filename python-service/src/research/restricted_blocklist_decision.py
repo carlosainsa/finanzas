@@ -32,6 +32,9 @@ def finalize_restricted_blocklist_decision(
         "can_execute_trades": False,
         "inputs": {
             "comparison_path": str(observation_root / "comparison.json"),
+            "restricted_blocklist_diagnostics_path": str(
+                observation_root / "restricted_blocklist_diagnostics.json"
+            ),
             "research_promotion_decision_path": str(
                 observation_root / "research_promotion_decision.json"
             ),

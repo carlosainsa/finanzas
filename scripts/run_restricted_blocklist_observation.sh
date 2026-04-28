@@ -197,6 +197,12 @@ PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.compare_runs \
   --candidate-report-root "$CANDIDATE_REPORT_ROOT" \
   --json > "$OUTPUT_DIR/comparison.json"
 
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_diagnostics \
+  --baseline-report-root "$BASELINE_REPORT_ROOT" \
+  --candidate-report-root "$CANDIDATE_REPORT_ROOT" \
+  --output "$OUTPUT_DIR/restricted_blocklist_diagnostics.json" \
+  --json
+
 set +e
 PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.research_promotion_decision \
   --baseline-report-root "$BASELINE_REPORT_ROOT" \
@@ -225,6 +231,7 @@ summary = {
     "candidate_report_root": str(candidate),
     "output_dir": str(output),
     "comparison_path": str(output / "comparison.json"),
+    "restricted_blocklist_diagnostics_path": str(output / "restricted_blocklist_diagnostics.json"),
     "research_promotion_decision_path": str(output / "research_promotion_decision.json"),
     "decision": decision.get("decision"),
     "decision_exit_code": decision_status,

@@ -112,6 +112,9 @@ def compare_runs(
             "blocked_segment_changes": blocked_segment_changes(
                 report_root_from_row(baseline), report_root_from_row(candidate)
             ),
+            "restricted_blocklist_diagnostics": restricted_blocklist_diagnostics(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
         },
     }
 
@@ -156,6 +159,9 @@ def compare_report_roots(
                 candidate_report_root,
             ),
             "blocked_segment_changes": blocked_segment_changes(
+                baseline_report_root, candidate_report_root
+            ),
+            "restricted_blocklist_diagnostics": restricted_blocklist_diagnostics(
                 baseline_report_root, candidate_report_root
             ),
         },
@@ -734,6 +740,250 @@ def blocked_segment_changes(
         "unblocked": [segment_key_to_dict(item) for item in unblocked],
         "still_blocked": [segment_key_to_dict(item) for item in still_blocked],
     }
+
+
+def restricted_blocklist_diagnostics(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    baseline = load_blocked_segments(baseline_report_root)
+    candidate = load_blocked_segments(candidate_report_root)
+    expected = expected_restricted_blocked_segments(candidate_report_root)
+    baseline_metrics = segment_metric_index(baseline_report_root)
+    candidate_metrics = segment_metric_index(candidate_report_root)
+    rows = [
+        blocked_segment_diagnostic_row(
+            key,
+            baseline=baseline,
+            candidate=candidate,
+            expected=expected,
+            baseline_metrics=baseline_metrics,
+            candidate_metrics=candidate_metrics,
+        )
+        for key in sorted(baseline | candidate | expected)
+    ]
+    unexpected_new = [
+        row for row in rows if row.get("classification") == "unexpected_newly_blocked"
+    ]
+    expected_missing = [
+        row for row in rows if row.get("classification") == "expected_not_blocked"
+    ]
+    expected_new = [
+        row for row in rows if row.get("classification") == "expected_newly_blocked"
+    ]
+    candidate_blocked = [
+        row
+        for row in rows
+        if typed_dict(row.get("sources")).get("candidate_pre_live_promotion") is True
+    ]
+    is_restricted = restricted_blocklist_enabled(candidate_report_root)
+    status = "not_applicable"
+    if is_restricted:
+        status = "needs_review" if unexpected_new or expected_missing else "ok"
+    return {
+        "report_version": "restricted_blocklist_diagnostics_v1",
+        "status": status,
+        "summary": {
+            "expected_restricted_input_segments": len(expected),
+            "baseline_pre_live_blocked_segments": len(baseline),
+            "candidate_pre_live_blocked_segments": len(candidate),
+            "expected_newly_blocked_segments": len((candidate - baseline) & expected),
+            "unexpected_newly_blocked_segments": len((candidate - baseline) - expected),
+            "expected_not_blocked_segments": len(expected - candidate),
+            "unblocked_segments": len(baseline - candidate),
+            "still_blocked_segments": len(baseline & candidate),
+        },
+        "source_paths": restricted_blocklist_source_paths(candidate_report_root),
+        "diagnosis": restricted_blocklist_diagnosis(
+            expected=expected,
+            baseline=baseline,
+            candidate=candidate,
+        ),
+        "expected": diagnostic_bucket(expected_new),
+        "unexpected": diagnostic_bucket(unexpected_new),
+        "missing_expected": diagnostic_bucket(expected_missing),
+        "total_blocked": diagnostic_bucket(candidate_blocked),
+        "segments": rows,
+        "can_execute_trades": False,
+    }
+
+
+def blocked_segment_diagnostic_row(
+    key: tuple[str, str, str, str, str],
+    *,
+    baseline: set[tuple[str, str, str, str, str]],
+    candidate: set[tuple[str, str, str, str, str]],
+    expected: set[tuple[str, str, str, str, str]],
+    baseline_metrics: dict[tuple[str, str, str, str, str], dict[str, object]],
+    candidate_metrics: dict[tuple[str, str, str, str, str], dict[str, object]],
+) -> dict[str, object]:
+    in_baseline = key in baseline
+    in_candidate = key in candidate
+    in_expected = key in expected
+    if in_candidate and not in_baseline and in_expected:
+        classification = "expected_newly_blocked"
+    elif in_candidate and not in_baseline:
+        classification = "unexpected_newly_blocked"
+    elif in_expected and not in_candidate:
+        classification = "expected_not_blocked"
+    elif in_baseline and not in_candidate:
+        classification = "unblocked"
+    elif in_baseline and in_candidate:
+        classification = "still_blocked"
+    else:
+        classification = "expected_existing"
+    return {
+        **segment_key_to_dict(key),
+        "classification": classification,
+        "sources": {
+            "expected_restricted_input": in_expected,
+            "baseline_pre_live_promotion": in_baseline,
+            "candidate_pre_live_promotion": in_candidate,
+        },
+        "baseline_metrics": baseline_metrics.get(key, {}),
+        "candidate_metrics": candidate_metrics.get(key, {}),
+    }
+
+
+def restricted_blocklist_diagnosis(
+    *,
+    expected: set[tuple[str, str, str, str, str]],
+    baseline: set[tuple[str, str, str, str, str]],
+    candidate: set[tuple[str, str, str, str, str]],
+) -> list[str]:
+    reasons: list[str] = []
+    if (candidate - baseline) - expected:
+        reasons.append("candidate_pre_live_promotion_generated_unexpected_blocks")
+    if expected - candidate:
+        reasons.append("expected_restricted_input_not_observed_in_candidate_blocks")
+    if not expected:
+        reasons.append("missing_expected_restricted_input_blocklist")
+    if baseline - candidate:
+        reasons.append("candidate_unblocked_previous_pre_live_blocks")
+    if not reasons:
+        reasons.append("candidate_blocks_match_restricted_input")
+    return reasons
+
+
+def diagnostic_bucket(
+    rows: list[dict[str, object]],
+    *,
+    sample_limit: int = 10,
+) -> dict[str, object]:
+    return {
+        "count": len(rows),
+        "sample_limit": sample_limit,
+        "sample_count": min(len(rows), sample_limit),
+        "metrics": diagnostic_metric_rollup(rows),
+        "segments": rows[:sample_limit],
+    }
+
+
+def diagnostic_metric_rollup(rows: list[dict[str, object]]) -> dict[str, object]:
+    metrics = (
+        "signals",
+        "filled_signals",
+        "fill_rate",
+        "realized_edge",
+        "max_drawdown",
+        "dry_run_reports",
+        "dry_run_observed_fill_rate",
+        "abs_simulator_fill_rate_delta",
+    )
+    values_by_metric: dict[str, list[float]] = {metric: [] for metric in metrics}
+    for row in rows:
+        row_metrics = typed_dict(row.get("candidate_metrics"))
+        if not row_metrics:
+            row_metrics = typed_dict(row.get("baseline_metrics"))
+        for metric in metrics:
+            value = numeric_or_none(row_metrics.get(metric))
+            if value is not None:
+                values_by_metric[metric].append(value)
+    return {
+        "sample_count": len(rows),
+        "signals": sum(values_by_metric["signals"]),
+        "filled_signals": sum(values_by_metric["filled_signals"]),
+        "avg_fill_rate": average(values_by_metric["fill_rate"]),
+        "avg_realized_edge": average(values_by_metric["realized_edge"]),
+        "max_drawdown": max_or_none(values_by_metric["max_drawdown"]),
+        "dry_run_reports": sum(values_by_metric["dry_run_reports"]),
+        "avg_dry_run_observed_fill_rate": average(
+            values_by_metric["dry_run_observed_fill_rate"]
+        ),
+        "max_abs_simulator_fill_rate_delta": max_or_none(
+            values_by_metric["abs_simulator_fill_rate_delta"]
+        ),
+    }
+
+
+def average(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def max_or_none(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return max(values)
+
+
+def restricted_blocklist_source_paths(
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    if candidate_report_root is None:
+        return {}
+    evidence = read_json(candidate_report_root / "real_dry_run_evidence.json")
+    blocked_segments_path = evidence.get("blocked_segments_path")
+    return {
+        "expected_restricted_input": blocked_segments_path
+        if isinstance(blocked_segments_path, str)
+        else None,
+        "candidate_pre_live_promotion": str(
+            candidate_report_root / "pre_live_promotion" / "blocked_segments.json"
+        ),
+        "candidate_pre_live_blocked_segments_parquet": str(
+            candidate_report_root
+            / "pre_live_promotion"
+            / "pre_live_blocked_segments.parquet"
+        ),
+    }
+
+
+def segment_metric_index(
+    report_root: Path | None,
+) -> dict[tuple[str, str, str, str, str], dict[str, object]]:
+    if report_root is None:
+        return {}
+    frame = load_segments(report_root)
+    if frame.empty or missing_segment_columns(frame):
+        return {}
+    metrics = (
+        "signals",
+        "filled_signals",
+        "fill_rate",
+        "realized_edge",
+        "pnl",
+        "max_drawdown",
+        "dry_run_reports",
+        "dry_run_observed_fill_rate",
+        "abs_simulator_fill_rate_delta",
+    )
+    output: dict[tuple[str, str, str, str, str], dict[str, object]] = {}
+    for row in frame.to_dict(orient="records"):
+        key = (
+            str(row["market_id"]),
+            str(row["asset_id"]),
+            str(row["side"]),
+            str(row["strategy"]),
+            str(row["model_version"]),
+        )
+        output[key] = {
+            metric: normalize_value(row.get(metric))
+            for metric in metrics
+            if metric in row
+        }
+    return output
 
 
 def expected_restricted_blocked_segments(

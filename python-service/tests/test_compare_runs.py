@@ -194,6 +194,25 @@ def test_compare_report_roots_allows_expected_restricted_segment_loss(
     assert blocked["newly_blocked_count"] == 1
     assert blocked["expected_newly_blocked_count"] == 1
     assert blocked["unexpected_newly_blocked_count"] == 0
+    diagnostics = cast(dict[str, Any], comparison["restricted_blocklist_diagnostics"])
+    diagnostic_summary = cast(dict[str, Any], diagnostics["summary"])
+    assert diagnostics["status"] == "ok"
+    assert diagnostic_summary["expected_newly_blocked_segments"] == 1
+    assert diagnostic_summary["unexpected_newly_blocked_segments"] == 0
+    expected_bucket = cast(dict[str, Any], diagnostics["expected"])
+    expected_metrics = cast(dict[str, Any], expected_bucket["metrics"])
+    assert expected_bucket["count"] == 1
+    assert expected_metrics["signals"] == 4
+    assert expected_metrics["avg_realized_edge"] == pytest.approx(-0.02)
+    diagnostic_segments = cast(list[dict[str, Any]], diagnostics["segments"])
+    expected_segment = next(
+        item for item in diagnostic_segments if item["market_id"] == "market-2"
+    )
+    assert expected_segment["classification"] == "expected_newly_blocked"
+    assert cast(dict[str, Any], expected_segment["sources"])[
+        "expected_restricted_input"
+    ] is True
+    assert cast(dict[str, Any], expected_segment["baseline_metrics"])["signals"] == 4
 
 
 def test_compare_report_roots_flags_unexpected_restricted_blocked_segment(
@@ -235,6 +254,22 @@ def test_compare_report_roots_flags_unexpected_restricted_blocked_segment(
     assert blocked["newly_blocked_count"] == 1
     assert blocked["expected_newly_blocked_count"] == 0
     assert blocked["unexpected_newly_blocked_count"] == 1
+    diagnostics = cast(dict[str, Any], comparison["restricted_blocklist_diagnostics"])
+    assert diagnostics["status"] == "needs_review"
+    assert (
+        "candidate_pre_live_promotion_generated_unexpected_blocks"
+        in cast(list[str], diagnostics["diagnosis"])
+    )
+    unexpected_bucket = cast(dict[str, Any], diagnostics["unexpected"])
+    missing_expected_bucket = cast(dict[str, Any], diagnostics["missing_expected"])
+    assert unexpected_bucket["count"] == 1
+    assert missing_expected_bucket["count"] == 1
+    diagnostic_segments = cast(list[dict[str, Any]], diagnostics["segments"])
+    unexpected_segment = next(
+        item for item in diagnostic_segments if item["market_id"] == "market-other"
+    )
+    assert unexpected_segment["classification"] == "unexpected_newly_blocked"
+    assert cast(dict[str, Any], unexpected_segment["candidate_metrics"]) == {}
 
 
 def test_compare_report_roots_requires_fixed_market_universe_match(
