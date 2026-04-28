@@ -127,6 +127,41 @@ Required checks:
 Any item in `blockers` must be treated as a hard blocker before repeating the
 run or considering `live_candidate`.
 
+## Blocker Diagnostics And Restricted Retry
+
+When readiness is blocked by quantitative checks, generate a segment-level
+diagnostic report before changing thresholds:
+
+```bash
+scripts/analyze_pre_live_blockers.sh "$RESEARCH_REPORT_ROOT"
+```
+
+This writes:
+
+- `blocker_diagnostics/pre_live_blocker_diagnostics.json`
+- `blocker_diagnostics/blocked_segments_candidate.json`
+
+The candidate blocklist is compatible with `PREDICTOR_BLOCKED_SEGMENTS_PATH`,
+but it is still research-only. It should be used only for a restricted follow-up
+dry-run:
+
+```bash
+PREDICTOR_BLOCKED_SEGMENTS_PATH="$RESEARCH_REPORT_ROOT/blocker_diagnostics/blocked_segments_candidate.json" \
+scripts/run_pre_live_dry_run.sh --duration-seconds 900
+```
+
+Compare unrestricted versus restricted runs before accepting the blocklist:
+
+```bash
+PYTHONPATH=python-service python3 -m src.research.compare_runs \
+  --baseline-report-root "$RESEARCH_REPORT_ROOT" \
+  --candidate-report-root "<restricted-report-root>"
+```
+
+Do not promote a blocklist from one run. A candidate is useful only if the
+restricted run improves drawdown/adverse-selection without degrading realized
+edge, fill-rate, reconciliation, or simulator-quality metrics.
+
 ## Exit Codes
 
 - `0`: research infra and gates passed.
