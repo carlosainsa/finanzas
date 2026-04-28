@@ -710,16 +710,27 @@ def blocked_segment_changes(
 ) -> dict[str, object]:
     baseline = load_blocked_segments(baseline_report_root)
     candidate = load_blocked_segments(candidate_report_root)
+    expected = expected_restricted_blocked_segments(candidate_report_root)
     newly_blocked = sorted(candidate - baseline)
+    expected_newly_blocked = sorted((candidate - baseline) & expected)
+    unexpected_newly_blocked = sorted((candidate - baseline) - expected)
     unblocked = sorted(baseline - candidate)
     still_blocked = sorted(baseline & candidate)
     return {
         "baseline_count": len(baseline),
         "candidate_count": len(candidate),
         "newly_blocked_count": len(newly_blocked),
+        "expected_newly_blocked_count": len(expected_newly_blocked),
+        "unexpected_newly_blocked_count": len(unexpected_newly_blocked),
         "unblocked_count": len(unblocked),
         "still_blocked_count": len(still_blocked),
         "newly_blocked": [segment_key_to_dict(item) for item in newly_blocked],
+        "expected_newly_blocked": [
+            segment_key_to_dict(item) for item in expected_newly_blocked
+        ],
+        "unexpected_newly_blocked": [
+            segment_key_to_dict(item) for item in unexpected_newly_blocked
+        ],
         "unblocked": [segment_key_to_dict(item) for item in unblocked],
         "still_blocked": [segment_key_to_dict(item) for item in still_blocked],
     }

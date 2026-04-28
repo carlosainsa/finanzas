@@ -162,6 +162,7 @@ def test_compare_report_roots_allows_expected_restricted_segment_loss(
         [blocked_segment("market-2", "asset-2")],
     )
     write_real_dry_run_evidence(candidate, blocklist_path)
+    write_blocked_segments(candidate, [blocked_segment("market-2", "asset-2")])
     override_metric(candidate, "realized_edge", 0.07)
     write_report_manifest(
         baseline,
@@ -189,6 +190,51 @@ def test_compare_report_roots_allows_expected_restricted_segment_loss(
     assert comparability["expected_removed_segments"] == 1
     assert comparability["unexpected_removed_segments"] == 0
     assert comparability["shared_segment_ratio"] == pytest.approx(1.0)
+    blocked = cast(dict[str, Any], comparison["blocked_segment_changes"])
+    assert blocked["newly_blocked_count"] == 1
+    assert blocked["expected_newly_blocked_count"] == 1
+    assert blocked["unexpected_newly_blocked_count"] == 0
+
+
+def test_compare_report_roots_flags_unexpected_restricted_blocked_segment(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(
+        baseline,
+        [
+            segment_row("market-1", "asset-1", realized_edge=0.01),
+            segment_row("market-2", "asset-2", realized_edge=-0.02),
+        ],
+    )
+    write_segments(
+        candidate,
+        [segment_row("market-1", "asset-1", realized_edge=0.04)],
+    )
+    blocklist_path = tmp_path / "blocked_segments_candidate.json"
+    write_candidate_blocklist(
+        blocklist_path,
+        [blocked_segment("market-2", "asset-2")],
+    )
+    write_real_dry_run_evidence(candidate, blocklist_path)
+    write_blocked_segments(candidate, [blocked_segment("market-other", "asset-other")])
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    blocked = cast(dict[str, Any], comparison["blocked_segment_changes"])
+    assert blocked["newly_blocked_count"] == 1
+    assert blocked["expected_newly_blocked_count"] == 0
+    assert blocked["unexpected_newly_blocked_count"] == 1
 
 
 def test_compare_report_roots_requires_fixed_market_universe_match(

@@ -135,19 +135,23 @@ def check_blocked_segments(
     max_newly_blocked_segments: int,
 ) -> dict[str, object]:
     changes = typed_dict(comparison.get("blocked_segment_changes"))
-    value = numeric_or_none(changes.get("newly_blocked_count"))
+    unexpected = numeric_or_none(changes.get("unexpected_newly_blocked_count"))
+    value = unexpected
+    if value is None:
+        value = numeric_or_none(changes.get("newly_blocked_count"))
+    threshold = float(max_newly_blocked_segments)
     if value is None:
         return check_result(
             "newly_blocked_segments",
             "MISSING",
             None,
-            float(max_newly_blocked_segments),
+            threshold,
         )
     return check_result(
         "newly_blocked_segments",
-        "PASS" if value <= max_newly_blocked_segments else "FAIL",
+        "PASS" if value <= threshold else "FAIL",
         value,
-        float(max_newly_blocked_segments),
+        threshold,
     )
 
 
