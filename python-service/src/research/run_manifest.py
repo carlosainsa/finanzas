@@ -35,6 +35,12 @@ def create_run_manifest(
         report_root / "feature_blocklist_candidates.json"
     )
     feature_research_decision = read_json(report_root / "feature_research_decision.json")
+    restricted_blocklist_ranking = read_json(
+        report_root / "restricted_blocklist_ranking.json"
+    )
+    restricted_blocklist_next_variant = read_json(
+        report_root / "restricted_blocklist_next_variant.json"
+    )
     blocked_segments = read_json(report_root / "pre_live_promotion" / "blocked_segments.json")
     real_dry_run_evidence = read_json(report_root / "real_dry_run_evidence.json")
 
@@ -69,12 +75,25 @@ def create_run_manifest(
             "synthetic_fill_data": synthetic_fills.get("data_version"),
             "synthetic_fill_feature": synthetic_fills.get("feature_version"),
             "feature_decision_report": feature_research_decision.get("report_version"),
+            "restricted_blocklist_ranking_report": restricted_blocklist_ranking.get(
+                "report_version"
+            ),
+            "restricted_blocklist_next_variant_report": (
+                restricted_blocklist_next_variant.get("report_version")
+            ),
             "nim_advisory_report": nim_advisory.get("report_version"),
             "nim_advisory_model": nim_advisory.get("model_version"),
             "nim_advisory_feature": nim_advisory.get("feature_version"),
             "nim_advisory_prompt": nim_advisory.get("prompt_version"),
         },
-        "metrics": manifest_metrics(promotion, advisory, calibration, backtest, go_no_go),
+        "metrics": manifest_metrics(
+            promotion,
+            advisory,
+            calibration,
+            backtest,
+            go_no_go,
+            restricted_blocklist_ranking,
+        ),
         "counts": manifest_counts(
             summary,
             baseline,
@@ -85,6 +104,8 @@ def create_run_manifest(
             sentiment_lift,
             nim_advisory,
             feature_blocklist_candidates,
+            restricted_blocklist_ranking,
+            restricted_blocklist_next_variant,
             blocked_segments,
             real_dry_run_evidence,
         ),
@@ -129,11 +150,15 @@ def manifest_metrics(
     calibration: dict[str, object],
     backtest: dict[str, object],
     go_no_go: dict[str, object],
+    restricted_blocklist_ranking: dict[str, object],
 ) -> dict[str, object]:
     promotion_metrics = typed_dict(promotion.get("metrics"))
     go_no_go_metrics = typed_dict(go_no_go.get("metrics"))
     advisory_summary = typed_dict(advisory.get("summary"))
     pre_live_gate = typed_dict(backtest.get("pre_live_gate"))
+    top_restricted_candidate = typed_dict(
+        restricted_blocklist_ranking.get("top_candidate")
+    )
     return {
         "realized_edge": promotion_metrics.get("realized_edge"),
         "filled_signals": promotion_metrics.get("filled_signals"),
@@ -175,6 +200,13 @@ def manifest_metrics(
         "advisory_warned": advisory_summary.get("warned"),
         "legacy_pre_live_fill_rate": pre_live_gate.get("fill_rate"),
         "calibration_metrics": calibration.get("metrics", []),
+        "restricted_blocklist_ranking_top_score": top_restricted_candidate.get("score"),
+        "restricted_blocklist_ranking_top_recommendation": (
+            top_restricted_candidate.get("recommendation")
+        ),
+        "restricted_blocklist_ranking_top_blocklist_kind": (
+            top_restricted_candidate.get("blocklist_kind")
+        ),
     }
 
 
@@ -188,6 +220,8 @@ def manifest_counts(
     sentiment_lift: dict[str, object],
     nim_advisory: dict[str, object],
     feature_blocklist_candidates: dict[str, object],
+    restricted_blocklist_ranking: dict[str, object],
+    restricted_blocklist_next_variant: dict[str, object],
     blocked_segments: dict[str, object] | None = None,
     real_dry_run_evidence: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -200,6 +234,8 @@ def manifest_counts(
     nim_counts = typed_dict(nim_advisory.get("counts"))
     nim_summary = typed_dict(nim_advisory.get("summary"))
     feature_blocklist_counts = typed_dict(feature_blocklist_candidates.get("counts"))
+    ranking_summary = typed_dict(restricted_blocklist_ranking.get("summary"))
+    next_variant = typed_dict(restricted_blocklist_next_variant.get("variant"))
     backtest_exports = typed_dict(summary.get("backtest_exports"))
     return {
         "orderbook_snapshots": data_lake.get("orderbook_snapshots"),
@@ -260,6 +296,25 @@ def manifest_counts(
         "blocked_segment_candidates": feature_blocklist_counts.get(
             "blocked_segment_candidates"
         ),
+        "restricted_blocklist_ranked_observations": ranking_summary.get(
+            "observations"
+        ),
+        "restricted_blocklist_complete_observations": ranking_summary.get(
+            "complete_observations"
+        ),
+        "restricted_blocklist_repeat_candidates": ranking_summary.get(
+            "repeat_observation_candidates"
+        ),
+        "restricted_blocklist_blocked_observations": ranking_summary.get(
+            "blocked_observations"
+        ),
+        "restricted_blocklist_next_variant_status": (
+            restricted_blocklist_next_variant.get("status")
+        ),
+        "restricted_blocklist_next_variant_name": next_variant.get("name"),
+        "restricted_blocklist_next_variant_segments": next_variant.get(
+            "blocked_segments"
+        ),
         "blocked_segments": count_blocked_segments(blocked_segments),
         "runtime_blocked_segments": count_runtime_blocked_segments(real_dry_run_evidence),
     }
@@ -277,6 +332,8 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "sentiment_lift.json",
         "feature_blocklist_candidates.json",
         "feature_research_decision.json",
+        "restricted_blocklist_ranking.json",
+        "restricted_blocklist_next_variant.json",
         "nim_advisory.json",
         "calibration.json",
         "pre_live_promotion.json",
@@ -355,6 +412,15 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "go_no_go_blockers": metrics.get("go_no_go_blockers"),
         "go_no_go_realized_edge": metrics.get("go_no_go_realized_edge"),
         "go_no_go_fill_rate": metrics.get("go_no_go_fill_rate"),
+        "restricted_blocklist_ranking_top_score": metrics.get(
+            "restricted_blocklist_ranking_top_score"
+        ),
+        "restricted_blocklist_ranking_top_recommendation": metrics.get(
+            "restricted_blocklist_ranking_top_recommendation"
+        ),
+        "restricted_blocklist_ranking_top_blocklist_kind": metrics.get(
+            "restricted_blocklist_ranking_top_blocklist_kind"
+        ),
         "legacy_pre_live_fill_rate": metrics.get("legacy_pre_live_fill_rate"),
         "advisory_failed": metrics.get("advisory_failed"),
         "advisory_warned": metrics.get("advisory_warned"),
@@ -402,6 +468,27 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
             "research_feature_blocklist_candidates"
         ),
         "blocked_segment_candidates": counts.get("blocked_segment_candidates"),
+        "restricted_blocklist_ranked_observations": counts.get(
+            "restricted_blocklist_ranked_observations"
+        ),
+        "restricted_blocklist_complete_observations": counts.get(
+            "restricted_blocklist_complete_observations"
+        ),
+        "restricted_blocklist_repeat_candidates": counts.get(
+            "restricted_blocklist_repeat_candidates"
+        ),
+        "restricted_blocklist_blocked_observations": counts.get(
+            "restricted_blocklist_blocked_observations"
+        ),
+        "restricted_blocklist_next_variant_status": counts.get(
+            "restricted_blocklist_next_variant_status"
+        ),
+        "restricted_blocklist_next_variant_name": counts.get(
+            "restricted_blocklist_next_variant_name"
+        ),
+        "restricted_blocklist_next_variant_segments": counts.get(
+            "restricted_blocklist_next_variant_segments"
+        ),
         "blocked_segments": counts.get("blocked_segments"),
         "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
         "promotion_report_version": versions.get("promotion_report"),
@@ -419,6 +506,12 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "synthetic_fill_data_version": versions.get("synthetic_fill_data"),
         "synthetic_fill_feature_version": versions.get("synthetic_fill_feature"),
         "feature_decision_report_version": versions.get("feature_decision_report"),
+        "restricted_blocklist_ranking_report_version": versions.get(
+            "restricted_blocklist_ranking_report"
+        ),
+        "restricted_blocklist_next_variant_report_version": versions.get(
+            "restricted_blocklist_next_variant_report"
+        ),
         "nim_advisory_report_version": versions.get("nim_advisory_report"),
         "nim_advisory_model_version": versions.get("nim_advisory_model"),
         "nim_advisory_feature_version": versions.get("nim_advisory_feature"),

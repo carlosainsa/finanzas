@@ -22,6 +22,7 @@ from src.api.models import (
     PreLiveReadinessResponse,
     ReconciliationStatusResponse,
     NIMBudgetResponse,
+    RestrictedBlocklistRankingResponse,
     ResearchRunDetailResponse,
     ResearchRunsResponse,
     RiskResponse,
@@ -35,6 +36,7 @@ from src.api.research_service import (
     latest_go_no_go,
     latest_nim_budget,
     latest_pre_live_readiness,
+    latest_restricted_blocklist_ranking,
     list_research_runs,
 )
 from src.api.operator_service import (
@@ -340,6 +342,16 @@ async def research_pre_live_readiness(_: ReadAuthDependency) -> dict[str, object
         except RuntimeError as exc:
             audit_summary = {"status": "error", "source": "postgres", "error": str(exc)}
     return latest_pre_live_readiness(audit_summary=audit_summary)
+
+
+@router.get(
+    "/research/restricted-blocklist-ranking",
+    response_model=RestrictedBlocklistRankingResponse,
+)
+async def research_restricted_blocklist_ranking(
+    _: ReadAuthDependency,
+) -> dict[str, object]:
+    return latest_restricted_blocklist_ranking()
 
 
 @router.get("/research/runs", response_model=ResearchRunsResponse)

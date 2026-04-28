@@ -462,6 +462,47 @@ export function App() {
             />
           </Panel>
 
+          <Panel title="Restricted Blocklist Ranking" subtitle={data.restrictedBlocklistRanking.source}>
+            <div className="budgetHeader">
+              <span className={`budgetBadge ${data.restrictedBlocklistRanking.status === 'ok' ? 'neutral' : 'danger'}`}>
+                {data.restrictedBlocklistRanking.status}
+              </span>
+              <code>{data.restrictedBlocklistRanking.run_id ?? 'no research run'}</code>
+            </div>
+            <div className="counterGrid">
+              <Counter
+                label="Observed"
+                value={Number(asRecord(data.restrictedBlocklistRanking.summary).observations ?? 0)}
+              />
+              <Counter
+                label="Blocked"
+                value={Number(asRecord(data.restrictedBlocklistRanking.summary).blocked_observations ?? 0)}
+              />
+              <Counter
+                label="Repeat"
+                value={Number(asRecord(data.restrictedBlocklistRanking.summary).repeat_observation_candidates ?? 0)}
+              />
+              <Counter
+                label="Trades"
+                value={data.restrictedBlocklistRanking.can_execute_trades ? 1 : 0}
+              />
+            </div>
+            <Table
+              empty="No restricted blocklist observations"
+              rows={data.restrictedBlocklistRanking.observations.slice(0, 5).map((item) => {
+                const row = asRecord(item);
+                return [
+                  String(row.blocklist_kind ?? '-'),
+                  formatUnknown(row.score),
+                  String(row.recommendation ?? '-'),
+                  String(row.restricted_decision ?? '-'),
+                  String(row.risk_migration_status ?? '-'),
+                ];
+              })}
+              headers={['Variant', 'Score', 'Recommendation', 'Decision', 'Risk migration']}
+            />
+          </Panel>
+
           <Panel title="Pre-Live Readiness" subtitle={data.preLiveReadiness.source}>
             <div className="budgetHeader">
               <span className={`budgetBadge ${readinessTone(data.preLiveReadiness.status)}`}>

@@ -210,6 +210,19 @@ class GoNoGoResponse(BaseModel):
     nim_budget_status: str | None = None
 
 
+class RestrictedBlocklistRankingResponse(BaseModel):
+    status: str
+    source: str
+    run_id: str | None = None
+    created_at: str | None = None
+    report_root: str | None = None
+    report_version: str | None = None
+    summary: Any
+    top_candidate: Any
+    observations: list[Any]
+    can_execute_trades: bool
+
+
 class PreLiveReadinessResponse(BaseModel):
     report_version: str
     status: str

@@ -7,6 +7,7 @@ from src.api.research_service import (
     latest_go_no_go,
     latest_nim_budget,
     latest_pre_live_readiness,
+    latest_restricted_blocklist_ranking,
     list_research_runs,
 )
 
@@ -111,6 +112,62 @@ def test_latest_go_no_go_reads_latest_manifest_report(tmp_path: Path) -> None:
     assert result["can_execute_trades"] is False
     assert result["nim_budget_status"] == "OK"
     assert cast(dict[str, object], result["metrics"])["realized_edge"] == -0.01
+
+
+def test_latest_restricted_blocklist_ranking_reads_latest_report(
+    tmp_path: Path,
+) -> None:
+    manifest_root = tmp_path / "research_runs"
+    report_root = tmp_path / "run-2"
+    manifest_root.mkdir()
+    report_root.mkdir()
+    (report_root / "restricted_blocklist_ranking.json").write_text(
+        json.dumps(
+            {
+                "report_version": "restricted_blocklist_ranking_v1",
+                "summary": {
+                    "observations": 2,
+                    "blocked_observations": 2,
+                    "repeat_observation_candidates": 0,
+                },
+                "top_candidate": {
+                    "blocklist_kind": "migrated_risk_only",
+                    "recommendation": "test_migrated_risk_variant",
+                },
+                "observations": [
+                    {
+                        "blocklist_kind": "migrated_risk_only",
+                        "recommendation": "test_migrated_risk_variant",
+                    }
+                ],
+                "can_execute_trades": False,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (manifest_root / "research_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run-2",
+                "created_at": "2026-04-27T00:00:00+00:00",
+                "report_root": str(report_root),
+                "counts": {},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = latest_restricted_blocklist_ranking(manifest_root)
+
+    assert result["status"] == "ok"
+    assert result["run_id"] == "run-2"
+    assert result["can_execute_trades"] is False
+    assert cast(dict[str, object], result["top_candidate"])["blocklist_kind"] == (
+        "migrated_risk_only"
+    )
+    assert cast(dict[str, object], result["summary"])["observations"] == 2
 
 
 def test_latest_pre_live_readiness_blocks_missing_dry_run_evidence(tmp_path: Path) -> None:

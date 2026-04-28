@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("nim-budget")
     subparsers.add_parser("research-go-no-go")
     subparsers.add_parser("pre-live-readiness")
+    subparsers.add_parser("restricted-blocklist-ranking")
     research_runs = subparsers.add_parser("research-runs")
     research_runs.add_argument("--limit", type=int)
     research_run = subparsers.add_parser("research-run")
@@ -104,6 +105,13 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                 client,
                 "GET",
                 "/research/pre-live-readiness",
+                token=read_token(args),
+            )
+        if args.command == "restricted-blocklist-ranking":
+            return request_json(
+                client,
+                "GET",
+                "/research/restricted-blocklist-ranking",
                 token=read_token(args),
             )
         if args.command == "research-runs":
@@ -365,6 +373,36 @@ def print_command_table(command: str, value: object) -> None:
                 }
             ],
             ["status", "run_id", "profile", "decision", "audit", "blockers"],
+        )
+        return
+    if command == "restricted-blocklist-ranking" and isinstance(value, dict):
+        summary_value = value.get("summary")
+        top_value = value.get("top_candidate")
+        summary: dict[str, object] = (
+            summary_value if isinstance(summary_value, dict) else {}
+        )
+        top: dict[str, object] = top_value if isinstance(top_value, dict) else {}
+        print_rows(
+            [
+                {
+                    "status": value.get("status"),
+                    "run_id": value.get("run_id"),
+                    "observations": summary.get("observations"),
+                    "blocked": summary.get("blocked_observations"),
+                    "repeat": summary.get("repeat_observation_candidates"),
+                    "top": top.get("blocklist_kind"),
+                    "recommendation": top.get("recommendation"),
+                }
+            ],
+            [
+                "status",
+                "run_id",
+                "observations",
+                "blocked",
+                "repeat",
+                "top",
+                "recommendation",
+            ],
         )
         return
     if command == "research-run" and isinstance(value, dict):

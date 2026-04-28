@@ -310,6 +310,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/restricted-blocklist-ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Restricted Blocklist Ranking */
+        get: operations["research_restricted_blocklist_ranking_api_research_restricted_blocklist_ranking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/research/runs": {
         parameters: {
             query?: never;
@@ -710,6 +727,23 @@ export interface paths {
         };
         /** Research Pre Live Readiness */
         get: operations["research_pre_live_readiness_research_pre_live_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/research/restricted-blocklist-ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Restricted Blocklist Ranking */
+        get: operations["research_restricted_blocklist_ranking_research_restricted_blocklist_ranking_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1277,6 +1311,29 @@ export interface components {
             runs: components["schemas"]["ResearchRunSummary"][];
             /** Source */
             source: string;
+        };
+        /** RestrictedBlocklistRankingResponse */
+        RestrictedBlocklistRankingResponse: {
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Created At */
+            created_at?: string | null;
+            /** Observations */
+            observations: unknown[];
+            /** Report Root */
+            report_root?: string | null;
+            /** Report Version */
+            report_version?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary: unknown;
+            /** Top Candidate */
+            top_candidate: unknown;
         };
         /** ResumeRequest */
         ResumeRequest: {
@@ -1914,6 +1971,26 @@ export interface operations {
             };
         };
     };
+    research_restricted_blocklist_ranking_api_research_restricted_blocklist_ranking_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestrictedBlocklistRankingResponse"];
+                };
+            };
+        };
+    };
     research_runs_api_research_runs_get: {
         parameters: {
             query?: {
@@ -2544,6 +2621,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreLiveReadinessResponse"];
+                };
+            };
+        };
+    };
+    research_restricted_blocklist_ranking_research_restricted_blocklist_ranking_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestrictedBlocklistRankingResponse"];
                 };
             };
         };

@@ -196,6 +196,16 @@ test('dashboard shows latest go no-go gate', async ({ page }) => {
   await expect(page.getByRole('cell', { name: 'positive_realized_edge' })).toBeVisible();
 });
 
+test('dashboard shows restricted blocklist ranking', async ({ page }) => {
+  await mockOperatorApi(page);
+
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Restricted Blocklist Ranking' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'migrated_risk_only' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'test_migrated_risk_variant' })).toBeVisible();
+});
+
 test('dashboard shows pre-live readiness report', async ({ page }) => {
   await mockOperatorApi(page);
 
@@ -523,6 +533,34 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
         blockers: [{ check_name: 'go_no_go_passed', passed: false }],
         audit: { status: 'ok', source: 'postgres', control_results: 1 },
         artifacts: {},
+      };
+    case '/api/research/restricted-blocklist-ranking':
+      return {
+        status: 'ok',
+        source: 'data_lake/reports/20260427T000000Z/restricted_blocklist_ranking.json',
+        run_id: '20260427T000000Z',
+        created_at: '2026-04-27T00:00:00+00:00',
+        report_root: 'data_lake/reports/20260427T000000Z',
+        report_version: 'restricted_blocklist_ranking_v1',
+        summary: {
+          observations: 2,
+          blocked_observations: 2,
+          repeat_observation_candidates: 0,
+        },
+        top_candidate: {
+          blocklist_kind: 'migrated_risk_only',
+          recommendation: 'test_migrated_risk_variant',
+        },
+        observations: [
+          {
+            blocklist_kind: 'migrated_risk_only',
+            score: -258.72,
+            recommendation: 'test_migrated_risk_variant',
+            restricted_decision: 'REJECT',
+            risk_migration_status: 'risk_migration_detected',
+          },
+        ],
+        can_execute_trades: false,
       };
     case '/api/research/runs':
       return {

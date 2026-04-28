@@ -92,6 +92,46 @@ def latest_go_no_go(root: Path | None = None) -> dict[str, object]:
     }
 
 
+def latest_restricted_blocklist_ranking(root: Path | None = None) -> dict[str, object]:
+    manifest_root = resolved_manifest_root(root)
+    index_path = manifest_root / "research_runs.jsonl"
+    if not index_path.exists():
+        return empty_restricted_blocklist_ranking(index_path)
+
+    latest = latest_manifest(index_path)
+    if latest is None:
+        return empty_restricted_blocklist_ranking(index_path)
+
+    report_root_value = latest.get("report_root")
+    report_root = Path(report_root_value) if isinstance(report_root_value, str) else None
+    ranking_path = report_root / "restricted_blocklist_ranking.json" if report_root else None
+    ranking = read_report_json(ranking_path) if ranking_path else {}
+    counts = typed_dict(latest.get("counts"))
+    top_candidate = typed_dict(ranking.get("top_candidate"))
+    return {
+        "status": "ok" if ranking else "missing_report",
+        "source": str(ranking_path) if ranking_path else str(index_path),
+        "run_id": latest.get("run_id"),
+        "created_at": latest.get("created_at"),
+        "report_root": str(report_root) if report_root else None,
+        "report_version": ranking.get("report_version"),
+        "summary": ranking.get("summary") if isinstance(ranking.get("summary"), dict) else {
+            "observations": counts.get("restricted_blocklist_ranked_observations"),
+            "repeat_observation_candidates": counts.get(
+                "restricted_blocklist_repeat_candidates"
+            ),
+            "blocked_observations": counts.get(
+                "restricted_blocklist_blocked_observations"
+            ),
+        },
+        "top_candidate": top_candidate,
+        "observations": ranking.get("observations")
+        if isinstance(ranking.get("observations"), list)
+        else [],
+        "can_execute_trades": False,
+    }
+
+
 def latest_pre_live_readiness(
     root: Path | None = None,
     audit_summary: dict[str, object] | None = None,
@@ -246,6 +286,25 @@ def empty_go_no_go(index_path: Path) -> dict[str, object]:
         "pre_live_promotion_passed": None,
         "agent_advisory_acceptable": None,
         "nim_budget_status": None,
+    }
+
+
+def empty_restricted_blocklist_ranking(index_path: Path) -> dict[str, object]:
+    return {
+        "status": "missing",
+        "source": str(index_path),
+        "run_id": None,
+        "created_at": None,
+        "report_root": None,
+        "report_version": None,
+        "summary": {
+            "observations": 0,
+            "repeat_observation_candidates": 0,
+            "blocked_observations": 0,
+        },
+        "top_candidate": {},
+        "observations": [],
+        "can_execute_trades": False,
     }
 
 

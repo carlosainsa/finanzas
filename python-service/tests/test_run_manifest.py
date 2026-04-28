@@ -51,11 +51,24 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["nim_advisory_budget_status"] == "OK"
     assert counts["research_feature_blocklist_candidates"] == 3
     assert counts["blocked_segment_candidates"] == 1
+    assert counts["restricted_blocklist_ranked_observations"] == 2
+    assert counts["restricted_blocklist_complete_observations"] == 2
+    assert counts["restricted_blocklist_blocked_observations"] == 2
+    assert counts["restricted_blocklist_next_variant_status"] == "generated"
+    assert counts["restricted_blocklist_next_variant_name"] == (
+        "restricted_input_plus_top_migrated_risk"
+    )
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
     assert versions["promotion_report"] == "pre_live_promotion_v1"
     assert versions["feature_decision_report"] == "feature_research_decision_v1"
+    assert versions["restricted_blocklist_ranking_report"] == (
+        "restricted_blocklist_ranking_v1"
+    )
+    assert versions["restricted_blocklist_next_variant_report"] == (
+        "restricted_blocklist_next_variant_v1"
+    )
     assert versions["nim_advisory_report"] == "nim_advisory_offline_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
@@ -159,6 +172,26 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["nim_advisory_prompt_version"] == "nim_evidence_advisory_prompt_v1"
     assert flat["research_feature_blocklist_candidates"] == 3
     assert flat["blocked_segment_candidates"] == 1
+    assert flat["restricted_blocklist_ranked_observations"] == 2
+    assert flat["restricted_blocklist_complete_observations"] == 2
+    assert flat["restricted_blocklist_blocked_observations"] == 2
+    assert flat["restricted_blocklist_ranking_top_score"] == -258.7
+    assert flat["restricted_blocklist_ranking_top_recommendation"] == (
+        "test_migrated_risk_variant"
+    )
+    assert flat["restricted_blocklist_ranking_top_blocklist_kind"] == (
+        "migrated_risk_only"
+    )
+    assert flat["restricted_blocklist_next_variant_status"] == "generated"
+    assert flat["restricted_blocklist_next_variant_name"] == (
+        "restricted_input_plus_top_migrated_risk"
+    )
+    assert flat["restricted_blocklist_ranking_report_version"] == (
+        "restricted_blocklist_ranking_v1"
+    )
+    assert flat["restricted_blocklist_next_variant_report_version"] == (
+        "restricted_blocklist_next_variant_v1"
+    )
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
     assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -329,6 +362,38 @@ def seed_report_root(report_root: Path) -> Path:
             "can_apply_live": False,
             "decision": "PROMOTE_FEATURE",
             "summary": {"passed": 8, "failed": 0, "missing": 0},
+        },
+    )
+    write_json(
+        report_root / "restricted_blocklist_ranking.json",
+        {
+            "report_version": "restricted_blocklist_ranking_v1",
+            "summary": {
+                "observations": 2,
+                "complete_observations": 2,
+                "repeat_observation_candidates": 0,
+                "blocked_observations": 2,
+            },
+            "top_candidate": {
+                "blocklist_kind": "migrated_risk_only",
+                "recommendation": "test_migrated_risk_variant",
+                "score": -258.7,
+            },
+            "observations": [],
+            "can_execute_trades": False,
+        },
+    )
+    write_json(
+        report_root / "restricted_blocklist_next_variant.json",
+        {
+            "report_version": "restricted_blocklist_next_variant_v1",
+            "status": "generated",
+            "can_apply_live": False,
+            "can_execute_trades": False,
+            "variant": {
+                "name": "restricted_input_plus_top_migrated_risk",
+                "blocked_segments": 2,
+            },
         },
     )
     write_json(

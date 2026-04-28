@@ -35,6 +35,10 @@ def test_cli_supports_metrics_and_control_results() -> None:
     assert parser.parse_args(["nim-budget"]).command == "nim-budget"
     assert parser.parse_args(["research-go-no-go"]).command == "research-go-no-go"
     assert parser.parse_args(["pre-live-readiness"]).command == "pre-live-readiness"
+    assert (
+        parser.parse_args(["restricted-blocklist-ranking"]).command
+        == "restricted-blocklist-ranking"
+    )
     assert parser.parse_args(["research-runs"]).command == "research-runs"
     run_args = parser.parse_args(["research-run", "run-1"])
     assert run_args.command == "research-run"
@@ -231,3 +235,29 @@ def test_cli_prints_pre_live_readiness_summary(capsys: pytest.CaptureFixture[str
     assert "pre_live" in output
     assert "blocked" in output
     assert "NO_GO" in output
+
+
+def test_cli_prints_restricted_blocklist_ranking_summary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli.print_command_table(
+        "restricted-blocklist-ranking",
+        {
+            "status": "ok",
+            "run_id": "run-2",
+            "summary": {
+                "observations": 2,
+                "blocked_observations": 2,
+                "repeat_observation_candidates": 0,
+            },
+            "top_candidate": {
+                "blocklist_kind": "migrated_risk_only",
+                "recommendation": "test_migrated_risk_variant",
+            },
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "migrated_risk_only" in output
+    assert "test_migrated_risk_variant" in output
+    assert "observations" in output

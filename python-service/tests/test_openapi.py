@@ -12,6 +12,7 @@ def test_openapi_includes_control_results_and_metrics() -> None:
     assert "/api/control/preview/cancel-all" in schema["paths"]
     assert "/api/reconciliation/status" in schema["paths"]
     assert "/api/research/pre-live-readiness" in schema["paths"]
+    assert "/api/research/restricted-blocklist-ranking" in schema["paths"]
 
 
 def test_openapi_marks_operator_routes_with_bearer_security() -> None:
