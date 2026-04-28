@@ -216,7 +216,7 @@ class ResearchRunsResponse(BaseModel):
 class ResearchRunDetailResponse(BaseModel):
     status: str
     source: str
-    run: dict[str, Any] | None = None
+    run: Any | None = None
     can_execute_trades: bool
 
 

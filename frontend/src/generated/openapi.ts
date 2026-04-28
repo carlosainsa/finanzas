@@ -1090,9 +1090,7 @@ export interface components {
             /** Can Execute Trades */
             can_execute_trades: boolean;
             /** Run */
-            run?: {
-                [key: string]: unknown;
-            } | null;
+            run?: unknown | null;
             /** Source */
             source: string;
             /** Status */
