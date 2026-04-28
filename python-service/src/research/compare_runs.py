@@ -34,6 +34,9 @@ LOWER_IS_BETTER = {
     "advisory_failed",
 }
 NEUTRAL_METRICS = {"runtime_blocked_segments"}
+MIN_SHARED_SEGMENT_RATIO = 0.80
+MIN_SHARED_SIGNAL_COVERAGE_RATIO = 0.50
+MIN_SHARED_FILL_COVERAGE_RATIO = 0.50
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,14 @@ def compare_runs(
             "segment_comparability": segment_comparability(
                 report_root_from_row(baseline), report_root_from_row(candidate)
             ),
+            "coverage_assessment": coverage_assessment(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
+            "restricted_blocklist_assessment": restricted_blocklist_assessment(
+                deltas,
+                report_root_from_row(baseline),
+                report_root_from_row(candidate),
+            ),
             "blocked_segment_changes": blocked_segment_changes(
                 report_root_from_row(baseline), report_root_from_row(candidate)
             ),
@@ -135,6 +146,14 @@ def compare_report_roots(
             ),
             "segment_comparability": segment_comparability(
                 baseline_report_root, candidate_report_root
+            ),
+            "coverage_assessment": coverage_assessment(
+                baseline_report_root, candidate_report_root
+            ),
+            "restricted_blocklist_assessment": restricted_blocklist_assessment(
+                deltas,
+                baseline_report_root,
+                candidate_report_root,
             ),
             "blocked_segment_changes": blocked_segment_changes(
                 baseline_report_root, candidate_report_root
@@ -281,8 +300,18 @@ def segment_comparability(
     candidate_exists = candidate_path.exists()
     baseline = load_segments(baseline_report_root)
     candidate = load_segments(candidate_report_root)
-    baseline_keys = key_set(baseline, segment_keys())
-    candidate_keys = key_set(candidate, segment_keys())
+    keys = segment_keys()
+    baseline_keys = key_set(baseline, keys)
+    candidate_keys = key_set(candidate, keys)
+    expected_removed_keys = expected_restricted_blocked_segments(candidate_report_root)
+    expected_removed = (baseline_keys - candidate_keys) & expected_removed_keys
+    unexpected_removed = (baseline_keys - candidate_keys) - expected_removed_keys
+    unexpected_new = candidate_keys - baseline_keys
+    shared_keys = baseline_keys & candidate_keys
+    expected_unblocked_baseline_count = len(baseline_keys - expected_removed_keys)
+    shared_segment_ratio = ratio(len(shared_keys), expected_unblocked_baseline_count)
+    signal_coverage = shared_metric_coverage_ratio(baseline, candidate, keys, "signals")
+    fill_coverage = shared_metric_coverage_ratio(baseline, candidate, keys, "filled_signals")
     if not baseline_exists and not candidate_exists:
         reason = "missing_both_segment_exports"
     elif not baseline_exists:
@@ -295,19 +324,136 @@ def segment_comparability(
         reason = "missing_candidate_segment_keys"
     elif baseline_keys == candidate_keys:
         reason = None
+    elif unexpected_removed:
+        reason = "unexpected_candidate_segment_loss"
+    elif unexpected_new:
+        reason = "unexpected_candidate_new_segments"
+    elif shared_segment_ratio is None or shared_segment_ratio < MIN_SHARED_SEGMENT_RATIO:
+        reason = "insufficient_shared_segment_coverage"
+    elif signal_coverage is None or signal_coverage < MIN_SHARED_SIGNAL_COVERAGE_RATIO:
+        reason = "insufficient_shared_signal_coverage"
+    elif fill_coverage is None or fill_coverage < MIN_SHARED_FILL_COVERAGE_RATIO:
+        reason = "insufficient_shared_fill_coverage"
     else:
-        reason = "segment_key_mismatch"
+        reason = None
     status = "comparable" if reason is None else "no_comparable"
     return {
         "status": status,
         "reason": reason,
+        "policy_version": "segment_comparability_v2",
+        "minimums": {
+            "min_shared_segment_ratio": MIN_SHARED_SEGMENT_RATIO,
+            "min_shared_signal_coverage_ratio": MIN_SHARED_SIGNAL_COVERAGE_RATIO,
+            "min_shared_fill_coverage_ratio": MIN_SHARED_FILL_COVERAGE_RATIO,
+        },
         "baseline_segments_available": baseline_exists,
         "candidate_segments_available": candidate_exists,
         "baseline_segment_path": str(baseline_path),
         "candidate_segment_path": str(candidate_path),
-        "missing_in_baseline": len(candidate_keys - baseline_keys),
-        "missing_in_candidate": len(baseline_keys - candidate_keys),
+        "baseline_segments": len(baseline_keys),
+        "candidate_segments": len(candidate_keys),
+        "shared_segments": len(shared_keys),
+        "shared_segment_ratio": shared_segment_ratio,
+        "shared_signal_coverage_ratio": signal_coverage,
+        "shared_fill_coverage_ratio": fill_coverage,
+        "expected_removed_segments": len(expected_removed),
+        "expected_removed_segments_present": len(expected_removed_keys & baseline_keys),
+        "unexpected_removed_segments": len(unexpected_removed),
+        "unexpected_new_segments": len(unexpected_new),
+        "missing_in_baseline": len(unexpected_new),
+        "missing_in_candidate": len(unexpected_removed),
+        "expected_removed": [
+            segment_key_to_dict(item) for item in sorted(expected_removed)
+        ],
+        "unexpected_removed": [
+            segment_key_to_dict(item) for item in sorted(unexpected_removed)
+        ],
+        "unexpected_new": [
+            segment_key_to_dict(item) for item in sorted(unexpected_new)
+        ],
     }
+
+
+def coverage_assessment(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    comparability = segment_comparability(baseline_report_root, candidate_report_root)
+    status = "acceptable" if comparability.get("status") == "comparable" else "blocked"
+    return {
+        "status": status,
+        "policy_version": comparability.get("policy_version"),
+        "reason": comparability.get("reason"),
+        "minimums": comparability.get("minimums"),
+        "shared_segment_ratio": comparability.get("shared_segment_ratio"),
+        "shared_signal_coverage_ratio": comparability.get(
+            "shared_signal_coverage_ratio"
+        ),
+        "shared_fill_coverage_ratio": comparability.get("shared_fill_coverage_ratio"),
+        "unexpected_removed_segments": comparability.get("unexpected_removed_segments"),
+        "unexpected_new_segments": comparability.get("unexpected_new_segments"),
+        "expected_removed_segments": comparability.get("expected_removed_segments"),
+    }
+
+
+def restricted_blocklist_assessment(
+    deltas: list[dict[str, object]],
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    if not restricted_blocklist_enabled(candidate_report_root):
+        return {
+            "status": "not_applicable",
+            "reason": "candidate_run_not_restricted",
+            "can_promote_blocklist": False,
+        }
+    coverage = coverage_assessment(baseline_report_root, candidate_report_root)
+    if coverage.get("status") != "acceptable":
+        return {
+            "status": "need_more_data",
+            "reason": "coverage_not_acceptable",
+            "can_promote_blocklist": False,
+            "coverage_assessment": coverage,
+        }
+    regressions = protected_metric_regressions(deltas)
+    if regressions:
+        return {
+            "status": "rejected",
+            "reason": "protected_metric_regression",
+            "can_promote_blocklist": False,
+            "regressions": regressions,
+            "coverage_assessment": coverage,
+        }
+    return {
+        "status": "accepted_for_observation",
+        "reason": "comparable_without_protected_metric_regression",
+        "can_promote_blocklist": False,
+        "next_step": "repeat_restricted_run_before_promotion",
+        "coverage_assessment": coverage,
+    }
+
+
+def restricted_blocklist_enabled(candidate_report_root: Path | None) -> bool:
+    if candidate_report_root is None:
+        return False
+    evidence = read_json(candidate_report_root / "real_dry_run_evidence.json")
+    return evidence.get("blocked_segments_enabled") is True
+
+
+def protected_metric_regressions(
+    deltas: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    protected = {
+        "realized_edge",
+        "fill_rate",
+        "max_abs_simulator_fill_rate_delta",
+        "reconciliation_divergence_rate",
+    }
+    return [
+        item
+        for item in deltas
+        if item.get("metric") in protected and item.get("improved") is False
+    ]
 
 
 def joined_segment_frame(
@@ -421,6 +567,25 @@ def blocked_segment_changes(
     }
 
 
+def expected_restricted_blocked_segments(
+    candidate_report_root: Path | None,
+) -> set[tuple[str, str, str, str, str]]:
+    if candidate_report_root is None:
+        return set()
+    evidence = read_json(candidate_report_root / "real_dry_run_evidence.json")
+    if evidence.get("blocked_segments_enabled") is not True:
+        return set()
+    path_value = evidence.get("blocked_segments_path")
+    if not isinstance(path_value, str) or not path_value:
+        return set()
+    blocklist_path = Path(path_value)
+    if not blocklist_path.is_absolute():
+        repo_relative = Path.cwd() / blocklist_path
+        report_relative = candidate_report_root / blocklist_path
+        blocklist_path = repo_relative if repo_relative.exists() else report_relative
+    return load_blocked_segments_from_json(blocklist_path)
+
+
 def load_blocked_segments(report_root: Path | None) -> set[tuple[str, str, str, str, str]]:
     if report_root is None:
         return set()
@@ -428,10 +593,14 @@ def load_blocked_segments(report_root: Path | None) -> set[tuple[str, str, str, 
     if parquet_path.exists():
         return key_set(pd.read_parquet(parquet_path), segment_keys())
     json_path = report_root / "pre_live_promotion" / "blocked_segments.json"
-    if not json_path.exists():
+    return load_blocked_segments_from_json(json_path)
+
+
+def load_blocked_segments_from_json(path: Path) -> set[tuple[str, str, str, str, str]]:
+    if not path.exists():
         return set()
     try:
-        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return set()
     if not isinstance(payload, dict):
@@ -441,6 +610,44 @@ def load_blocked_segments(report_root: Path | None) -> set[tuple[str, str, str, 
         return set()
     rows = [item for item in segments if isinstance(item, dict)]
     return key_set(pd.DataFrame(rows), segment_keys())
+
+
+def read_json(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def shared_metric_coverage_ratio(
+    baseline: pd.DataFrame,
+    candidate: pd.DataFrame,
+    keys: list[str],
+    metric: str,
+) -> float | None:
+    if baseline.empty or candidate.empty:
+        return None
+    if any(key not in baseline.columns or key not in candidate.columns for key in keys):
+        return None
+    if metric not in baseline.columns or metric not in candidate.columns:
+        return None
+    merged = baseline[keys + [metric]].merge(
+        candidate[keys + [metric]],
+        on=keys,
+        suffixes=("_baseline", "_candidate"),
+    )
+    if merged.empty:
+        return 0.0
+    baseline_total = pd.to_numeric(merged[f"{metric}_baseline"], errors="coerce").fillna(0).sum()
+    candidate_total = pd.to_numeric(merged[f"{metric}_candidate"], errors="coerce").fillna(0).sum()
+    return ratio(float(candidate_total), float(baseline_total))
+
+
+def ratio(numerator: float, denominator: float) -> float | None:
+    if denominator <= 0:
+        return None
+    return numerator / denominator
 
 
 def segment_keys() -> list[str]:

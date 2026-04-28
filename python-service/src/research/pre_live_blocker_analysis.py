@@ -13,6 +13,10 @@ REPORT_VERSION = "pre_live_blocker_diagnostics_v1"
 PROMOTION_SEGMENTS = "pre_live_promotion/pre_live_promotion_segments.parquet"
 ADVERSE_SELECTION = "game_theory/adverse_selection_by_strategy.parquet"
 GO_NO_GO = "go_no_go.json"
+COMPARABILITY_POLICY_VERSION = "segment_comparability_v2"
+MIN_SHARED_SEGMENT_RATIO = 0.80
+MIN_SHARED_SIGNAL_COVERAGE_RATIO = 0.50
+MIN_SHARED_FILL_COVERAGE_RATIO = 0.50
 
 
 def create_blocker_diagnostics(
@@ -66,6 +70,14 @@ def create_blocker_diagnostics(
             "max_candidates": max_candidates,
         },
     )
+    evaluation_contract = blocklist_evaluation_contract(
+        candidate_segments,
+        segments=segments,
+        report_root=report_root,
+        min_segment_signals=min_segment_signals,
+        min_adverse_filled_events=min_adverse_filled_events,
+    )
+    blocked_segments["evaluation_contract"] = evaluation_contract
     resolved_output_dir = output_dir or report_root / "blocker_diagnostics"
     blocked_path = resolved_output_dir / "blocked_segments_candidate.json"
     diagnostics_path = resolved_output_dir / "pre_live_blocker_diagnostics.json"
@@ -92,6 +104,7 @@ def create_blocker_diagnostics(
         "top_drawdown_segments": drawdown_segments,
         "top_adverse_selection_segments": adverse_segments,
         "candidate_blocked_segments": candidate_segments,
+        "evaluation_contract": evaluation_contract,
         "blocked_segments_path": str(blocked_path),
         "next_restricted_run": {
             "command": (
@@ -282,6 +295,112 @@ def blocked_segments_payload(
     }
 
 
+def blocklist_evaluation_contract(
+    candidate_segments: list[dict[str, object]],
+    *,
+    segments: pd.DataFrame,
+    report_root: Path,
+    min_segment_signals: int,
+    min_adverse_filled_events: int,
+) -> dict[str, object]:
+    expected_removed = [segment_identity(segment) for segment in candidate_segments]
+    coverage = expected_coverage_impact(segments, candidate_segments)
+    return {
+        "version": "blocked_segments_evaluation_contract_v1",
+        "comparability_policy_version": COMPARABILITY_POLICY_VERSION,
+        "source_report_root": str(report_root),
+        "can_promote_live": False,
+        "required_outcome": "restricted_run_must_remain_comparable",
+        "expected_removed_segments": expected_removed,
+        "expected_removed_segments_count": len(expected_removed),
+        "expected_coverage_impact": coverage,
+        "minimums": {
+            "min_shared_segment_ratio": MIN_SHARED_SEGMENT_RATIO,
+            "min_shared_signal_coverage_ratio": MIN_SHARED_SIGNAL_COVERAGE_RATIO,
+            "min_shared_fill_coverage_ratio": MIN_SHARED_FILL_COVERAGE_RATIO,
+            "min_segment_signals": min_segment_signals,
+            "min_adverse_filled_events": min_adverse_filled_events,
+        },
+        "acceptance_criteria": [
+            "compare_runs verdict is not no_comparable",
+            "all missing candidate segments are listed in expected_removed_segments",
+            "shared segment, signal, and fill coverage meet minimums",
+            "realized_edge does not regress",
+            "fill_rate does not regress",
+            "max_abs_simulator_fill_rate_delta does not regress",
+            "reconciliation_divergence_rate does not regress",
+            "can_execute_trades remains false until a separate live gate approves",
+        ],
+        "rejection_criteria": [
+            "unexpected candidate segment loss",
+            "unexpected new candidate segments",
+            "insufficient shared coverage",
+            "simulator quality regression",
+            "single-run-only evidence",
+        ],
+    }
+
+
+def expected_coverage_impact(
+    segments: pd.DataFrame,
+    candidate_segments: list[dict[str, object]],
+) -> dict[str, object]:
+    if segments.empty:
+        return {
+            "baseline_signals": 0.0,
+            "candidate_blocked_signals": 0.0,
+            "remaining_signals": 0.0,
+            "signal_coverage_rate": None,
+            "baseline_filled_signals": 0.0,
+            "candidate_blocked_filled_signals": 0.0,
+            "remaining_filled_signals": 0.0,
+            "filled_signal_coverage_rate": None,
+        }
+    keys = ["market_id", "asset_id", "side", "strategy", "model_version"]
+    frame = segments.copy()
+    frame["_segment_key"] = frame.apply(
+        lambda row: tuple(str(row.get(key) or "") for key in keys),
+        axis=1,
+    )
+    candidate_keys = {
+        tuple(str(segment.get(key) or "") for key in keys)
+        for segment in candidate_segments
+    }
+    frame["signals"] = pd.to_numeric(frame.get("signals"), errors="coerce").fillna(0)
+    frame["filled_signals"] = pd.to_numeric(
+        frame.get("filled_signals"), errors="coerce"
+    ).fillna(0)
+    blocked = frame[frame["_segment_key"].isin(candidate_keys)]
+    baseline_signals = float(frame["signals"].sum())
+    blocked_signals = float(blocked["signals"].sum())
+    baseline_fills = float(frame["filled_signals"].sum())
+    blocked_fills = float(blocked["filled_signals"].sum())
+    return {
+        "baseline_signals": baseline_signals,
+        "candidate_blocked_signals": blocked_signals,
+        "remaining_signals": baseline_signals - blocked_signals,
+        "signal_coverage_rate": safe_ratio(
+            baseline_signals - blocked_signals, baseline_signals
+        ),
+        "baseline_filled_signals": baseline_fills,
+        "candidate_blocked_filled_signals": blocked_fills,
+        "remaining_filled_signals": baseline_fills - blocked_fills,
+        "filled_signal_coverage_rate": safe_ratio(
+            baseline_fills - blocked_fills, baseline_fills
+        ),
+    }
+
+
+def segment_identity(segment: dict[str, object]) -> dict[str, str]:
+    return {
+        "market_id": str(segment.get("market_id") or ""),
+        "asset_id": str(segment.get("asset_id") or ""),
+        "side": str(segment.get("side") or ""),
+        "strategy": str(segment.get("strategy") or ""),
+        "model_version": str(segment.get("model_version") or ""),
+    }
+
+
 def write_outputs(
     output_dir: Path,
     diagnostics_path: Path,
@@ -334,6 +453,12 @@ def finite_float(value: object) -> float | None:
 def float_value(value: object, default: float) -> float:
     parsed = finite_float(value)
     return parsed if parsed is not None else default
+
+
+def safe_ratio(numerator: float, denominator: float) -> float | None:
+    if denominator <= 0:
+        return None
+    return numerator / denominator
 
 
 def main() -> int:

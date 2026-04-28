@@ -152,7 +152,9 @@ These steps improve the trading platform before introducing heavier models. The 
    - Export `blocked_segments.json` from promotion and load it explicitly with `PREDICTOR_BLOCKED_SEGMENTS_PATH` when running a restricted dry-run.
    - Compare unrestricted vs restricted dry-runs with `compare_runs --baseline-report-root ... --candidate-report-root ...` before accepting a blocklist.
    - Review segment-level improved/worsened/new/removed counts plus newly blocked/unblocked segment keys as the objective promotion evidence.
-   - Treat `compare_runs` verdict `no_comparable` as a hard research blocker until both runs export matching segment keys.
+   - Treat `compare_runs` verdict `no_comparable` as a hard research blocker until both runs meet `segment_comparability_v2`: expected blocklist removals only, minimum shared segment coverage, minimum shared signal coverage, and minimum shared fill coverage.
+   - Require `comparison.restricted_blocklist_assessment.status` to be `accepted_for_observation` before repeating a candidate blocklist; reject it immediately when protected metrics regress even if aggregate `verdict` says `candidate_improved`.
+   - Keep every generated blocker blocklist candidate research-only with an embedded evaluation contract; never apply it live from one run.
    - Use `research_promotion_decision` to convert a comparable comparison into `PROMOTE`, `REJECT`, or `NEED_MORE_DATA`; do not promote from aggregate metrics alone.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.

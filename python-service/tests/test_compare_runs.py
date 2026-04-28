@@ -128,13 +128,152 @@ def test_compare_report_roots_reports_segment_and_blocklist_changes(
     segment_table = format_segment_changes_table(report)
     assert comparison["verdict"] == "no_comparable"
     assert comparability["status"] == "no_comparable"
-    assert comparability["reason"] == "segment_key_mismatch"
+    assert comparability["reason"] == "unexpected_candidate_segment_loss"
     assert summary["improved_segments"] == 1
     assert summary["new_segments"] == 1
     assert summary["removed_segments"] == 1
     assert blocked["newly_blocked_count"] == 1
     assert blocked["unblocked_count"] == 1
     assert "improved" in segment_table
+
+
+def test_compare_report_roots_allows_expected_restricted_segment_loss(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(
+        baseline,
+        [
+            segment_row("market-1", "asset-1", realized_edge=0.01),
+            segment_row("market-2", "asset-2", realized_edge=-0.02),
+        ],
+    )
+    write_segments(
+        candidate,
+        [
+            segment_row("market-1", "asset-1", realized_edge=0.04),
+        ],
+    )
+    blocklist_path = tmp_path / "blocked_segments_candidate.json"
+    write_candidate_blocklist(
+        blocklist_path,
+        [blocked_segment("market-2", "asset-2")],
+    )
+    write_real_dry_run_evidence(candidate, blocklist_path)
+    override_metric(candidate, "realized_edge", 0.07)
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
+    coverage = cast(dict[str, Any], comparison["coverage_assessment"])
+    blocklist_assessment = cast(
+        dict[str, Any], comparison["restricted_blocklist_assessment"]
+    )
+    assert comparison["verdict"] == "candidate_improved"
+    assert comparability["status"] == "comparable"
+    assert coverage["status"] == "acceptable"
+    assert blocklist_assessment["status"] == "accepted_for_observation"
+    assert blocklist_assessment["can_promote_blocklist"] is False
+    assert comparability["reason"] is None
+    assert comparability["expected_removed_segments"] == 1
+    assert comparability["unexpected_removed_segments"] == 0
+    assert comparability["shared_segment_ratio"] == pytest.approx(1.0)
+
+
+def test_compare_report_roots_rejects_restricted_run_with_low_shared_coverage(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    baseline_rows = [
+        segment_row(f"market-{index}", f"asset-{index}", realized_edge=0.01)
+        for index in range(10)
+    ]
+    candidate_rows = [baseline_rows[0]]
+    write_segments(baseline, baseline_rows)
+    write_segments(candidate, candidate_rows)
+    blocklist_path = tmp_path / "blocked_segments_candidate.json"
+    write_candidate_blocklist(
+        blocklist_path,
+        [
+            blocked_segment(f"market-{index}", f"asset-{index}")
+            for index in range(1, 8)
+        ],
+    )
+    write_real_dry_run_evidence(candidate, blocklist_path)
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    comparability = cast(dict[str, Any], comparison["segment_comparability"])
+    coverage = cast(dict[str, Any], comparison["coverage_assessment"])
+    blocklist_assessment = cast(
+        dict[str, Any], comparison["restricted_blocklist_assessment"]
+    )
+    assert comparison["verdict"] == "no_comparable"
+    assert coverage["status"] == "blocked"
+    assert blocklist_assessment["status"] == "need_more_data"
+    assert comparability["reason"] == "unexpected_candidate_segment_loss"
+    assert comparability["unexpected_removed_segments"] == 2
+
+
+def test_compare_report_roots_rejects_restricted_blocklist_on_protected_regression(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report_root(tmp_path / "reports" / "run-1")
+    candidate = seed_report_root(tmp_path / "reports" / "run-2")
+    write_segments(
+        baseline,
+        [segment_row("market-1", "asset-1", realized_edge=0.01)],
+    )
+    write_segments(
+        candidate,
+        [segment_row("market-1", "asset-1", realized_edge=0.04)],
+    )
+    blocklist_path = tmp_path / "blocked_segments_candidate.json"
+    write_candidate_blocklist(blocklist_path, [])
+    write_real_dry_run_evidence(candidate, blocklist_path)
+    override_metric(baseline, "max_abs_simulator_fill_rate_delta", 0.1)
+    override_metric(candidate, "max_abs_simulator_fill_rate_delta", 1.0)
+    write_report_manifest(
+        baseline,
+        create_run_manifest(baseline, tmp_path / "research_runs", run_id="run-1"),
+    )
+    write_report_manifest(
+        candidate,
+        create_run_manifest(candidate, tmp_path / "research_runs", run_id="run-2"),
+    )
+
+    report = compare_report_roots(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    blocklist_assessment = cast(
+        dict[str, Any], comparison["restricted_blocklist_assessment"]
+    )
+    regressions = cast(list[dict[str, Any]], blocklist_assessment["regressions"])
+    assert blocklist_assessment["status"] == "rejected"
+    assert blocklist_assessment["reason"] == "protected_metric_regression"
+    assert {item["metric"] for item in regressions} == {
+        "max_abs_simulator_fill_rate_delta"
+    }
 
 
 def test_compare_report_roots_keeps_verdict_when_segments_match(tmp_path: Path) -> None:
@@ -283,6 +422,25 @@ def write_blocked_segments(report_root: Path, rows: list[dict[str, object]]) -> 
         "segments": rows,
     }
     (output_dir / "blocked_segments.json").write_text(
+        json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def write_candidate_blocklist(path: Path, rows: list[dict[str, object]]) -> None:
+    payload = {
+        "version": "blocked_segments_v1",
+        "source_report_version": "pre_live_blocker_diagnostics_v1",
+        "segments": rows,
+    }
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_real_dry_run_evidence(report_root: Path, blocklist_path: Path) -> None:
+    payload = {
+        "blocked_segments_enabled": True,
+        "blocked_segments_path": str(blocklist_path),
+    }
+    (report_root / "real_dry_run_evidence.json").write_text(
         json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8"
     )
 

@@ -30,6 +30,14 @@ def test_blocker_diagnostics_exports_candidate_blocklist(tmp_path: Path) -> None
     payload = json.loads(blocked_path.read_text(encoding="utf-8"))
     assert payload["version"] == "blocked_segments_v1"
     assert payload["can_apply_live"] is False
+    contract = payload["evaluation_contract"]
+    assert contract["version"] == "blocked_segments_evaluation_contract_v1"
+    assert contract["comparability_policy_version"] == "segment_comparability_v2"
+    assert contract["expected_removed_segments_count"] == 2
+    coverage = contract["expected_coverage_impact"]
+    assert coverage["baseline_signals"] == 63.0
+    assert coverage["candidate_blocked_signals"] == 55.0
+    assert coverage["signal_coverage_rate"] == 8.0 / 63.0
     reasons = {segment["reason"] for segment in payload["segments"]}
     assert "adverse_selection,bounded_drawdown" in reasons
     assert "adverse_selection" in reasons

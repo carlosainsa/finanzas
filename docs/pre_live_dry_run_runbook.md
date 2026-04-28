@@ -162,6 +162,19 @@ Do not promote a blocklist from one run. A candidate is useful only if the
 restricted run improves drawdown/adverse-selection without degrading realized
 edge, fill-rate, reconciliation, or simulator-quality metrics.
 
+`compare_runs` now applies `segment_comparability_v2` for restricted runs. A
+restricted run may lose only the segments explicitly listed in the candidate
+blocklist used by `PREDICTOR_BLOCKED_SEGMENTS_PATH`. It must still meet minimum
+coverage across shared segments, signals, and fills. Treat any unexpected
+segment loss, unexpected new segment, or insufficient shared coverage as a hard
+research blocker; repeat with a narrower blocklist or a longer capture before
+changing thresholds.
+
+For restricted runs, read `comparison.restricted_blocklist_assessment` before
+looking at the aggregate verdict. `candidate_improved` is not enough. A
+candidate blocklist remains rejected if protected metrics regress, including
+realized edge, fill-rate, simulator-quality delta, or reconciliation divergence.
+
 ## Exit Codes
 
 - `0`: research infra and gates passed.
