@@ -84,6 +84,8 @@ def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
         'REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS="${REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS:-true}"'
         in script
     )
+    assert "src.research.restricted_blocklist_history" in script
+    assert "restricted_blocklist_observation_history.json" in script
 
 
 def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(
@@ -144,9 +146,14 @@ def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(
     plan = json.loads(completed.stdout)
     assert plan["baseline_report_root"] == str(baseline)
     assert plan["blocklist_kind"] == "candidate"
+    assert plan["delegates_to"] == "scripts/run_pre_live_dry_run.sh"
+    assert plan["final_delegates_to"] == "scripts/run_real_dry_run_research.sh"
     assert plan["blocklist_path"] == str(blocklist_path)
     assert plan["market_asset_ids_csv"] == "asset-1,asset-2"
     assert plan["can_execute_trades"] is False
+    assert plan["preflight_require_reports"] == "true"
+    assert plan["preflight_enabled"] == "1"
+    assert plan["preflight_poll_seconds"] == 5
 
 
 def test_restricted_blocklist_observation_print_plan_uses_migrated_variant(

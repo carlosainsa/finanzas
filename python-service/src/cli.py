@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("research-go-no-go")
     subparsers.add_parser("pre-live-readiness")
     subparsers.add_parser("restricted-blocklist-ranking")
+    subparsers.add_parser("restricted-blocklist-history")
     research_runs = subparsers.add_parser("research-runs")
     research_runs.add_argument("--limit", type=int)
     research_run = subparsers.add_parser("research-run")
@@ -112,6 +113,13 @@ def dispatch(args: argparse.Namespace) -> JsonObject:
                 client,
                 "GET",
                 "/research/restricted-blocklist-ranking",
+                token=read_token(args),
+            )
+        if args.command == "restricted-blocklist-history":
+            return request_json(
+                client,
+                "GET",
+                "/research/restricted-blocklist-history",
                 token=read_token(args),
             )
         if args.command == "research-runs":
@@ -403,6 +411,27 @@ def print_command_table(command: str, value: object) -> None:
                 "top",
                 "recommendation",
             ],
+        )
+        return
+    if command == "restricted-blocklist-history" and isinstance(value, dict):
+        history_summary_value = value.get("summary")
+        history_summary: dict[str, object] = (
+            history_summary_value if isinstance(history_summary_value, dict) else {}
+        )
+        print_rows(
+            [
+                {
+                    "status": value.get("status"),
+                    "run_id": value.get("run_id"),
+                    "observations": history_summary.get("observations"),
+                    "kinds": history_summary.get("blocklist_kinds"),
+                    "stable": history_summary.get("stable_blocklist_kinds"),
+                    "insufficient": history_summary.get(
+                        "insufficient_evidence_observations"
+                    ),
+                }
+            ],
+            ["status", "run_id", "observations", "kinds", "stable", "insufficient"],
         )
         return
     if command == "research-run" and isinstance(value, dict):

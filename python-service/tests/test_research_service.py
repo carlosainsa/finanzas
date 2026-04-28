@@ -7,6 +7,7 @@ from src.api.research_service import (
     latest_go_no_go,
     latest_nim_budget,
     latest_pre_live_readiness,
+    latest_restricted_blocklist_history,
     latest_restricted_blocklist_ranking,
     list_research_runs,
 )
@@ -178,6 +179,77 @@ def test_latest_restricted_blocklist_ranking_reads_latest_report(
     assert summary["observations"] == 2
     assert summary["insufficient_evidence_observations"] == 1
     assert observations[1]["status"] == "insufficient_evidence"
+
+
+def test_latest_restricted_blocklist_history_reads_latest_report(
+    tmp_path: Path,
+) -> None:
+    manifest_root = tmp_path / "research_runs"
+    report_root = tmp_path / "run-2"
+    manifest_root.mkdir()
+    report_root.mkdir()
+    (report_root / "restricted_blocklist_observation_history.json").write_text(
+        json.dumps(
+            {
+                "report_version": "restricted_blocklist_observation_history_v1",
+                "summary": {
+                    "observations": 2,
+                    "complete_observations": 1,
+                    "insufficient_evidence_observations": 1,
+                    "missing_artifacts_observations": 0,
+                    "blocklist_kinds": 2,
+                    "stable_blocklist_kinds": 0,
+                    "unstable_blocklist_kinds": 2,
+                    "blocked_observations": 2,
+                },
+                "counts": {
+                    "by_status": {"complete": 1, "insufficient_evidence": 1},
+                    "by_recommendation": {"repair_pipeline_before_repeat": 1},
+                    "by_failure_classification": {
+                        "preflight_no_stream_progress": 1
+                    },
+                    "by_blocklist_kind": {
+                        "restricted_input_plus_top_migrated_risk": 1
+                    },
+                },
+                "blocklist_kind_stability": [
+                    {
+                        "blocklist_kind": "restricted_input_plus_top_migrated_risk",
+                        "latest_status": "insufficient_evidence",
+                    }
+                ],
+                "can_execute_trades": False,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (manifest_root / "research_runs.jsonl").write_text(
+        json.dumps(
+            {
+                "run_id": "run-2",
+                "created_at": "2026-04-27T00:00:00+00:00",
+                "report_root": str(report_root),
+                "counts": {},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = latest_restricted_blocklist_history(manifest_root)
+
+    assert result["status"] == "ok"
+    assert result["run_id"] == "run-2"
+    assert result["can_execute_trades"] is False
+    summary = cast(dict[str, object], result["summary"])
+    counts = cast(dict[str, object], result["counts"])
+    stability = cast(list[dict[str, object]], result["blocklist_kind_stability"])
+    assert summary["insufficient_evidence_observations"] == 1
+    assert cast(dict[str, object], counts["by_failure_classification"])[
+        "preflight_no_stream_progress"
+    ] == 1
+    assert stability[0]["latest_status"] == "insufficient_evidence"
 
 
 def test_latest_pre_live_readiness_blocks_missing_dry_run_evidence(tmp_path: Path) -> None:

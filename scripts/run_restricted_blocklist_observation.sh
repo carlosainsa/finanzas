@@ -21,6 +21,7 @@ universe recorded by pre_live_blocker_diagnostics.json. It writes:
   comparison.json
   research_promotion_decision.json
   restricted_blocklist_ranking.json
+  restricted_blocklist_observation_history.json
   restricted_blocklist_next_variant.json when a migrated-risk variant is indicated
   restricted_blocklist_observation_failure.json when pre-live evidence is insufficient
 
@@ -114,6 +115,7 @@ fi
 PLAN_JSON="$(
   PYTHONPATH="$ROOT_DIR/python-service" python3 - "$BASELINE_REPORT_ROOT" "$DIAGNOSTICS_PATH" "$BLOCKLIST_KIND" "$DURATION_SECONDS" "$CANDIDATE_REPORT_ROOT" "$OUTPUT_DIR" <<'PY'
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -205,6 +207,8 @@ output_dir = Path(output_arg) if output_arg else (
 
 print(json.dumps({
     "baseline_report_root": str(baseline),
+    "delegates_to": "scripts/run_pre_live_dry_run.sh" if not candidate_arg else None,
+    "final_delegates_to": "scripts/run_real_dry_run_research.sh" if not candidate_arg else None,
     "diagnostics_path": str(diagnostics_path),
     "blocklist_kind": kind,
     "blocklist_path": blocklist_path,
@@ -212,6 +216,13 @@ print(json.dumps({
     "market_asset_ids_count": fixed.get("market_asset_ids_count"),
     "market_asset_ids_sha256": fixed.get("market_asset_ids_sha256"),
     "duration_seconds": duration,
+    "preflight_enabled": os.environ.get("REAL_DRY_RUN_PREFLIGHT_ENABLED", "1"),
+    "preflight_seconds": int(os.environ.get("REAL_DRY_RUN_PREFLIGHT_SECONDS", "120")),
+    "preflight_poll_seconds": int(os.environ.get("REAL_DRY_RUN_PREFLIGHT_POLL_SECONDS", "5")),
+    "preflight_require_reports": os.environ.get(
+        "REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS",
+        "true" if not candidate_arg else "false",
+    ),
     "candidate_report_root": str(candidate_root) if candidate_root else None,
     "output_dir": str(output_dir),
     "can_execute_trades": False,
@@ -350,6 +361,10 @@ done
 PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_ranking \
   "${RANKING_ARGS[@]}" \
   --output "$RANKING_OUTPUT_DIR/restricted_blocklist_ranking.json"
+
+PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_history \
+  "${RANKING_ARGS[@]}" \
+  --output "$RANKING_OUTPUT_DIR/restricted_blocklist_observation_history.json"
 
 PYTHONPATH="$ROOT_DIR/python-service" python3 -m src.research.restricted_blocklist_next_variant \
   --ranking "$RANKING_OUTPUT_DIR/restricted_blocklist_ranking.json" \

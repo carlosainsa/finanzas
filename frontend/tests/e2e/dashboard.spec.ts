@@ -201,12 +201,22 @@ test('dashboard shows restricted blocklist ranking', async ({ page }) => {
 
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'Restricted Blocklist Ranking' })).toBeVisible();
-  await expect(page.getByRole('cell', { name: 'migrated_risk_only' })).toBeVisible();
-  await expect(page.getByRole('cell', { name: 'test_migrated_risk_variant' })).toBeVisible();
-  await expect(page.getByText('Insufficient', { exact: true })).toBeVisible();
-  await expect(page.getByRole('cell', { name: 'insufficient_evidence' })).toBeVisible();
-  await expect(page.getByRole('cell', { name: 'real dry-run preflight failed' })).toBeVisible();
+  const panel = page.locator('.panel').filter({ has: page.getByRole('heading', { name: 'Restricted Blocklist Ranking' }) });
+  await expect(panel.getByRole('heading', { name: 'Restricted Blocklist Ranking' })).toBeVisible();
+  await expect(panel.getByRole('cell', { name: 'migrated_risk_only' })).toBeVisible();
+  await expect(panel.getByRole('cell', { name: 'test_migrated_risk_variant' })).toBeVisible();
+  await expect(panel.getByRole('cell', { name: 'insufficient_evidence' })).toBeVisible();
+  await expect(panel.getByRole('cell', { name: 'real dry-run preflight failed' })).toBeVisible();
+});
+
+test('dashboard shows restricted blocklist history', async ({ page }) => {
+  await mockOperatorApi(page);
+
+  await page.goto('/');
+
+  const panel = page.locator('.panel').filter({ has: page.getByRole('heading', { name: 'Restricted Blocklist History' }) });
+  await expect(panel.getByRole('heading', { name: 'Restricted Blocklist History' })).toBeVisible();
+  await expect(panel.getByRole('cell', { name: 'preflight_no_stream_progress' })).toBeVisible();
 });
 
 test('dashboard shows pre-live readiness report', async ({ page }) => {
@@ -571,6 +581,48 @@ function responseFor(path: string, state: OperatorState): Record<string, unknown
             recommendation: 'repair_pipeline_before_repeat',
             restricted_decision: null,
             failure_reason: 'real dry-run preflight failed',
+          },
+        ],
+        can_execute_trades: false,
+      };
+    case '/api/research/restricted-blocklist-history':
+      return {
+        status: 'ok',
+        source: 'data_lake/reports/20260427T000000Z/restricted_blocklist_observation_history.json',
+        run_id: '20260427T000000Z',
+        created_at: '2026-04-27T00:00:00+00:00',
+        report_root: 'data_lake/reports/20260427T000000Z',
+        report_version: 'restricted_blocklist_observation_history_v1',
+        summary: {
+          observations: 2,
+          complete_observations: 1,
+          insufficient_evidence_observations: 1,
+          missing_artifacts_observations: 0,
+          blocklist_kinds: 2,
+          stable_blocklist_kinds: 0,
+          unstable_blocklist_kinds: 2,
+          blocked_observations: 2,
+        },
+        counts: {
+          by_status: { complete: 1, insufficient_evidence: 1 },
+          by_recommendation: {
+            repair_pipeline_before_repeat: 1,
+            test_migrated_risk_variant: 1,
+          },
+          by_failure_classification: { preflight_no_stream_progress: 1 },
+          by_blocklist_kind: {
+            migrated_risk_only: 1,
+            restricted_input_plus_top_migrated_risk: 1,
+          },
+        },
+        blocklist_kind_stability: [
+          {
+            blocklist_kind: 'restricted_input_plus_top_migrated_risk',
+            observations: 1,
+            latest_status: 'insufficient_evidence',
+            latest_recommendation: 'repair_pipeline_before_repeat',
+            latest_failure_classification: 'preflight_no_stream_progress',
+            stable_recommendation: true,
           },
         ],
         can_execute_trades: false,

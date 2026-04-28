@@ -17,6 +17,7 @@ export type RuntimeMetrics = components['schemas']['RuntimeMetricsResponse'];
 export type NIMBudget = components['schemas']['NIMBudgetResponse'];
 export type GoNoGo = components['schemas']['GoNoGoResponse'];
 export type RestrictedBlocklistRanking = components['schemas']['RestrictedBlocklistRankingResponse'];
+export type RestrictedBlocklistHistory = components['schemas']['RestrictedBlocklistHistoryResponse'];
 export type PreLiveReadiness = components['schemas']['PreLiveReadinessResponse'];
 export type ResearchRunSummary = components['schemas']['ResearchRunSummary'];
 
@@ -35,6 +36,7 @@ export type DashboardData = {
   nimBudget: NIMBudget;
   goNoGo: GoNoGo;
   restrictedBlocklistRanking: RestrictedBlocklistRanking;
+  restrictedBlocklistHistory: RestrictedBlocklistHistory;
   preLiveReadiness: PreLiveReadiness;
   researchRuns: ResearchRunSummary[];
 };
@@ -109,7 +111,7 @@ async function getJson<T>(path: keyof paths): Promise<T> {
 
 export async function loadDashboard(): Promise<DashboardData> {
   const status = await getJson<StatusResponse>('/api/status');
-  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, goNoGo, restrictedBlocklistRanking, preLiveReadiness, researchRuns] = await Promise.all([
+  const [risk, streams, orders, positions, reports, markets, metrics, controlResults, reconciliation, runtime, nimBudget, goNoGo, restrictedBlocklistRanking, restrictedBlocklistHistory, preLiveReadiness, researchRuns] = await Promise.all([
     getJson<RiskResponse>('/api/risk'),
     getJson<{ streams: StreamSummary[] }>('/api/streams'),
     getJson<{ orders: ExecutionReport[] }>('/api/orders/open'),
@@ -123,6 +125,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     optionalGet<NIMBudget>('/api/research/nim-budget', fallbackData.nimBudget),
     optionalGet<GoNoGo>('/api/research/go-no-go', fallbackData.goNoGo),
     optionalGet<RestrictedBlocklistRanking>('/api/research/restricted-blocklist-ranking', fallbackData.restrictedBlocklistRanking),
+    optionalGet<RestrictedBlocklistHistory>('/api/research/restricted-blocklist-history', fallbackData.restrictedBlocklistHistory),
     optionalGet<PreLiveReadiness>('/api/research/pre-live-readiness', fallbackData.preLiveReadiness),
     optionalGet<{ runs: ResearchRunSummary[] }>('/api/research/runs', { runs: fallbackData.researchRuns }),
   ]);
@@ -142,6 +145,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     nimBudget,
     goNoGo,
     restrictedBlocklistRanking,
+    restrictedBlocklistHistory,
     preLiveReadiness,
     researchRuns: researchRuns.runs,
   };
@@ -330,6 +334,32 @@ export const fallbackData: DashboardData = {
     },
     top_candidate: {},
     observations: [],
+    can_execute_trades: false,
+  },
+  restrictedBlocklistHistory: {
+    status: 'missing',
+    source: 'data_lake/research_runs/research_runs.jsonl',
+    run_id: null,
+    created_at: null,
+    report_root: null,
+    report_version: null,
+    summary: {
+      observations: 0,
+      complete_observations: 0,
+      insufficient_evidence_observations: 0,
+      missing_artifacts_observations: 0,
+      blocklist_kinds: 0,
+      stable_blocklist_kinds: 0,
+      unstable_blocklist_kinds: 0,
+      blocked_observations: 0,
+    },
+    counts: {
+      by_status: {},
+      by_recommendation: {},
+      by_failure_classification: {},
+      by_blocklist_kind: {},
+    },
+    blocklist_kind_stability: [],
     can_execute_trades: false,
   },
   preLiveReadiness: {

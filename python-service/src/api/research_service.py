@@ -135,6 +135,54 @@ def latest_restricted_blocklist_ranking(root: Path | None = None) -> dict[str, o
     }
 
 
+def latest_restricted_blocklist_history(root: Path | None = None) -> dict[str, object]:
+    manifest_root = resolved_manifest_root(root)
+    index_path = manifest_root / "research_runs.jsonl"
+    if not index_path.exists():
+        return empty_restricted_blocklist_history(index_path)
+
+    latest = latest_manifest(index_path)
+    if latest is None:
+        return empty_restricted_blocklist_history(index_path)
+
+    report_root_value = latest.get("report_root")
+    report_root = Path(report_root_value) if isinstance(report_root_value, str) else None
+    history_path = (
+        report_root / "restricted_blocklist_observation_history.json"
+        if report_root
+        else None
+    )
+    history = read_report_json(history_path) if history_path else {}
+    return {
+        "status": "ok" if history else "missing_report",
+        "source": str(history_path) if history_path else str(index_path),
+        "run_id": latest.get("run_id"),
+        "created_at": latest.get("created_at"),
+        "report_root": str(report_root) if report_root else None,
+        "report_version": history.get("report_version"),
+        "summary": history.get("summary") if isinstance(history.get("summary"), dict) else {
+            "observations": 0,
+            "complete_observations": 0,
+            "insufficient_evidence_observations": 0,
+            "missing_artifacts_observations": 0,
+            "blocklist_kinds": 0,
+            "stable_blocklist_kinds": 0,
+            "unstable_blocklist_kinds": 0,
+            "blocked_observations": 0,
+        },
+        "counts": history.get("counts") if isinstance(history.get("counts"), dict) else {
+            "by_status": {},
+            "by_recommendation": {},
+            "by_failure_classification": {},
+            "by_blocklist_kind": {},
+        },
+        "blocklist_kind_stability": history.get("blocklist_kind_stability")
+        if isinstance(history.get("blocklist_kind_stability"), list)
+        else [],
+        "can_execute_trades": False,
+    }
+
+
 def latest_pre_live_readiness(
     root: Path | None = None,
     audit_summary: dict[str, object] | None = None,
@@ -308,6 +356,35 @@ def empty_restricted_blocklist_ranking(index_path: Path) -> dict[str, object]:
         },
         "top_candidate": {},
         "observations": [],
+        "can_execute_trades": False,
+    }
+
+
+def empty_restricted_blocklist_history(index_path: Path) -> dict[str, object]:
+    return {
+        "status": "missing",
+        "source": str(index_path),
+        "run_id": None,
+        "created_at": None,
+        "report_root": None,
+        "report_version": None,
+        "summary": {
+            "observations": 0,
+            "complete_observations": 0,
+            "insufficient_evidence_observations": 0,
+            "missing_artifacts_observations": 0,
+            "blocklist_kinds": 0,
+            "stable_blocklist_kinds": 0,
+            "unstable_blocklist_kinds": 0,
+            "blocked_observations": 0,
+        },
+        "counts": {
+            "by_status": {},
+            "by_recommendation": {},
+            "by_failure_classification": {},
+            "by_blocklist_kind": {},
+        },
+        "blocklist_kind_stability": [],
         "can_execute_trades": False,
     }
 

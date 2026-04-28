@@ -310,6 +310,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/research/restricted-blocklist-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Restricted Blocklist History */
+        get: operations["research_restricted_blocklist_history_api_research_restricted_blocklist_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/research/restricted-blocklist-ranking": {
         parameters: {
             query?: never;
@@ -727,6 +744,23 @@ export interface paths {
         };
         /** Research Pre Live Readiness */
         get: operations["research_pre_live_readiness_research_pre_live_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/research/restricted-blocklist-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Restricted Blocklist History */
+        get: operations["research_restricted_blocklist_history_research_restricted_blocklist_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1311,6 +1345,29 @@ export interface components {
             runs: components["schemas"]["ResearchRunSummary"][];
             /** Source */
             source: string;
+        };
+        /** RestrictedBlocklistHistoryResponse */
+        RestrictedBlocklistHistoryResponse: {
+            /** Blocklist Kind Stability */
+            blocklist_kind_stability: unknown[];
+            /** Can Execute Trades */
+            can_execute_trades: boolean;
+            /** Counts */
+            counts: unknown;
+            /** Created At */
+            created_at?: string | null;
+            /** Report Root */
+            report_root?: string | null;
+            /** Report Version */
+            report_version?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary: unknown;
         };
         /** RestrictedBlocklistRankingResponse */
         RestrictedBlocklistRankingResponse: {
@@ -1971,6 +2028,26 @@ export interface operations {
             };
         };
     };
+    research_restricted_blocklist_history_api_research_restricted_blocklist_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestrictedBlocklistHistoryResponse"];
+                };
+            };
+        };
+    };
     research_restricted_blocklist_ranking_api_research_restricted_blocklist_ranking_get: {
         parameters: {
             query?: never;
@@ -2621,6 +2698,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreLiveReadinessResponse"];
+                };
+            };
+        };
+    };
+    research_restricted_blocklist_history_research_restricted_blocklist_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestrictedBlocklistHistoryResponse"];
                 };
             };
         };

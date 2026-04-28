@@ -1680,6 +1680,87 @@
         "title": "ResearchRunsResponse",
         "type": "object"
       },
+      "RestrictedBlocklistHistoryResponse": {
+        "properties": {
+          "blocklist_kind_stability": {
+            "items": {},
+            "title": "Blocklist Kind Stability",
+            "type": "array"
+          },
+          "can_execute_trades": {
+            "title": "Can Execute Trades",
+            "type": "boolean"
+          },
+          "counts": {
+            "title": "Counts"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "report_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Root"
+          },
+          "report_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Version"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "summary",
+          "counts",
+          "blocklist_kind_stability",
+          "can_execute_trades"
+        ],
+        "title": "RestrictedBlocklistHistoryResponse",
+        "type": "object"
+      },
       "RestrictedBlocklistRankingResponse": {
         "properties": {
           "can_execute_trades": {
@@ -2888,6 +2969,29 @@
         "summary": "Research Pre Live Readiness"
       }
     },
+    "/api/research/restricted-blocklist-history": {
+      "get": {
+        "operationId": "research_restricted_blocklist_history_api_research_restricted_blocklist_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestrictedBlocklistHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Restricted Blocklist History"
+      }
+    },
     "/api/research/restricted-blocklist-ranking": {
       "get": {
         "operationId": "research_restricted_blocklist_ranking_api_research_restricted_blocklist_ranking_get",
@@ -3784,6 +3888,29 @@
           }
         ],
         "summary": "Research Pre Live Readiness"
+      }
+    },
+    "/research/restricted-blocklist-history": {
+      "get": {
+        "operationId": "research_restricted_blocklist_history_research_restricted_blocklist_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestrictedBlocklistHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Research Restricted Blocklist History"
       }
     },
     "/research/restricted-blocklist-ranking": {

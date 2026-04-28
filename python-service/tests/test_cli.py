@@ -261,3 +261,26 @@ def test_cli_prints_restricted_blocklist_ranking_summary(
     assert "migrated_risk_only" in output
     assert "test_migrated_risk_variant" in output
     assert "observations" in output
+
+
+def test_cli_prints_restricted_blocklist_history_summary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli.print_command_table(
+        "restricted-blocklist-history",
+        {
+            "status": "ok",
+            "run_id": "run-2",
+            "summary": {
+                "observations": 2,
+                "blocklist_kinds": 2,
+                "stable_blocklist_kinds": 1,
+                "insufficient_evidence_observations": 1,
+            },
+        },
+    )
+
+    output = capsys.readouterr().out
+    assert "run-2" in output
+    assert "insufficient" in output
+    assert "stable" in output

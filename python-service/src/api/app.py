@@ -22,6 +22,7 @@ from src.api.models import (
     PreLiveReadinessResponse,
     ReconciliationStatusResponse,
     NIMBudgetResponse,
+    RestrictedBlocklistHistoryResponse,
     RestrictedBlocklistRankingResponse,
     ResearchRunDetailResponse,
     ResearchRunsResponse,
@@ -36,6 +37,7 @@ from src.api.research_service import (
     latest_go_no_go,
     latest_nim_budget,
     latest_pre_live_readiness,
+    latest_restricted_blocklist_history,
     latest_restricted_blocklist_ranking,
     list_research_runs,
 )
@@ -352,6 +354,16 @@ async def research_restricted_blocklist_ranking(
     _: ReadAuthDependency,
 ) -> dict[str, object]:
     return latest_restricted_blocklist_ranking()
+
+
+@router.get(
+    "/research/restricted-blocklist-history",
+    response_model=RestrictedBlocklistHistoryResponse,
+)
+async def research_restricted_blocklist_history(
+    _: ReadAuthDependency,
+) -> dict[str, object]:
+    return latest_restricted_blocklist_history()
 
 
 @router.get("/research/runs", response_model=ResearchRunsResponse)

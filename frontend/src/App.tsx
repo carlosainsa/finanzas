@@ -504,6 +504,48 @@ export function App() {
             />
           </Panel>
 
+          <Panel title="Restricted Blocklist History" subtitle={data.restrictedBlocklistHistory.source}>
+            <div className="budgetHeader">
+              <span className={`budgetBadge ${data.restrictedBlocklistHistory.status === 'ok' ? 'neutral' : 'danger'}`}>
+                {data.restrictedBlocklistHistory.status}
+              </span>
+              <code>{data.restrictedBlocklistHistory.run_id ?? 'no research run'}</code>
+            </div>
+            <div className="counterGrid">
+              <Counter
+                label="Kinds"
+                value={Number(asRecord(data.restrictedBlocklistHistory.summary).blocklist_kinds ?? 0)}
+              />
+              <Counter
+                label="Stable"
+                value={Number(asRecord(data.restrictedBlocklistHistory.summary).stable_blocklist_kinds ?? 0)}
+              />
+              <Counter
+                label="Complete"
+                value={Number(asRecord(data.restrictedBlocklistHistory.summary).complete_observations ?? 0)}
+              />
+              <Counter
+                label="Insufficient"
+                value={Number(asRecord(data.restrictedBlocklistHistory.summary).insufficient_evidence_observations ?? 0)}
+              />
+            </div>
+            <Table
+              empty="No restricted blocklist history"
+              rows={data.restrictedBlocklistHistory.blocklist_kind_stability.slice(0, 5).map((item) => {
+                const row = asRecord(item);
+                return [
+                  String(row.blocklist_kind ?? '-'),
+                  String(row.observations ?? '-'),
+                  String(row.latest_status ?? '-'),
+                  String(row.latest_recommendation ?? '-'),
+                  String(row.stable_recommendation ?? false),
+                  String(row.latest_failure_classification ?? '-'),
+                ];
+              })}
+              headers={['Variant', 'Runs', 'Latest status', 'Latest recommendation', 'Stable', 'Failure']}
+            />
+          </Panel>
+
           <Panel title="Pre-Live Readiness" subtitle={data.preLiveReadiness.source}>
             <div className="budgetHeader">
               <span className={`budgetBadge ${readinessTone(data.preLiveReadiness.status)}`}>
