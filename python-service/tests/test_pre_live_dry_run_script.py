@@ -66,3 +66,66 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
         'scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" || true'
         in script
     )
+
+
+def test_restricted_blocklist_observation_print_plan_uses_fixed_universe(
+    tmp_path: Path,
+) -> None:
+    baseline = tmp_path / "reports" / "baseline"
+    diagnostics_dir = baseline / "blocker_diagnostics"
+    diagnostics_dir.mkdir(parents=True)
+    blocklist_path = diagnostics_dir / "blocked_segments_candidate.json"
+    blocklist_path.write_text(
+        json.dumps(
+            {
+                "version": "blocked_segments_v1",
+                "segments": [
+                    {
+                        "market_id": "market-1",
+                        "asset_id": "asset-1",
+                        "side": "BUY",
+                        "strategy": "near_touch",
+                        "model_version": "predictor_v1",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    diagnostics_path = diagnostics_dir / "pre_live_blocker_diagnostics.json"
+    diagnostics_path.write_text(
+        json.dumps(
+            {
+                "fixed_market_universe": {
+                    "market_asset_ids_csv": "asset-1,asset-2",
+                    "market_asset_ids_count": 2,
+                    "market_asset_ids_sha256": "hash",
+                },
+                "blocked_segments_path": str(blocklist_path),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_restricted_blocklist_observation.sh",
+            "--baseline-report-root",
+            str(baseline),
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["baseline_report_root"] == str(baseline)
+    assert plan["blocklist_kind"] == "candidate"
+    assert plan["blocklist_path"] == str(blocklist_path)
+    assert plan["market_asset_ids_csv"] == "asset-1,asset-2"
+    assert plan["can_execute_trades"] is False

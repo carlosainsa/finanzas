@@ -159,6 +159,22 @@ run reuses the same fixed market universe. `compare_runs` rejects restricted
 comparisons when the candidate run's recorded `MARKET_ASSET_IDS` hash does not
 match the blocklist evaluation contract.
 
+For a repeatable operator flow, prefer the wrapper:
+
+```bash
+scripts/run_restricted_blocklist_observation.sh \
+  --baseline-report-root "$RESEARCH_REPORT_ROOT" \
+  --blocklist-kind top_1 \
+  --duration-seconds 900
+```
+
+The wrapper reads the fixed market universe from
+`pre_live_blocker_diagnostics.json`, runs the restricted dry-run, then writes
+`comparison.json`, `research_promotion_decision.json`, and
+`restricted_blocklist_observation_summary.json` into the restricted report root.
+Use `--candidate-report-root <restricted-report-root>` to evaluate an already
+completed restricted run without starting services.
+
 The diagnostics also export:
 
 - `blocker_diagnostics/fixed_market_universe.json`;
