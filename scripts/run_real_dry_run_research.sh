@@ -350,6 +350,17 @@ async def main() -> None:
         "research_manifest_root": os.environ.get("RESEARCH_MANIFEST_ROOT"),
         "blocked_segments_path": os.environ.get("PREDICTOR_BLOCKED_SEGMENTS_PATH"),
         "blocked_segments_enabled": bool(os.environ.get("PREDICTOR_BLOCKED_SEGMENTS_PATH")),
+        "predictor_strategy_profile": os.environ.get("PREDICTOR_STRATEGY_PROFILE", "baseline"),
+        "predictor_quote_placement": os.environ.get("PREDICTOR_QUOTE_PLACEMENT"),
+        "predictor_conservative_min_confidence": os.environ.get(
+            "PREDICTOR_CONSERVATIVE_MIN_CONFIDENCE"
+        ),
+        "predictor_conservative_min_depth": os.environ.get(
+            "PREDICTOR_CONSERVATIVE_MIN_DEPTH"
+        ),
+        "predictor_conservative_max_top_changes": os.environ.get(
+            "PREDICTOR_CONSERVATIVE_MAX_TOP_CHANGES"
+        ),
     }
     report_root = Path(os.environ["RESEARCH_REPORT_ROOT"])
     report_root.mkdir(parents=True, exist_ok=True)

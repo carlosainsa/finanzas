@@ -271,6 +271,21 @@ summary["passed"] = bool(
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
 
+STRATEGY_FAMILY_REPORT_ROOTS=("$REPORT_ROOT")
+if [[ -n "${STRATEGY_FAMILY_COMPARISON_REPORT_ROOTS:-}" ]]; then
+  IFS=',' read -r -a EXTRA_STRATEGY_FAMILY_REPORT_ROOTS <<< "$STRATEGY_FAMILY_COMPARISON_REPORT_ROOTS"
+  STRATEGY_FAMILY_REPORT_ROOTS=("${EXTRA_STRATEGY_FAMILY_REPORT_ROOTS[@]}" "$REPORT_ROOT")
+fi
+STRATEGY_FAMILY_ARGS=()
+for strategy_family_report_root in "${STRATEGY_FAMILY_REPORT_ROOTS[@]}"; do
+  if [[ -n "$strategy_family_report_root" ]]; then
+    STRATEGY_FAMILY_ARGS+=(--report-root "$strategy_family_report_root")
+  fi
+done
+PYTHONPATH=python-service python3 -m src.research.strategy_family_comparison \
+  "${STRATEGY_FAMILY_ARGS[@]}" \
+  --output "$REPORT_ROOT/strategy_family_comparison.json"
+
 PYTHONPATH=python-service python3 -m src.research.run_manifest \
   --report-root "$REPORT_ROOT" \
   --manifest-root "$MANIFEST_ROOT" \
