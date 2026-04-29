@@ -1243,6 +1243,10 @@
       },
       "PredictorSummary": {
         "properties": {
+          "effective_min_confidence": {
+            "title": "Effective Min Confidence",
+            "type": "number"
+          },
           "min_confidence": {
             "title": "Min Confidence",
             "type": "number"
@@ -1254,12 +1258,23 @@
           "order_size": {
             "title": "Order Size",
             "type": "number"
+          },
+          "quote_placement": {
+            "title": "Quote Placement",
+            "type": "string"
+          },
+          "strategy_profile": {
+            "title": "Strategy Profile",
+            "type": "string"
           }
         },
         "required": [
           "min_spread",
           "order_size",
-          "min_confidence"
+          "min_confidence",
+          "effective_min_confidence",
+          "strategy_profile",
+          "quote_placement"
         ],
         "title": "PredictorSummary",
         "type": "object"

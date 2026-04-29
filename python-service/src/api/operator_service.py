@@ -12,6 +12,7 @@ from src.api.state_store import (
     positions_from_postgres,
     record_control_command_in_postgres,
 )
+from src.ml.predictor import effective_min_confidence
 
 
 class RedisLike(Protocol):
@@ -206,6 +207,9 @@ async def status_summary(redis: RedisLike) -> dict[str, object]:
             "min_spread": settings.predictor_min_spread,
             "order_size": settings.predictor_order_size,
             "min_confidence": settings.predictor_min_confidence,
+            "effective_min_confidence": effective_min_confidence(),
+            "strategy_profile": settings.predictor_strategy_profile,
+            "quote_placement": settings.predictor_quote_placement,
         },
     }
 

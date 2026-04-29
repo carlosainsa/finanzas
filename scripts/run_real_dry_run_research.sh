@@ -361,6 +361,15 @@ async def main() -> None:
         "predictor_conservative_max_top_changes": os.environ.get(
             "PREDICTOR_CONSERVATIVE_MAX_TOP_CHANGES"
         ),
+        "predictor_balanced_min_confidence": os.environ.get(
+            "PREDICTOR_BALANCED_MIN_CONFIDENCE"
+        ),
+        "predictor_balanced_min_depth": os.environ.get(
+            "PREDICTOR_BALANCED_MIN_DEPTH"
+        ),
+        "predictor_balanced_max_top_changes": os.environ.get(
+            "PREDICTOR_BALANCED_MAX_TOP_CHANGES"
+        ),
     }
     report_root = Path(os.environ["RESEARCH_REPORT_ROOT"])
     report_root.mkdir(parents=True, exist_ok=True)

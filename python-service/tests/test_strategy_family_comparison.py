@@ -42,7 +42,7 @@ def test_strategy_family_comparison_repeats_conservative_observation(
 
     assert report["report_version"] == REPORT_VERSION
     assert report["can_execute_trades"] is False
-    assert report["decision"] == "REPEAT_CONSERVATIVE_OBSERVATION"
+    assert report["decision"] == "REPEAT_CONSERVATIVE_V1_OBSERVATION"
     family = conservative_family(report)
     assert family["latest_run_id"] == "conservative-run"
     assert cast(dict[str, Any], family["metrics"])["fill_rate"] == 0.14
@@ -83,6 +83,64 @@ def test_strategy_family_comparison_redesigns_when_fill_rate_is_killed(
     report = create_strategy_family_comparison([baseline, conservative])
 
     assert report["decision"] == "REDESIGN_STRATEGY_AGAIN"
+
+
+def test_strategy_family_comparison_evaluates_latest_balanced_family(
+    tmp_path: Path,
+) -> None:
+    near_touch = seed_report_root(
+        tmp_path / "near-touch",
+        run_id="near-touch-run",
+        profile="unknown",
+        strategy="passive_spread_capture_near_touch_v1",
+        model_version="passive_spread_capture_near_touch_v1",
+        signals=100,
+        filled_signals=30,
+        realized_edge=0.02,
+        drawdown=0.10,
+        adverse_selection=0.50,
+    )
+    conservative = seed_report_root(
+        tmp_path / "conservative",
+        run_id="conservative-run",
+        profile="conservative_v1",
+        strategy="passive_spread_capture_conservative_v1",
+        model_version="passive_spread_capture_conservative_v1",
+        signals=100,
+        filled_signals=20,
+        realized_edge=0.03,
+        drawdown=0.04,
+        adverse_selection=0.25,
+    )
+    balanced = seed_report_root(
+        tmp_path / "balanced",
+        run_id="balanced-run",
+        profile="balanced_v1",
+        strategy="passive_spread_capture_balanced_v1",
+        model_version="passive_spread_capture_balanced_v1",
+        signals=100,
+        filled_signals=4,
+        realized_edge=0.03,
+        drawdown=0.03,
+        adverse_selection=0.20,
+    )
+
+    report = create_strategy_family_comparison([near_touch, conservative, balanced])
+
+    assert report["decision"] == "REDESIGN_STRATEGY_AGAIN"
+    assert "balanced_v1 did not show enough evidence" in str(
+        report["decision_reason"]
+    )
+    families = cast(list[dict[str, Any]], report["families"])
+    family = [
+        item
+        for item in families
+        if item["strategy_family"] == "balanced_v1"
+    ][0]
+    fill_rate_delta = metric_delta_by_name(family, "fill_rate")
+    assert fill_rate_delta["baseline"] == 0.3
+    assert fill_rate_delta["candidate"] == 0.04
+    assert fill_rate_delta["improved"] is False
 
 
 def test_strategy_family_comparison_handles_missing_segments(tmp_path: Path) -> None:

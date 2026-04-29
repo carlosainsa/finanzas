@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     predictor_conservative_min_depth: float = 2.0
     predictor_conservative_max_top_changes: int = 3
     predictor_conservative_top_change_window_ms: int = 60_000
+    predictor_balanced_min_confidence: float = 0.60
+    predictor_balanced_near_touch_max_spread_fraction: float = 0.75
+    predictor_balanced_min_depth: float = 1.5
+    predictor_balanced_max_top_changes: int = 6
+    predictor_balanced_top_change_window_ms: int = 60_000
     predictor_blocked_segments_path: str | None = None
 
 settings = Settings()

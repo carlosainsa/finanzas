@@ -162,6 +162,44 @@ def test_conservative_predictor_uses_less_aggressive_near_touch(
     assert signal.feature_version == "orderbook_top_of_book_conservative_near_touch_v1"
 
 
+def test_balanced_predictor_uses_intermediate_near_touch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "balanced_v1")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_balanced_min_confidence", 0.55)
+    monkeypatch.setattr(settings, "predictor_balanced_min_depth", 1.0)
+    monkeypatch.setattr(settings, "predictor_near_touch_tick_size", 0.01)
+    monkeypatch.setattr(settings, "predictor_near_touch_offset_ticks", 0)
+    monkeypatch.setattr(settings, "predictor_balanced_near_touch_max_spread_fraction", 0.75)
+
+    signal = Predictor().predict(make_book(0.45, 0.50))
+
+    assert signal is not None
+    assert signal.price == 0.4875
+    assert signal.size == 1.0
+    assert signal.strategy == "passive_spread_capture_balanced_near_touch_v1"
+    assert signal.feature_version == "orderbook_top_of_book_balanced_near_touch_v1"
+
+
+def test_balanced_predictor_keeps_some_rotation_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "balanced_v1")
+    monkeypatch.setattr(settings, "predictor_balanced_min_confidence", 0.55)
+    monkeypatch.setattr(settings, "predictor_balanced_min_depth", 1.0)
+    monkeypatch.setattr(settings, "predictor_balanced_max_top_changes", 2)
+    monkeypatch.setattr(settings, "predictor_balanced_top_change_window_ms", 60_000)
+    predictor = Predictor()
+
+    assert predictor.predict(make_book(0.45, 0.50, timestamp_ms=1_000)) is not None
+    assert predictor.predict(make_book(0.44, 0.50, timestamp_ms=2_000)) is not None
+    assert predictor.predict(make_book(0.43, 0.50, timestamp_ms=3_000)) is not None
+    assert predictor.predict(make_book(0.42, 0.50, timestamp_ms=4_000)) is None
+
+
 def test_conservative_predictor_rejects_high_top_of_book_rotation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

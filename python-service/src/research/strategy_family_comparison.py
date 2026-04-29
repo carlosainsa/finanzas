@@ -41,7 +41,7 @@ def create_strategy_family_comparison(
 ) -> dict[str, object]:
     runs = [load_run_report(root) for root in report_roots]
     families = family_rows(runs)
-    decision = decision_for(families)
+    decision = decision_for(families, target_family=target_family_from_runs(runs))
     report: dict[str, object] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -216,7 +216,7 @@ def family_rows(runs: list[dict[str, object]]) -> list[dict[str, object]]:
     baseline_latest = latest_non_conservative(history_by_key)
     for key, latest in sorted(latest_by_key.items()):
         metrics = typed_dict(latest.get("metrics"))
-        baseline_metrics = baseline_latest if is_conservative(key[0]) else {}
+        baseline_metrics = baseline_latest if is_restricted_family(key[0]) else {}
         rows.append(
             {
                 "strategy_family": key[0],
@@ -233,18 +233,26 @@ def family_rows(runs: list[dict[str, object]]) -> list[dict[str, object]]:
     return rows
 
 
-def decision_for(families: list[dict[str, object]]) -> dict[str, str]:
-    conservative = [
+def decision_for(
+    families: list[dict[str, object]], target_family: str | None = None
+) -> dict[str, str]:
+    candidates = [
         family
         for family in families
-        if is_conservative(str(family.get("strategy_family") or ""))
+        if is_restricted_family(str(family.get("strategy_family") or ""))
     ]
-    if not conservative:
+    if not candidates:
         return {
-            "decision": "RUN_CONSERVATIVE_OBSERVATION",
-            "reason": "No conservative_v1 family was found in the compared runs.",
+            "decision": "RUN_RESTRICTED_OBSERVATION",
+            "reason": "No conservative_v1 or balanced_v1 family was found in the compared runs.",
         }
-    best = conservative[-1]
+    matching = [
+        family
+        for family in candidates
+        if target_family and family.get("strategy_family") == target_family
+    ]
+    best = matching[-1] if matching else candidates[-1]
+    family_name = str(best.get("strategy_family") or "restricted")
     metrics = typed_dict(best.get("metrics"))
     deltas = typed_list(best.get("deltas_vs_baseline"))
     improved_adverse_or_drawdown = any(
@@ -262,16 +270,16 @@ def decision_for(families: list[dict[str, object]]) -> dict[str, str]:
         and realized_edge > MIN_REALIZED_EDGE
     ):
         return {
-            "decision": "REPEAT_CONSERVATIVE_OBSERVATION",
+            "decision": f"REPEAT_{family_name.upper()}_OBSERVATION",
             "reason": (
-                "conservative_v1 improved adverse selection or drawdown while keeping "
+                f"{family_name} improved adverse selection or drawdown while keeping "
                 "fill rate and realized edge above observation thresholds."
             ),
         }
     return {
         "decision": "REDESIGN_STRATEGY_AGAIN",
         "reason": (
-            "conservative_v1 did not show enough evidence of lower adverse/drawdown "
+            f"{family_name} did not show enough evidence of lower adverse/drawdown "
             "without sacrificing fill rate or edge."
         ),
     }
@@ -281,11 +289,22 @@ def latest_non_conservative(
     history_by_key: dict[tuple[str, str], list[dict[str, object]]],
 ) -> dict[str, object]:
     for key, rows in reversed(list(history_by_key.items())):
-        if not is_conservative(key[0]) and rows:
+        if not is_restricted_family(key[0]) and rows:
             metrics = typed_dict(rows[-1].get("metrics"))
             if metrics:
                 return metrics
     return {}
+
+
+def target_family_from_runs(runs: list[dict[str, object]]) -> str | None:
+    if not runs:
+        return None
+    for family in typed_list(runs[-1].get("families")):
+        family_dict = typed_dict(family)
+        value = family_dict.get("strategy_family")
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def metric_deltas(
@@ -332,6 +351,8 @@ def strategy_family_for(
     value = f"{strategy} {model_version}".lower()
     if "conservative" in value:
         return "conservative_v1"
+    if "balanced" in value:
+        return "balanced_v1"
     if "near_touch" in value:
         return "near_touch"
     if "passive_spread_capture" in value:
@@ -342,7 +363,7 @@ def strategy_family_for(
 def predictor_strategy_profile(evidence: dict[str, object]) -> str:
     for key in ("predictor_strategy_profile", "predictor_profile"):
         value = evidence.get(key)
-        if isinstance(value, str) and value:
+        if isinstance(value, str) and value and value != "unknown":
             return value
     return "unknown"
 
@@ -384,6 +405,11 @@ def weighted_average(frame: pd.DataFrame, value_column: str, weight_column: str)
 
 def is_conservative(strategy_family: str) -> bool:
     return "conservative" in strategy_family.lower()
+
+
+def is_restricted_family(strategy_family: str) -> bool:
+    value = strategy_family.lower()
+    return "conservative" in value or "balanced" in value
 
 
 def read_json(path: Path) -> dict[str, object]:

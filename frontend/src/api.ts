@@ -213,7 +213,14 @@ export const fallbackData: DashboardData = {
     status: 'offline',
     kill_switch: false,
     streams: [],
-    predictor: { min_spread: 0.03, order_size: 1, min_confidence: 0.55 },
+    predictor: {
+      min_spread: 0.03,
+      order_size: 1,
+      min_confidence: 0.55,
+      effective_min_confidence: 0.55,
+      strategy_profile: 'baseline',
+      quote_placement: 'passive_bid',
+    },
   },
   risk: {
     kill_switch: false,

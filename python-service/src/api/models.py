@@ -27,6 +27,9 @@ class PredictorSummary(BaseModel):
     min_spread: float
     order_size: float
     min_confidence: float
+    effective_min_confidence: float
+    strategy_profile: str
+    quote_placement: str
 
 
 class StatusResponse(BaseModel):

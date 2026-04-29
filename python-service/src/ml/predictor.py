@@ -16,6 +16,10 @@ CONSERVATIVE_NEAR_TOUCH_MODEL_VERSION = "passive_spread_capture_conservative_nea
 CONSERVATIVE_NEAR_TOUCH_FEATURE_VERSION = (
     "orderbook_top_of_book_conservative_near_touch_v1"
 )
+BALANCED_MODEL_VERSION = "passive_spread_capture_balanced_v1"
+BALANCED_FEATURE_VERSION = "orderbook_top_of_book_balanced_v1"
+BALANCED_NEAR_TOUCH_MODEL_VERSION = "passive_spread_capture_balanced_near_touch_v1"
+BALANCED_NEAR_TOUCH_FEATURE_VERSION = "orderbook_top_of_book_balanced_near_touch_v1"
 
 TOP_CHANGE_EPSILON = 1e-9
 
@@ -46,14 +50,15 @@ class Predictor:
         spread = best_ask.price - best_bid.price
         if spread < settings.predictor_min_spread:
             return None
-        if conservative_profile_enabled():
+        profile = strategy_profile()
+        if profile.risk_filters_enabled:
             if (
                 min(best_bid.size, best_ask.size)
-                < settings.predictor_conservative_min_depth
+                < profile.min_depth
             ):
                 return None
             if self._top_of_book_change_count(orderbook) > (
-                settings.predictor_conservative_max_top_changes
+                profile.max_top_changes
             ):
                 return None
 
@@ -73,7 +78,7 @@ class Predictor:
             model_version,
         ):
             return None
-        quote_depth = best_ask.size if model_version == NEAR_TOUCH_MODEL_VERSION else best_bid.size
+        quote_depth = best_ask.size if near_touch_model(model_version) else best_bid.size
 
         return TradeSignal(
             signal_id=str(uuid.uuid4()),
@@ -98,7 +103,8 @@ class Predictor:
             return 0
         key = (orderbook.market_id, orderbook.asset_id)
         timestamp_ms = orderbook.timestamp_ms
-        window_start = timestamp_ms - settings.predictor_conservative_top_change_window_ms
+        profile = strategy_profile()
+        window_start = timestamp_ms - profile.top_change_window_ms
         history = [
             item
             for item in self._top_of_book_history.get(key, [])
@@ -121,10 +127,12 @@ class Predictor:
 
 def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, str]:
     placement = settings.predictor_quote_placement.lower()
-    conservative = conservative_profile_enabled()
+    profile = strategy_profile()
     if placement == "passive_bid":
-        if conservative:
+        if profile.name == "conservative_v1":
             return best_bid, CONSERVATIVE_MODEL_VERSION, CONSERVATIVE_FEATURE_VERSION
+        if profile.name == "balanced_v1":
+            return best_bid, BALANCED_MODEL_VERSION, BALANCED_FEATURE_VERSION
         return best_bid, MODEL_VERSION, FEATURE_VERSION
     if placement != "near_touch":
         raise ValueError(f"unsupported predictor quote placement: {placement}")
@@ -135,40 +143,106 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
     tick_size = settings.predictor_near_touch_tick_size
     offset = settings.predictor_near_touch_offset_ticks * tick_size
     cap = best_ask - offset
-    max_spread_fraction = (
-        settings.predictor_conservative_near_touch_max_spread_fraction
-        if conservative
-        else settings.predictor_near_touch_max_spread_fraction
-    )
+    max_spread_fraction = profile.near_touch_max_spread_fraction
     fractional_price = best_bid + (
         spread * max_spread_fraction
     )
     price = max(best_bid, min(cap, fractional_price))
-    if conservative:
+    if profile.name == "conservative_v1":
         return (
             round(price, 6),
             CONSERVATIVE_NEAR_TOUCH_MODEL_VERSION,
             CONSERVATIVE_NEAR_TOUCH_FEATURE_VERSION,
         )
+    if profile.name == "balanced_v1":
+        return (
+            round(price, 6),
+            BALANCED_NEAR_TOUCH_MODEL_VERSION,
+            BALANCED_NEAR_TOUCH_FEATURE_VERSION,
+        )
     return round(price, 6), NEAR_TOUCH_MODEL_VERSION, NEAR_TOUCH_FEATURE_VERSION
 
 
 def conservative_profile_enabled() -> bool:
+    return strategy_profile().name == "conservative_v1"
+
+
+class StrategyProfile:
+    def __init__(
+        self,
+        *,
+        name: str,
+        min_confidence: float,
+        near_touch_max_spread_fraction: float,
+        min_depth: float,
+        max_top_changes: int,
+        top_change_window_ms: int,
+        risk_filters_enabled: bool,
+    ) -> None:
+        self.name = name
+        self.min_confidence = min_confidence
+        self.near_touch_max_spread_fraction = near_touch_max_spread_fraction
+        self.min_depth = min_depth
+        self.max_top_changes = max_top_changes
+        self.top_change_window_ms = top_change_window_ms
+        self.risk_filters_enabled = risk_filters_enabled
+
+
+def strategy_profile() -> StrategyProfile:
     profile = settings.predictor_strategy_profile.lower()
     if profile in {"baseline", "default"}:
-        return False
+        return StrategyProfile(
+            name="baseline",
+            min_confidence=settings.predictor_min_confidence,
+            near_touch_max_spread_fraction=settings.predictor_near_touch_max_spread_fraction,
+            min_depth=0.0,
+            max_top_changes=0,
+            top_change_window_ms=0,
+            risk_filters_enabled=False,
+        )
+    if profile == "balanced_v1":
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_balanced_min_confidence,
+            ),
+            near_touch_max_spread_fraction=(
+                settings.predictor_balanced_near_touch_max_spread_fraction
+            ),
+            min_depth=settings.predictor_balanced_min_depth,
+            max_top_changes=settings.predictor_balanced_max_top_changes,
+            top_change_window_ms=settings.predictor_balanced_top_change_window_ms,
+            risk_filters_enabled=True,
+        )
     if profile == "conservative_v1":
-        return True
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_conservative_min_confidence,
+            ),
+            near_touch_max_spread_fraction=(
+                settings.predictor_conservative_near_touch_max_spread_fraction
+            ),
+            min_depth=settings.predictor_conservative_min_depth,
+            max_top_changes=settings.predictor_conservative_max_top_changes,
+            top_change_window_ms=settings.predictor_conservative_top_change_window_ms,
+            risk_filters_enabled=True,
+        )
     raise ValueError(f"unsupported predictor strategy profile: {profile}")
 
 
 def effective_min_confidence() -> float:
-    if conservative_profile_enabled():
-        return max(
-            settings.predictor_min_confidence,
-            settings.predictor_conservative_min_confidence,
-        )
-    return settings.predictor_min_confidence
+    return strategy_profile().min_confidence
+
+
+def near_touch_model(model_version: str) -> bool:
+    return model_version in {
+        NEAR_TOUCH_MODEL_VERSION,
+        CONSERVATIVE_NEAR_TOUCH_MODEL_VERSION,
+        BALANCED_NEAR_TOUCH_MODEL_VERSION,
+    }
 
 
 def validate_near_touch_allowed() -> None:
@@ -191,4 +265,8 @@ def validate_near_touch_allowed() -> None:
     if not 0 <= settings.predictor_conservative_near_touch_max_spread_fraction <= 1:
         raise ValueError(
             "predictor conservative near-touch max spread fraction must be between 0 and 1"
+        )
+    if not 0 <= settings.predictor_balanced_near_touch_max_spread_fraction <= 1:
+        raise ValueError(
+            "predictor balanced near-touch max spread fraction must be between 0 and 1"
         )

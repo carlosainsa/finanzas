@@ -1232,12 +1232,18 @@ export interface components {
         };
         /** PredictorSummary */
         PredictorSummary: {
+            /** Effective Min Confidence */
+            effective_min_confidence: number;
             /** Min Confidence */
             min_confidence: number;
             /** Min Spread */
             min_spread: number;
             /** Order Size */
             order_size: number;
+            /** Quote Placement */
+            quote_placement: string;
+            /** Strategy Profile */
+            strategy_profile: string;
         };
         /** ReconciliationEvent */
         ReconciliationEvent: {
