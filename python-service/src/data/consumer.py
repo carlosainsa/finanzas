@@ -59,10 +59,10 @@ async def run():
             )
             continue
 
-        signal = predictor.predict(orderbook)
+        decision = predictor.evaluate(orderbook)
 
-        if signal:
-            validated_signal = TradeSignal.model_validate(signal.model_dump())
+        if decision.signal:
+            validated_signal = TradeSignal.model_validate(decision.signal.model_dump())
             await publish_json(
                 redis, settings.signals_stream, validated_signal.model_dump_json()
             )

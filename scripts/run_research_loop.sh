@@ -137,6 +137,26 @@ PYTHONPATH=python-service python3 -m src.research.go_no_go \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/go_no_go" \
   "${GO_NO_GO_ARGS[@]}" > "$REPORT_ROOT/go_no_go.json"
+SIGNAL_REJECTION_ARGS=(
+  -m src.research.signal_rejection_diagnostics
+  --duckdb "$DUCKDB_PATH"
+  --output-dir "$REPORT_ROOT/signal_rejection_diagnostics"
+  --quote-placement "${SIGNAL_REJECTION_QUOTE_PLACEMENT:-${PREDICTOR_QUOTE_PLACEMENT:-near_touch}}"
+)
+if [[ -n "${SIGNAL_REJECTION_PROFILES:-}" ]]; then
+  SIGNAL_REJECTION_ARGS+=(--profiles "$SIGNAL_REJECTION_PROFILES")
+fi
+if [[ -n "${SIGNAL_REJECTION_BASELINE_PROFILE:-}" ]]; then
+  SIGNAL_REJECTION_ARGS+=(--baseline-profile "$SIGNAL_REJECTION_BASELINE_PROFILE")
+fi
+if [[ -n "${SIGNAL_REJECTION_CANDIDATE_PROFILE:-}" ]]; then
+  SIGNAL_REJECTION_ARGS+=(--candidate-profile "$SIGNAL_REJECTION_CANDIDATE_PROFILE")
+fi
+if [[ -n "${SIGNAL_REJECTION_MAX_SNAPSHOTS:-}" ]]; then
+  SIGNAL_REJECTION_ARGS+=(--max-snapshots "$SIGNAL_REJECTION_MAX_SNAPSHOTS")
+fi
+PYTHONPATH=python-service python3 "${SIGNAL_REJECTION_ARGS[@]}" \
+  > "$REPORT_ROOT/signal_rejection_diagnostics.json"
 PYTHONPATH=python-service python3 -m src.research.agent_advisory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/agent_advisory" > "$REPORT_ROOT/agent_advisory.json"
@@ -223,6 +243,7 @@ calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 go_no_go = read_json("go_no_go.json")
 advisory = read_json("agent_advisory.json")
+signal_rejection_diagnostics = read_json("signal_rejection_diagnostics.json")
 nim_advisory = read_json("nim_advisory.json")
 nim_advisory_exit_code = int(os.environ.get("NIM_ADVISORY_EXIT_CODE", "0"))
 synthetic_fills = read_json("synthetic_fills.json")
@@ -239,6 +260,7 @@ summary = {
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
     "sentiment_lift": read_json("sentiment_lift.json"),
+    "signal_rejection_diagnostics": signal_rejection_diagnostics,
     "feature_blocklist_candidates": read_json("feature_blocklist_candidates.json"),
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
     "calibration_passed": calibration.get("passed", False),
@@ -285,6 +307,12 @@ done
 PYTHONPATH=python-service python3 -m src.research.strategy_family_comparison \
   "${STRATEGY_FAMILY_ARGS[@]}" \
   --output "$REPORT_ROOT/strategy_family_comparison.json"
+if [[ -n "${SIGNAL_ACTIVITY_BASELINE_REPORT_ROOT:-}" ]]; then
+  PYTHONPATH=python-service python3 -m src.research.signal_activity_audit \
+    --baseline-report-root "$SIGNAL_ACTIVITY_BASELINE_REPORT_ROOT" \
+    --candidate-report-root "$REPORT_ROOT" \
+    --output "$REPORT_ROOT/signal_activity_audit.json"
+fi
 
 PYTHONPATH=python-service python3 -m src.research.run_manifest \
   --report-root "$REPORT_ROOT" \

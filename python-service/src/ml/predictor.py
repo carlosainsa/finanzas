@@ -1,5 +1,7 @@
 import time
 import uuid
+from dataclasses import dataclass
+from typing import Literal
 
 from src.config import settings
 from src.ml.segment_blocklist import SegmentBlocklist
@@ -22,6 +24,31 @@ BALANCED_NEAR_TOUCH_MODEL_VERSION = "passive_spread_capture_balanced_near_touch_
 BALANCED_NEAR_TOUCH_FEATURE_VERSION = "orderbook_top_of_book_balanced_near_touch_v1"
 
 TOP_CHANGE_EPSILON = 1e-9
+RejectionReason = Literal[
+    "accepted",
+    "missing_top_of_book",
+    "low_spread",
+    "low_depth",
+    "top_rotation",
+    "low_confidence",
+    "blocked_segment",
+]
+
+
+@dataclass(frozen=True)
+class PredictionDecision:
+    signal: TradeSignal | None
+    rejection_reason: RejectionReason
+    strategy_profile: str
+    model_version: str | None = None
+    feature_version: str | None = None
+    confidence: float | None = None
+    spread: float | None = None
+    top_change_count: int | None = None
+
+    @property
+    def accepted(self) -> bool:
+        return self.signal is not None
 
 
 class Predictor:
@@ -42,30 +69,61 @@ class Predictor:
         ] = {}
 
     def predict(self, orderbook: OrderBook) -> TradeSignal | None:
+        return self.evaluate(orderbook).signal
+
+    def evaluate(self, orderbook: OrderBook) -> PredictionDecision:
+        profile = strategy_profile()
         best_bid = orderbook.best_bid
         best_ask = orderbook.best_ask
         if best_bid is None or best_ask is None:
-            return None
+            return PredictionDecision(
+                signal=None,
+                rejection_reason="missing_top_of_book",
+                strategy_profile=profile.name,
+            )
 
         spread = best_ask.price - best_bid.price
         if spread < settings.predictor_min_spread:
-            return None
-        profile = strategy_profile()
+            return PredictionDecision(
+                signal=None,
+                rejection_reason="low_spread",
+                strategy_profile=profile.name,
+                spread=spread,
+            )
         if profile.risk_filters_enabled:
             if (
                 min(best_bid.size, best_ask.size)
                 < profile.min_depth
             ):
-                return None
-            if self._top_of_book_change_count(orderbook) > (
-                profile.max_top_changes
-            ):
-                return None
+                return PredictionDecision(
+                    signal=None,
+                    rejection_reason="low_depth",
+                    strategy_profile=profile.name,
+                    spread=spread,
+                )
+            top_change_count = self._top_of_book_change_count(orderbook)
+            if top_change_count > profile.max_top_changes:
+                return PredictionDecision(
+                    signal=None,
+                    rejection_reason="top_rotation",
+                    strategy_profile=profile.name,
+                    spread=spread,
+                    top_change_count=top_change_count,
+                )
+        else:
+            top_change_count = None
 
         confidence = min(0.99, 0.5 + spread * 5)
         min_confidence = effective_min_confidence()
         if confidence < min_confidence:
-            return None
+            return PredictionDecision(
+                signal=None,
+                rejection_reason="low_confidence",
+                strategy_profile=profile.name,
+                confidence=confidence,
+                spread=spread,
+                top_change_count=top_change_count,
+            )
 
         quote_price, model_version, feature_version = quote_price_for_buy(
             best_bid.price,
@@ -77,10 +135,19 @@ class Predictor:
             "BUY",
             model_version,
         ):
-            return None
+            return PredictionDecision(
+                signal=None,
+                rejection_reason="blocked_segment",
+                strategy_profile=profile.name,
+                model_version=model_version,
+                feature_version=feature_version,
+                confidence=confidence,
+                spread=spread,
+                top_change_count=top_change_count,
+            )
         quote_depth = best_ask.size if near_touch_model(model_version) else best_bid.size
 
-        return TradeSignal(
+        signal = TradeSignal(
             signal_id=str(uuid.uuid4()),
             market_id=orderbook.market_id,
             asset_id=orderbook.asset_id,
@@ -94,6 +161,16 @@ class Predictor:
             model_version=model_version,
             data_version=DATA_VERSION,
             feature_version=feature_version,
+        )
+        return PredictionDecision(
+            signal=signal,
+            rejection_reason="accepted",
+            strategy_profile=profile.name,
+            model_version=model_version,
+            feature_version=feature_version,
+            confidence=confidence,
+            spread=spread,
+            top_change_count=top_change_count,
         )
 
     def _top_of_book_change_count(self, orderbook: OrderBook) -> int:
