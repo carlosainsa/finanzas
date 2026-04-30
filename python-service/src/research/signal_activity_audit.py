@@ -43,18 +43,25 @@ def run_activity(report_root: Path) -> dict[str, object]:
     baseline_counts = typed_dict(baseline.get("counts"))
     baseline_filter_counts = baseline_filter_pass_counts(report_root)
     signal_rejection = read_json(report_root / "signal_rejection_diagnostics.json")
+    signals = first_positive(
+        number(data_lake.get("signals")), number(promotion_metrics.get("signals"))
+    )
+    orderbook_snapshots = first_positive(
+        number(data_lake.get("orderbook_snapshots")),
+        number(promotion_metrics.get("orderbook_snapshots")),
+    )
     return {
         "run_id": manifest.get("run_id") or report_root.name,
         "report_root": str(report_root),
-        "signals": number(data_lake.get("signals")),
+        "signals": signals,
         "execution_reports": number(data_lake.get("execution_reports")),
-        "orderbook_snapshots": number(data_lake.get("orderbook_snapshots")),
+        "orderbook_snapshots": orderbook_snapshots,
         "capture_duration_ms": number(promotion_metrics.get("capture_duration_ms")),
         "signals_per_snapshot": rate(
-            number(data_lake.get("signals")), number(data_lake.get("orderbook_snapshots"))
+            signals, orderbook_snapshots
         ),
         "signals_per_minute": per_minute(
-            number(data_lake.get("signals")),
+            signals,
             number(promotion_metrics.get("capture_duration_ms")),
         ),
         "baseline_signals": number(baseline_counts.get("baseline_signals")),
@@ -214,6 +221,12 @@ def per_minute(signals: float | None, capture_duration_ms: float | None) -> floa
     if signals is None or capture_duration_ms is None or capture_duration_ms <= 0:
         return None
     return signals / (capture_duration_ms / 60_000)
+
+
+def first_positive(primary: float | None, fallback: float | None) -> float | None:
+    if primary is not None and primary > 0:
+        return primary
+    return fallback
 
 
 def main() -> int:

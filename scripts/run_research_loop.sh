@@ -15,6 +15,15 @@ RESEARCH_RESOURCE_MODE="${RESEARCH_RESOURCE_MODE:-full}"
 PRE_LIVE_PROMOTION_ARGS=()
 GO_NO_GO_ARGS=(--profile "$GO_NO_GO_PROFILE")
 MARKET_REGIME_ARGS=(--resource-mode "$RESEARCH_RESOURCE_MODE")
+BASELINE_ARGS=(
+  --quote-placement "$BASELINE_QUOTE_PLACEMENT"
+  --near-touch-tick-size "$BASELINE_NEAR_TOUCH_TICK_SIZE"
+  --near-touch-offset-ticks "$BASELINE_NEAR_TOUCH_OFFSET_TICKS"
+  --near-touch-max-spread-fraction "$BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION"
+)
+if [[ -n "${BASELINE_MAX_SNAPSHOTS_PER_ASSET:-}" ]]; then
+  BASELINE_ARGS+=(--max-snapshots-per-asset "$BASELINE_MAX_SNAPSHOTS_PER_ASSET")
+fi
 if [[ -n "${MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET:-}" ]]; then
   MARKET_REGIME_ARGS+=(--max-snapshots-per-asset "$MARKET_REGIME_MAX_SNAPSHOTS_PER_ASSET")
 fi
@@ -96,10 +105,7 @@ PYTHONPATH=python-service python3 "${DATA_LAKE_ARGS[@]}" > "$REPORT_ROOT/data_la
 PYTHONPATH=python-service python3 -m src.research.deterministic_baseline \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/baseline" \
-  --quote-placement "$BASELINE_QUOTE_PLACEMENT" \
-  --near-touch-tick-size "$BASELINE_NEAR_TOUCH_TICK_SIZE" \
-  --near-touch-offset-ticks "$BASELINE_NEAR_TOUCH_OFFSET_TICKS" \
-  --near-touch-max-spread-fraction "$BASELINE_NEAR_TOUCH_MAX_SPREAD_FRACTION" \
+  "${BASELINE_ARGS[@]}" \
   > "$REPORT_ROOT/baseline.json"
 PYTHONPATH=python-service python3 -m src.research.synthetic_fills \
   --duckdb "$DUCKDB_PATH" \
@@ -112,6 +118,34 @@ PYTHONPATH=python-service python3 -m src.research.backtest \
 PYTHONPATH=python-service python3 -m src.research.game_theory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/game_theory" > "$REPORT_ROOT/game_theory.json"
+MARKET_OPPORTUNITY_ARGS=(
+  -m src.research.market_opportunity_selector
+  --duckdb "$DUCKDB_PATH"
+  --output-dir "$REPORT_ROOT/market_opportunity_selector"
+)
+if [[ -n "${MARKET_OPPORTUNITY_MIN_SPREAD:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--min-spread "$MARKET_OPPORTUNITY_MIN_SPREAD")
+fi
+if [[ -n "${MARKET_OPPORTUNITY_MAX_SPREAD:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--max-spread "$MARKET_OPPORTUNITY_MAX_SPREAD")
+fi
+if [[ -n "${MARKET_OPPORTUNITY_MIN_SNAPSHOTS:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--min-snapshots "$MARKET_OPPORTUNITY_MIN_SNAPSHOTS")
+fi
+if [[ -n "${MARKET_OPPORTUNITY_MIN_DENSITY:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--min-opportunity-density "$MARKET_OPPORTUNITY_MIN_DENSITY")
+fi
+if [[ -n "${MARKET_OPPORTUNITY_MIN_LIQUIDITY:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--min-liquidity "$MARKET_OPPORTUNITY_MIN_LIQUIDITY")
+fi
+if [[ -n "${MARKET_OPPORTUNITY_MAX_STALE_RATE:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--max-stale-rate "$MARKET_OPPORTUNITY_MAX_STALE_RATE")
+fi
+if [[ -n "${MARKET_OPPORTUNITY_LIMIT:-}" ]]; then
+  MARKET_OPPORTUNITY_ARGS+=(--limit "$MARKET_OPPORTUNITY_LIMIT")
+fi
+PYTHONPATH=python-service python3 "${MARKET_OPPORTUNITY_ARGS[@]}" \
+  > "$REPORT_ROOT/market_opportunity_selector.json"
 PYTHONPATH=python-service python3 -m src.research.market_regime \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/market_regime" \
@@ -239,6 +273,7 @@ def read_json(name: str) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 backtest = read_json("backtest.json")
+market_opportunity_selector = read_json("market_opportunity_selector.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 go_no_go = read_json("go_no_go.json")
@@ -257,6 +292,7 @@ summary = {
     "synthetic_fills": synthetic_fills,
     "backtest_exports": backtest.get("exports", {}),
     "game_theory_exports": read_json("game_theory.json"),
+    "market_opportunity_selector": market_opportunity_selector,
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
     "sentiment_lift": read_json("sentiment_lift.json"),

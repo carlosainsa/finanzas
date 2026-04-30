@@ -146,7 +146,10 @@ def build_pre_live_readiness(
 
 
 async def postgres_audit_summary(database_url: str) -> dict[str, object]:
-    conn = await asyncpg.connect(database_url)
+    try:
+        conn = await asyncpg.connect(database_url)
+    except (OSError, asyncpg.PostgresError) as exc:
+        return {"status": "error", "source": "postgres", "error": str(exc)}
     try:
         return {
             "status": "ok",

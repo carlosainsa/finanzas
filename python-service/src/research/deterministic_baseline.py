@@ -31,6 +31,7 @@ class BaselineConfig:
     near_touch_tick_size: float = 0.01
     near_touch_offset_ticks: int = 0
     near_touch_max_spread_fraction: float = 1.0
+    max_snapshots_per_asset: int | None = None
 
     def __post_init__(self) -> None:
         placement = self.quote_placement.lower()
@@ -42,6 +43,8 @@ class BaselineConfig:
             raise ValueError("near_touch_offset_ticks must be non-negative")
         if not 0 <= self.near_touch_max_spread_fraction <= 1:
             raise ValueError("near_touch_max_spread_fraction must be between 0 and 1")
+        if self.max_snapshots_per_asset is not None and self.max_snapshots_per_asset <= 0:
+            raise ValueError("max_snapshots_per_asset must be positive")
 
 
 def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig()) -> None:
@@ -50,6 +53,14 @@ def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig
     feature_version = baseline_feature_version(config)
     price_expression = baseline_buy_price_expression(config)
     size_depth_expression = baseline_buy_size_depth_expression(config)
+    snapshot_limit_filter = ""
+    if config.max_snapshots_per_asset is not None:
+        snapshot_limit_filter = (
+            "qualify row_number() over ("
+            "partition by book.market_id, book.asset_id "
+            "order by book.event_timestamp_ms desc"
+            f") <= {config.max_snapshots_per_asset}"
+        )
     with duckdb.connect(str(db_path)) as conn:
         ensure_base_views(conn)
         ensure_adverse_selection_view(conn)
@@ -109,6 +120,7 @@ def create_baseline_views(db_path: Path, config: BaselineConfig = BaselineConfig
              and adverse.side = 'BUY'
              and adverse.strategy = '{duckdb_literal(strategy)}'
             where book.event_timestamp_ms is not null
+            {snapshot_limit_filter}
             """
         )
         conn.execute(
@@ -297,6 +309,7 @@ def main() -> int:
         type=float,
         default=BaselineConfig.near_touch_max_spread_fraction,
     )
+    parser.add_argument("--max-snapshots-per-asset", type=int)
     args = parser.parse_args()
 
     report = export_baseline_report(
@@ -316,6 +329,7 @@ def main() -> int:
             near_touch_tick_size=args.near_touch_tick_size,
             near_touch_offset_ticks=args.near_touch_offset_ticks,
             near_touch_max_spread_fraction=args.near_touch_max_spread_fraction,
+            max_snapshots_per_asset=args.max_snapshots_per_asset,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

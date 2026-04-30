@@ -78,6 +78,37 @@ def test_signal_activity_audit_uses_profile_rejection_gap(tmp_path: Path) -> Non
     assert comparison["primary_reason"] == "profile_rejection_gap:top_rotation"
 
 
+def test_signal_activity_audit_falls_back_to_promotion_counts(tmp_path: Path) -> None:
+    baseline = seed_report_root(
+        tmp_path / "baseline",
+        run_id="baseline",
+        signals=0,
+        snapshots=0,
+        capture_duration_ms=600_000,
+        passes_spread=10,
+        all_pass=10,
+        promotion_signals=10,
+        promotion_snapshots=100,
+    )
+    candidate = seed_report_root(
+        tmp_path / "candidate",
+        run_id="candidate",
+        signals=0,
+        snapshots=0,
+        capture_duration_ms=600_000,
+        passes_spread=20,
+        all_pass=20,
+        promotion_signals=20,
+        promotion_snapshots=100,
+    )
+
+    report = create_signal_activity_audit(baseline, candidate)
+
+    comparison = cast(dict[str, Any], report["comparison"])
+    assert comparison["signals_delta"] == 10
+    assert comparison["candidate_less_active"] is False
+
+
 def seed_report_root(
     report_root: Path,
     *,
@@ -88,6 +119,8 @@ def seed_report_root(
     passes_spread: int,
     all_pass: int,
     rejection_comparison: dict[str, object] | None = None,
+    promotion_signals: int | None = None,
+    promotion_snapshots: int | None = None,
 ) -> Path:
     (report_root / "baseline").mkdir(parents=True)
     write_json(report_root / "research_manifest.json", {"run_id": run_id})
@@ -100,7 +133,11 @@ def seed_report_root(
                 "orderbook_snapshots": snapshots,
             },
             "pre_live_promotion": {
-                "metrics": {"capture_duration_ms": capture_duration_ms}
+                "metrics": {
+                    "capture_duration_ms": capture_duration_ms,
+                    "signals": promotion_signals,
+                    "orderbook_snapshots": promotion_snapshots,
+                }
             },
             "baseline": {"counts": {"baseline_signals": all_pass}},
         },

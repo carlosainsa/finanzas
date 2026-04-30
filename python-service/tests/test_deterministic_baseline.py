@@ -116,6 +116,20 @@ def test_baseline_filters_stale_momentum_and_depth(tmp_path: Path) -> None:
     assert row == (0, 0, 0, 1)
 
 
+def test_baseline_can_limit_snapshots_per_asset(tmp_path: Path) -> None:
+    db_path = seed_baseline_db(tmp_path)
+
+    create_baseline_views(
+        db_path,
+        BaselineConfig(min_depth=1.0, max_stale_gap_ms=60_000, max_snapshots_per_asset=1),
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute("select snapshots from baseline_summary").fetchone()
+
+    assert row == (1,)
+
+
 def test_export_baseline_report_writes_outputs(tmp_path: Path) -> None:
     db_path = seed_baseline_db(tmp_path)
     output_dir = tmp_path / "baseline"

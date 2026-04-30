@@ -5,6 +5,7 @@ from src.research.pre_live_readiness import (
     format_readiness_summary,
     load_readiness_report,
     main,
+    postgres_audit_summary,
     summarize_readiness_report,
 )
 
@@ -127,3 +128,15 @@ def test_load_readiness_report_rejects_non_object(tmp_path: Path) -> None:
         assert "must be a JSON object" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_postgres_audit_summary_reports_unavailable_database() -> None:
+    import asyncio
+
+    summary = asyncio.run(
+        postgres_audit_summary("postgres://postgres:postgres@127.0.0.1:1/postgres")
+    )
+
+    assert summary["status"] == "error"
+    assert summary["source"] == "postgres"
+    assert "error" in summary
