@@ -28,6 +28,9 @@ def create_run_manifest(
     calibration = read_json(report_root / "calibration.json")
     backtest = read_json(report_root / "backtest.json")
     market_regime = read_json(report_root / "market_regime.json")
+    market_opportunity_selector = read_json(report_root / "market_opportunity_selector.json")
+    execution_quality = read_json(report_root / "execution_quality.json")
+    pre_live_candidate = read_json(report_root / "pre_live_candidate_report.json")
     sentiment_features = read_json(report_root / "sentiment_features.json")
     sentiment_lift = read_json(report_root / "sentiment_lift.json")
     nim_advisory = read_json(report_root / "nim_advisory.json")
@@ -97,6 +100,11 @@ def create_run_manifest(
             "nim_advisory_model": nim_advisory.get("model_version"),
             "nim_advisory_feature": nim_advisory.get("feature_version"),
             "nim_advisory_prompt": nim_advisory.get("prompt_version"),
+            "market_opportunity_selector_report": market_opportunity_selector.get(
+                "report_version"
+            ),
+            "execution_quality_report": execution_quality.get("report_version"),
+            "pre_live_candidate_report": pre_live_candidate.get("report_version"),
         },
         "metrics": manifest_metrics(
             promotion,
@@ -122,6 +130,9 @@ def create_run_manifest(
             restricted_blocklist_failure,
             blocked_segments,
             real_dry_run_evidence,
+            market_opportunity_selector,
+            execution_quality,
+            pre_live_candidate,
         ),
         "artifacts": artifact_metadata(report_root),
     }
@@ -240,6 +251,9 @@ def manifest_counts(
     restricted_blocklist_failure: dict[str, object],
     blocked_segments: dict[str, object] | None = None,
     real_dry_run_evidence: dict[str, object] | None = None,
+    market_opportunity_selector: dict[str, object] | None = None,
+    execution_quality: dict[str, object] | None = None,
+    pre_live_candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     data_lake = typed_dict(summary.get("data_lake"))
     baseline_counts = typed_dict(baseline.get("counts"))
@@ -259,6 +273,10 @@ def manifest_counts(
     failure_diagnostics = typed_dict(restricted_blocklist_failure.get("diagnostics"))
     next_variant = typed_dict(restricted_blocklist_next_variant.get("variant"))
     backtest_exports = typed_dict(summary.get("backtest_exports"))
+    market_opportunity_counts = typed_dict(
+        typed_dict(market_opportunity_selector).get("counts")
+    )
+    execution_quality_counts = typed_dict(typed_dict(execution_quality).get("counts"))
     return {
         "orderbook_snapshots": data_lake.get("orderbook_snapshots"),
         "signals": data_lake.get("signals"),
@@ -376,6 +394,25 @@ def manifest_counts(
         ),
         "blocked_segments": count_blocked_segments(blocked_segments),
         "runtime_blocked_segments": count_runtime_blocked_segments(real_dry_run_evidence),
+        "market_opportunity_ranked_markets": market_opportunity_counts.get(
+            "ranked_markets"
+        ),
+        "market_opportunity_selected_markets": market_opportunity_counts.get(
+            "selected_markets"
+        ),
+        "execution_quality_signals": execution_quality_counts.get(
+            "execution_quality_signals"
+        ),
+        "execution_quality_assets": execution_quality_counts.get(
+            "execution_quality_by_asset"
+        ),
+        "execution_quality_ranked_assets": execution_quality_counts.get(
+            "execution_quality_ranking"
+        ),
+        "pre_live_candidate_status": typed_dict(pre_live_candidate).get("status"),
+        "pre_live_candidate_blockers": len(
+            typed_list(typed_dict(pre_live_candidate).get("blockers"))
+        ),
     }
 
 
@@ -386,6 +423,9 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "baseline.json",
         "backtest.json",
         "game_theory.json",
+        "market_opportunity_selector.json",
+        "execution_quality.json",
+        "pre_live_candidate_report.json",
         "market_regime.json",
         "sentiment_features.json",
         "sentiment_lift.json",
@@ -591,6 +631,19 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         ),
         "blocked_segments": counts.get("blocked_segments"),
         "runtime_blocked_segments": counts.get("runtime_blocked_segments"),
+        "market_opportunity_ranked_markets": counts.get(
+            "market_opportunity_ranked_markets"
+        ),
+        "market_opportunity_selected_markets": counts.get(
+            "market_opportunity_selected_markets"
+        ),
+        "execution_quality_signals": counts.get("execution_quality_signals"),
+        "execution_quality_assets": counts.get("execution_quality_assets"),
+        "execution_quality_ranked_assets": counts.get(
+            "execution_quality_ranked_assets"
+        ),
+        "pre_live_candidate_status": counts.get("pre_live_candidate_status"),
+        "pre_live_candidate_blockers": counts.get("pre_live_candidate_blockers"),
         "promotion_report_version": versions.get("promotion_report"),
         "go_no_go_report_version": versions.get("go_no_go_report"),
         "go_no_go_threshold_set_version": versions.get("go_no_go_threshold_set"),
@@ -622,6 +675,11 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "nim_advisory_model_version": versions.get("nim_advisory_model"),
         "nim_advisory_feature_version": versions.get("nim_advisory_feature"),
         "nim_advisory_prompt_version": versions.get("nim_advisory_prompt"),
+        "market_opportunity_selector_report_version": versions.get(
+            "market_opportunity_selector_report"
+        ),
+        "execution_quality_report_version": versions.get("execution_quality_report"),
+        "pre_live_candidate_report_version": versions.get("pre_live_candidate_report"),
         "artifact_count": artifact_count(manifest),
         "artifact_bytes_total": artifact_bytes_total(manifest),
     }

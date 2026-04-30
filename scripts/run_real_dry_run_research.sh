@@ -405,6 +405,17 @@ fi
 if [[ -f "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" ]]; then
   scripts/summarize_pre_live_readiness.sh "$RESEARCH_REPORT_ROOT/pre_live_readiness.json" || true
 fi
+set +e
+PYTHONPATH=python-service python3 -m src.research.pre_live_candidate_report \
+  --report-root "$RESEARCH_REPORT_ROOT" \
+  --output "$RESEARCH_REPORT_ROOT/pre_live_candidate_report.json" \
+  > "$RESEARCH_REPORT_ROOT/pre_live_candidate_report.stdout.json"
+candidate_report_status=$?
+set -e
+if [[ "$candidate_report_status" != "0" && "$candidate_report_status" != "2" ]]; then
+  echo "Pre-live candidate report failed; inspect $RESEARCH_REPORT_ROOT/pre_live_candidate_report.stdout.json." >&2
+  exit "$candidate_report_status"
+fi
 
 if [[ "$research_status" == "0" ]]; then
   if [[ "$readiness_status" != "0" && "$ALLOW_RESEARCH_GATE_FAILURE" != "1" && "$ALLOW_RESEARCH_GATE_FAILURE" != "true" ]]; then

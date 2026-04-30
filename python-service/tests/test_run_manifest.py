@@ -77,6 +77,13 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["restricted_blocklist_failure_exit_code"] == 137
     assert counts["blocked_segments"] == 1
     assert counts["runtime_blocked_segments"] == 1
+    assert counts["market_opportunity_ranked_markets"] == 2
+    assert counts["market_opportunity_selected_markets"] == 1
+    assert counts["execution_quality_signals"] == 4
+    assert counts["execution_quality_assets"] == 2
+    assert counts["execution_quality_ranked_assets"] == 1
+    assert counts["pre_live_candidate_status"] == "blocked"
+    assert counts["pre_live_candidate_blockers"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
     assert versions["promotion_report"] == "pre_live_promotion_v1"
     assert versions["feature_decision_report"] == "feature_research_decision_v1"
@@ -93,6 +100,11 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
         "restricted_blocklist_observation_failure_v1"
     )
     assert versions["nim_advisory_report"] == "nim_advisory_offline_v1"
+    assert versions["market_opportunity_selector_report"] == (
+        "market_opportunity_selector_v1"
+    )
+    assert versions["execution_quality_report"] == "execution_quality_v1"
+    assert versions["pre_live_candidate_report"] == "pre_live_candidate_report_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
     assert (manifest_root / "research_runs.parquet").exists()
@@ -121,6 +133,11 @@ def test_run_manifest_records_artifact_hashes(tmp_path: Path) -> None:
     nim_advisory_artifact = [
         item for item in artifacts if item["relative_path"] == "nim_advisory.json"
     ][0]
+    candidate_artifact = [
+        item
+        for item in artifacts
+        if item["relative_path"] == "pre_live_candidate_report.json"
+    ][0]
     assert summary_artifact["kind"] == "json"
     assert summary_artifact["bytes"] > 0
     assert summary_artifact["sha256"] == sha256_file(report_root / "research_summary.json")
@@ -130,6 +147,8 @@ def test_run_manifest_records_artifact_hashes(tmp_path: Path) -> None:
     assert history_artifact["bytes"] > 0
     assert nim_advisory_artifact["kind"] == "json"
     assert nim_advisory_artifact["bytes"] > 0
+    assert candidate_artifact["kind"] == "json"
+    assert candidate_artifact["bytes"] > 0
 
 
 def test_run_manifest_index_contains_multiple_runs(tmp_path: Path) -> None:
@@ -200,6 +219,11 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["nim_advisory_model_version"] == "nvidia_nim_research_client_v1"
     assert flat["nim_advisory_feature_version"] == "nim_advisory_annotations_v1"
     assert flat["nim_advisory_prompt_version"] == "nim_evidence_advisory_prompt_v1"
+    assert flat["market_opportunity_selector_report_version"] == (
+        "market_opportunity_selector_v1"
+    )
+    assert flat["execution_quality_report_version"] == "execution_quality_v1"
+    assert flat["pre_live_candidate_report_version"] == "pre_live_candidate_report_v1"
     assert flat["research_feature_blocklist_candidates"] == 3
     assert flat["blocked_segment_candidates"] == 1
     assert flat["restricted_blocklist_ranked_observations"] == 2
@@ -247,6 +271,13 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     )
     assert flat["blocked_segments"] == 1
     assert flat["runtime_blocked_segments"] == 1
+    assert flat["market_opportunity_ranked_markets"] == 2
+    assert flat["market_opportunity_selected_markets"] == 1
+    assert flat["execution_quality_signals"] == 4
+    assert flat["execution_quality_assets"] == 2
+    assert flat["execution_quality_ranked_assets"] == 1
+    assert flat["pre_live_candidate_status"] == "blocked"
+    assert flat["pre_live_candidate_blockers"] == 1
     assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
     assert flat["feature_decision_report_version"] == "feature_research_decision_v1"
     assert flat["synthetic_execution_reports"] == 3
@@ -377,6 +408,39 @@ def seed_report_root(report_root: Path) -> Path:
                 "research_feature_blocklist_candidates": 3,
                 "blocked_segment_candidates": 1,
             },
+        },
+    )
+    write_json(
+        report_root / "market_opportunity_selector.json",
+        {
+            "report_version": "market_opportunity_selector_v1",
+            "decision_policy": "offline_market_selection_only",
+            "can_execute_trades": False,
+            "counts": {"ranked_markets": 2, "selected_markets": 1},
+            "selected_market_asset_ids": ["asset-1"],
+        },
+    )
+    write_json(
+        report_root / "execution_quality.json",
+        {
+            "report_version": "execution_quality_v1",
+            "decision_policy": "offline_execution_quality_only",
+            "can_execute_trades": False,
+            "counts": {
+                "execution_quality_signals": 4,
+                "execution_quality_by_asset": 2,
+                "execution_quality_ranking": 1,
+            },
+            "top_asset_ids": ["asset-1"],
+        },
+    )
+    write_json(
+        report_root / "pre_live_candidate_report.json",
+        {
+            "report_version": "pre_live_candidate_report_v1",
+            "status": "blocked",
+            "can_execute_trades": False,
+            "blockers": [{"check_name": "go_no_go_passed", "passed": False}],
         },
     )
     write_json(

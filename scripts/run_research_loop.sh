@@ -118,6 +118,31 @@ PYTHONPATH=python-service python3 -m src.research.backtest \
 PYTHONPATH=python-service python3 -m src.research.game_theory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/game_theory" > "$REPORT_ROOT/game_theory.json"
+EXECUTION_QUALITY_ARGS=(
+  -m src.research.execution_quality
+  --duckdb "$DUCKDB_PATH"
+  --output-dir "$REPORT_ROOT/execution_quality"
+)
+if [[ -n "${EXECUTION_QUALITY_MIN_SIGNALS:-}" ]]; then
+  EXECUTION_QUALITY_ARGS+=(--min-signals "$EXECUTION_QUALITY_MIN_SIGNALS")
+fi
+if [[ -n "${EXECUTION_QUALITY_MAX_ERROR_RATE:-}" ]]; then
+  EXECUTION_QUALITY_ARGS+=(--max-error-rate "$EXECUTION_QUALITY_MAX_ERROR_RATE")
+fi
+if [[ -n "${EXECUTION_QUALITY_MAX_UNFILLED_RATE:-}" ]]; then
+  EXECUTION_QUALITY_ARGS+=(--max-unfilled-rate "$EXECUTION_QUALITY_MAX_UNFILLED_RATE")
+fi
+if [[ -n "${EXECUTION_QUALITY_MAX_ABS_SLIPPAGE:-}" ]]; then
+  EXECUTION_QUALITY_ARGS+=(--max-abs-slippage "$EXECUTION_QUALITY_MAX_ABS_SLIPPAGE")
+fi
+if [[ -n "${EXECUTION_QUALITY_MAX_AVG_REPORT_LATENCY_MS:-}" ]]; then
+  EXECUTION_QUALITY_ARGS+=(--max-avg-report-latency-ms "$EXECUTION_QUALITY_MAX_AVG_REPORT_LATENCY_MS")
+fi
+if [[ -n "${EXECUTION_QUALITY_LIMIT:-}" ]]; then
+  EXECUTION_QUALITY_ARGS+=(--limit "$EXECUTION_QUALITY_LIMIT")
+fi
+PYTHONPATH=python-service python3 "${EXECUTION_QUALITY_ARGS[@]}" \
+  > "$REPORT_ROOT/execution_quality.json"
 MARKET_OPPORTUNITY_ARGS=(
   -m src.research.market_opportunity_selector
   --duckdb "$DUCKDB_PATH"
@@ -274,6 +299,7 @@ def read_json(name: str) -> dict[str, object]:
 
 backtest = read_json("backtest.json")
 market_opportunity_selector = read_json("market_opportunity_selector.json")
+execution_quality = read_json("execution_quality.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 go_no_go = read_json("go_no_go.json")
@@ -293,6 +319,7 @@ summary = {
     "backtest_exports": backtest.get("exports", {}),
     "game_theory_exports": read_json("game_theory.json"),
     "market_opportunity_selector": market_opportunity_selector,
+    "execution_quality": execution_quality,
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
     "sentiment_lift": read_json("sentiment_lift.json"),
@@ -328,6 +355,17 @@ summary["passed"] = bool(
 )
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
+
+set +e
+PYTHONPATH=python-service python3 -m src.research.pre_live_candidate_report \
+  --report-root "$REPORT_ROOT" \
+  --output "$REPORT_ROOT/pre_live_candidate_report.json" \
+  > "$REPORT_ROOT/pre_live_candidate_report.stdout.json"
+candidate_report_status=$?
+set -e
+if [[ "$candidate_report_status" != "0" && "$candidate_report_status" != "2" ]]; then
+  exit "$candidate_report_status"
+fi
 
 STRATEGY_FAMILY_REPORT_ROOTS=("$REPORT_ROOT")
 if [[ -n "${STRATEGY_FAMILY_COMPARISON_REPORT_ROOTS:-}" ]]; then
