@@ -200,6 +200,96 @@ def test_balanced_predictor_keeps_some_rotation_tolerance(
     assert predictor.predict(make_book(0.42, 0.50, timestamp_ms=4_000)) is None
 
 
+def test_execution_probe_near_touch_generates_versioned_fill_probe_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v1")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_min_depth", 0.25)
+    monkeypatch.setattr(settings, "predictor_near_touch_tick_size", 0.01)
+    monkeypatch.setattr(settings, "predictor_near_touch_offset_ticks", 0)
+    monkeypatch.setattr(settings, "predictor_execution_probe_near_touch_max_spread_fraction", 1.0)
+
+    signal = Predictor().predict(make_book(0.45, 0.50))
+
+    assert signal is not None
+    assert signal.price == 0.50
+    assert signal.size == 1.0
+    assert signal.strategy == "passive_spread_capture_execution_probe_near_touch_v1"
+    assert signal.model_version == "passive_spread_capture_execution_probe_near_touch_v1"
+    assert signal.feature_version == "orderbook_top_of_book_execution_probe_near_touch_v1"
+
+
+def test_execution_probe_rejects_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v1")
+    monkeypatch.setattr(settings, "execution_mode", "live")
+    monkeypatch.setattr(settings, "app_env", "development")
+
+    with pytest.raises(RuntimeError, match="only allowed for dry_run research"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_rejects_production_even_in_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v1")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "production")
+
+    with pytest.raises(RuntimeError, match="only allowed for dry_run research"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_uses_own_rotation_tolerance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v1")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_min_depth", 0.25)
+    monkeypatch.setattr(settings, "predictor_execution_probe_max_top_changes", 2)
+    monkeypatch.setattr(settings, "predictor_execution_probe_top_change_window_ms", 60_000)
+    predictor = Predictor()
+
+    assert predictor.predict(make_book(0.45, 0.50, timestamp_ms=1_000)) is not None
+    assert predictor.predict(make_book(0.44, 0.50, timestamp_ms=2_000)) is not None
+    assert predictor.predict(make_book(0.43, 0.50, timestamp_ms=3_000)) is not None
+    assert predictor.predict(make_book(0.42, 0.50, timestamp_ms=4_000)) is None
+
+
+def test_execution_probe_blocklist_uses_probe_model_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v1")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_min_depth", 0.25)
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                model_version="passive_spread_capture_execution_probe_near_touch_v1",
+                reason="execution_probe_failed",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
+
+
 def test_conservative_predictor_rejects_high_top_of_book_rotation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

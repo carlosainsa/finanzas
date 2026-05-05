@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     predictor_balanced_min_depth: float = 1.5
     predictor_balanced_max_top_changes: int = 6
     predictor_balanced_top_change_window_ms: int = 60_000
+    predictor_execution_probe_min_confidence: float = 0.50
+    predictor_execution_probe_near_touch_max_spread_fraction: float = 1.0
+    predictor_execution_probe_min_depth: float = 0.25
+    predictor_execution_probe_max_top_changes: int = 12
+    predictor_execution_probe_top_change_window_ms: int = 60_000
     predictor_blocked_segments_path: str | None = None
 
 settings = Settings()

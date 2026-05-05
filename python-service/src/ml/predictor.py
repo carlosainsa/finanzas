@@ -22,6 +22,14 @@ BALANCED_MODEL_VERSION = "passive_spread_capture_balanced_v1"
 BALANCED_FEATURE_VERSION = "orderbook_top_of_book_balanced_v1"
 BALANCED_NEAR_TOUCH_MODEL_VERSION = "passive_spread_capture_balanced_near_touch_v1"
 BALANCED_NEAR_TOUCH_FEATURE_VERSION = "orderbook_top_of_book_balanced_near_touch_v1"
+EXECUTION_PROBE_MODEL_VERSION = "passive_spread_capture_execution_probe_v1"
+EXECUTION_PROBE_FEATURE_VERSION = "orderbook_top_of_book_execution_probe_v1"
+EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION = (
+    "passive_spread_capture_execution_probe_near_touch_v1"
+)
+EXECUTION_PROBE_NEAR_TOUCH_FEATURE_VERSION = (
+    "orderbook_top_of_book_execution_probe_near_touch_v1"
+)
 
 TOP_CHANGE_EPSILON = 1e-9
 RejectionReason = Literal[
@@ -210,6 +218,8 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
             return best_bid, CONSERVATIVE_MODEL_VERSION, CONSERVATIVE_FEATURE_VERSION
         if profile.name == "balanced_v1":
             return best_bid, BALANCED_MODEL_VERSION, BALANCED_FEATURE_VERSION
+        if profile.name == "execution_probe_v1":
+            return best_bid, EXECUTION_PROBE_MODEL_VERSION, EXECUTION_PROBE_FEATURE_VERSION
         return best_bid, MODEL_VERSION, FEATURE_VERSION
     if placement != "near_touch":
         raise ValueError(f"unsupported predictor quote placement: {placement}")
@@ -236,6 +246,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
             round(price, 6),
             BALANCED_NEAR_TOUCH_MODEL_VERSION,
             BALANCED_NEAR_TOUCH_FEATURE_VERSION,
+        )
+    if profile.name == "execution_probe_v1":
+        return (
+            round(price, 6),
+            EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION,
+            EXECUTION_PROBE_NEAR_TOUCH_FEATURE_VERSION,
         )
     return round(price, 6), NEAR_TOUCH_MODEL_VERSION, NEAR_TOUCH_FEATURE_VERSION
 
@@ -292,6 +308,22 @@ def strategy_profile() -> StrategyProfile:
             top_change_window_ms=settings.predictor_balanced_top_change_window_ms,
             risk_filters_enabled=True,
         )
+    if profile == "execution_probe_v1":
+        validate_execution_probe_allowed()
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_execution_probe_min_confidence,
+            ),
+            near_touch_max_spread_fraction=(
+                settings.predictor_execution_probe_near_touch_max_spread_fraction
+            ),
+            min_depth=settings.predictor_execution_probe_min_depth,
+            max_top_changes=settings.predictor_execution_probe_max_top_changes,
+            top_change_window_ms=settings.predictor_execution_probe_top_change_window_ms,
+            risk_filters_enabled=True,
+        )
     if profile == "conservative_v1":
         return StrategyProfile(
             name=profile,
@@ -319,7 +351,17 @@ def near_touch_model(model_version: str) -> bool:
         NEAR_TOUCH_MODEL_VERSION,
         CONSERVATIVE_NEAR_TOUCH_MODEL_VERSION,
         BALANCED_NEAR_TOUCH_MODEL_VERSION,
+        EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION,
     }
+
+
+def validate_execution_probe_allowed() -> None:
+    execution_mode = settings.execution_mode.lower()
+    app_env = settings.app_env.lower()
+    if execution_mode != "dry_run" or app_env == "production":
+        raise RuntimeError(
+            "execution_probe_v1 predictor profile is only allowed for dry_run research"
+        )
 
 
 def validate_near_touch_allowed() -> None:
@@ -346,4 +388,8 @@ def validate_near_touch_allowed() -> None:
     if not 0 <= settings.predictor_balanced_near_touch_max_spread_fraction <= 1:
         raise ValueError(
             "predictor balanced near-touch max spread fraction must be between 0 and 1"
+        )
+    if not 0 <= settings.predictor_execution_probe_near_touch_max_spread_fraction <= 1:
+        raise ValueError(
+            "predictor execution probe near-touch max spread fraction must be between 0 and 1"
         )

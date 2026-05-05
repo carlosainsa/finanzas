@@ -143,6 +143,10 @@ if [[ -n "${EXECUTION_QUALITY_LIMIT:-}" ]]; then
 fi
 PYTHONPATH=python-service python3 "${EXECUTION_QUALITY_ARGS[@]}" \
   > "$REPORT_ROOT/execution_quality.json"
+PYTHONPATH=python-service python3 -m src.research.quote_execution_diagnostics \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/quote_execution_diagnostics" \
+  > "$REPORT_ROOT/quote_execution_diagnostics.json"
 MARKET_OPPORTUNITY_ARGS=(
   -m src.research.market_opportunity_selector
   --duckdb "$DUCKDB_PATH"
@@ -328,6 +332,7 @@ def read_json(name: str) -> dict[str, object]:
 backtest = read_json("backtest.json")
 market_opportunity_selector = read_json("market_opportunity_selector.json")
 execution_quality = read_json("execution_quality.json")
+quote_execution_diagnostics = read_json("quote_execution_diagnostics.json")
 candidate_market_ranking = read_json("candidate_market_ranking.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
@@ -349,6 +354,7 @@ summary = {
     "game_theory_exports": read_json("game_theory.json"),
     "market_opportunity_selector": market_opportunity_selector,
     "execution_quality": execution_quality,
+    "quote_execution_diagnostics": quote_execution_diagnostics,
     "candidate_market_ranking": candidate_market_ranking,
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),

@@ -82,6 +82,11 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["execution_quality_signals"] == 4
     assert counts["execution_quality_assets"] == 2
     assert counts["execution_quality_ranked_assets"] == 1
+    assert counts["quote_execution_signals"] == 4
+    assert counts["quote_execution_synthetic_only_signals"] == 3
+    assert counts["quote_execution_dry_run_lifecycles"] == 1
+    assert counts["quote_execution_dry_run_filled_signals"] == 0
+    assert counts["quote_execution_outcomes"] == 4
     assert counts["candidate_market_ranked_assets"] == 2
     assert counts["candidate_market_selected_assets"] == 1
     assert counts["candidate_market_promoted_assets"] == 1
@@ -108,6 +113,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
         "market_opportunity_selector_v1"
     )
     assert versions["execution_quality_report"] == "execution_quality_v1"
+    assert versions["quote_execution_diagnostics_report"] == (
+        "quote_execution_diagnostics_v1"
+    )
     assert versions["candidate_market_ranking_report"] == "candidate_market_ranking_v1"
     assert versions["pre_live_candidate_report"] == "pre_live_candidate_report_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
@@ -228,6 +236,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
         "market_opportunity_selector_v1"
     )
     assert flat["execution_quality_report_version"] == "execution_quality_v1"
+    assert flat["quote_execution_diagnostics_report_version"] == (
+        "quote_execution_diagnostics_v1"
+    )
     assert flat["candidate_market_ranking_report_version"] == (
         "candidate_market_ranking_v1"
     )
@@ -284,6 +295,11 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["execution_quality_signals"] == 4
     assert flat["execution_quality_assets"] == 2
     assert flat["execution_quality_ranked_assets"] == 1
+    assert flat["quote_execution_signals"] == 4
+    assert flat["quote_execution_synthetic_only_signals"] == 3
+    assert flat["quote_execution_dry_run_lifecycles"] == 1
+    assert flat["quote_execution_dry_run_filled_signals"] == 0
+    assert flat["quote_execution_outcomes"] == 4
     assert flat["candidate_market_ranked_assets"] == 2
     assert flat["candidate_market_selected_assets"] == 1
     assert flat["candidate_market_promoted_assets"] == 1
@@ -444,6 +460,21 @@ def seed_report_root(report_root: Path) -> Path:
                 "execution_quality_ranking": 1,
             },
             "top_asset_ids": ["asset-1"],
+        },
+    )
+    write_json(
+        report_root / "quote_execution_diagnostics.json",
+        {
+            "report_version": "quote_execution_diagnostics_v1",
+            "decision_policy": "offline_quote_execution_diagnostics_only",
+            "can_execute_trades": False,
+            "counts": {"quote_execution_outcomes": 4},
+            "summary": {
+                "signals": 4,
+                "synthetic_only_signals": 3,
+                "dry_run_signal_lifecycles": 1,
+                "dry_run_filled_signals": 0,
+            },
         },
     )
     write_json(
