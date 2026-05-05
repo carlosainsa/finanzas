@@ -82,6 +82,10 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["execution_quality_signals"] == 4
     assert counts["execution_quality_assets"] == 2
     assert counts["execution_quality_ranked_assets"] == 1
+    assert counts["candidate_market_ranked_assets"] == 2
+    assert counts["candidate_market_selected_assets"] == 1
+    assert counts["candidate_market_promoted_assets"] == 1
+    assert counts["candidate_market_needs_execution_evidence"] == 1
     assert counts["pre_live_candidate_status"] == "blocked"
     assert counts["pre_live_candidate_blockers"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -104,6 +108,7 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
         "market_opportunity_selector_v1"
     )
     assert versions["execution_quality_report"] == "execution_quality_v1"
+    assert versions["candidate_market_ranking_report"] == "candidate_market_ranking_v1"
     assert versions["pre_live_candidate_report"] == "pre_live_candidate_report_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
@@ -223,6 +228,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
         "market_opportunity_selector_v1"
     )
     assert flat["execution_quality_report_version"] == "execution_quality_v1"
+    assert flat["candidate_market_ranking_report_version"] == (
+        "candidate_market_ranking_v1"
+    )
     assert flat["pre_live_candidate_report_version"] == "pre_live_candidate_report_v1"
     assert flat["research_feature_blocklist_candidates"] == 3
     assert flat["blocked_segment_candidates"] == 1
@@ -276,6 +284,10 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["execution_quality_signals"] == 4
     assert flat["execution_quality_assets"] == 2
     assert flat["execution_quality_ranked_assets"] == 1
+    assert flat["candidate_market_ranked_assets"] == 2
+    assert flat["candidate_market_selected_assets"] == 1
+    assert flat["candidate_market_promoted_assets"] == 1
+    assert flat["candidate_market_needs_execution_evidence"] == 1
     assert flat["pre_live_candidate_status"] == "blocked"
     assert flat["pre_live_candidate_blockers"] == 1
     assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -432,6 +444,23 @@ def seed_report_root(report_root: Path) -> Path:
                 "execution_quality_ranking": 1,
             },
             "top_asset_ids": ["asset-1"],
+        },
+    )
+    write_json(
+        report_root / "candidate_market_ranking.json",
+        {
+            "report_version": "candidate_market_ranking_v1",
+            "decision_policy": "offline_combined_market_ranking_only",
+            "can_execute_trades": False,
+            "counts": {
+                "candidate_market_ranking": 2,
+                "selected_candidate_markets": 1,
+                "recommendations": {
+                    "PROMOTE_TO_OBSERVATION": 1,
+                    "NEEDS_EXECUTION_EVIDENCE": 1,
+                },
+            },
+            "selected_market_asset_ids": ["asset-1"],
         },
     )
     write_json(

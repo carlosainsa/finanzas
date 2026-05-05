@@ -171,6 +171,34 @@ if [[ -n "${MARKET_OPPORTUNITY_LIMIT:-}" ]]; then
 fi
 PYTHONPATH=python-service python3 "${MARKET_OPPORTUNITY_ARGS[@]}" \
   > "$REPORT_ROOT/market_opportunity_selector.json"
+CANDIDATE_MARKET_RANKING_ARGS=(
+  -m src.research.candidate_market_ranking
+  --duckdb "$DUCKDB_PATH"
+  --output-dir "$REPORT_ROOT/candidate_market_ranking"
+)
+if [[ -n "${CANDIDATE_MARKET_OPPORTUNITY_WEIGHT:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--opportunity-weight "$CANDIDATE_MARKET_OPPORTUNITY_WEIGHT")
+fi
+if [[ -n "${CANDIDATE_MARKET_EXECUTION_WEIGHT:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--execution-weight "$CANDIDATE_MARKET_EXECUTION_WEIGHT")
+fi
+if [[ -n "${CANDIDATE_MARKET_MIN_COMBINED_SCORE:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--min-combined-score "$CANDIDATE_MARKET_MIN_COMBINED_SCORE")
+fi
+if [[ -n "${CANDIDATE_MARKET_MIN_EXECUTION_FILL_RATE:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--min-execution-fill-rate "$CANDIDATE_MARKET_MIN_EXECUTION_FILL_RATE")
+fi
+if [[ -n "${CANDIDATE_MARKET_MAX_UNFILLED_RATE:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--max-unfilled-rate "$CANDIDATE_MARKET_MAX_UNFILLED_RATE")
+fi
+if [[ -n "${CANDIDATE_MARKET_MAX_STALE_RATE:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--max-stale-rate "$CANDIDATE_MARKET_MAX_STALE_RATE")
+fi
+if [[ -n "${CANDIDATE_MARKET_LIMIT:-}" ]]; then
+  CANDIDATE_MARKET_RANKING_ARGS+=(--limit "$CANDIDATE_MARKET_LIMIT")
+fi
+PYTHONPATH=python-service python3 "${CANDIDATE_MARKET_RANKING_ARGS[@]}" \
+  > "$REPORT_ROOT/candidate_market_ranking.json"
 PYTHONPATH=python-service python3 -m src.research.market_regime \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/market_regime" \
@@ -300,6 +328,7 @@ def read_json(name: str) -> dict[str, object]:
 backtest = read_json("backtest.json")
 market_opportunity_selector = read_json("market_opportunity_selector.json")
 execution_quality = read_json("execution_quality.json")
+candidate_market_ranking = read_json("candidate_market_ranking.json")
 calibration = read_json("calibration.json")
 promotion = read_json("pre_live_promotion.json")
 go_no_go = read_json("go_no_go.json")
@@ -320,6 +349,7 @@ summary = {
     "game_theory_exports": read_json("game_theory.json"),
     "market_opportunity_selector": market_opportunity_selector,
     "execution_quality": execution_quality,
+    "candidate_market_ranking": candidate_market_ranking,
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
     "sentiment_lift": read_json("sentiment_lift.json"),

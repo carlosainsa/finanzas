@@ -27,6 +27,9 @@ def test_candidate_report_combines_existing_artifacts(tmp_path: Path) -> None:
     assert cast(dict[str, Any], candidate["execution_quality"])["top_asset_ids"] == [
         "asset-1"
     ]
+    assert cast(dict[str, Any], candidate["candidate_market_ranking"])[
+        "selected_market_asset_ids"
+    ] == ["asset-1"]
     assert (report_root / "pre_live_candidate_report.json").exists()
 
 
@@ -108,6 +111,17 @@ def seed_candidate_root(report_root: Path, ready: bool) -> Path:
             "top_asset_ids": ["asset-1"],
             "counts": {"execution_quality_ranking": 1},
             "decision_policy": "offline_execution_quality_only",
+        },
+    )
+    write_json(
+        report_root / "candidate_market_ranking.json",
+        {
+            "selected_market_asset_ids": ["asset-1"],
+            "counts": {
+                "candidate_market_ranking": 1,
+                "selected_candidate_markets": 1,
+            },
+            "decision_policy": "offline_combined_market_ranking_only",
         },
     )
     write_json(

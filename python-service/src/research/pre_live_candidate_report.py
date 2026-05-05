@@ -26,6 +26,7 @@ def create_pre_live_candidate_report(
     promotion = read_json(report_root / "pre_live_promotion.json")
     market_selection = read_json(report_root / "market_opportunity_selector.json")
     execution_quality = read_json(report_root / "execution_quality.json")
+    candidate_market_ranking = read_json(report_root / "candidate_market_ranking.json")
     dry_run_evidence = read_json(report_root / "real_dry_run_evidence.json")
     readiness = read_json(report_root / "pre_live_readiness.json")
     manifest = read_json(report_root / "research_manifest.json")
@@ -89,6 +90,13 @@ def create_pre_live_candidate_report(
                 "counts": execution_quality.get("counts", {}),
                 "decision_policy": execution_quality.get("decision_policy"),
             },
+            "candidate_market_ranking": {
+                "selected_market_asset_ids": candidate_market_ranking.get(
+                    "selected_market_asset_ids", []
+                ),
+                "counts": candidate_market_ranking.get("counts", {}),
+                "decision_policy": candidate_market_ranking.get("decision_policy"),
+            },
             "dry_run_evidence": {
                 "status": dry_run_evidence.get("status"),
                 "execution_mode": dry_run_evidence.get("execution_mode"),
@@ -103,6 +111,9 @@ def create_pre_live_candidate_report(
                 report_root, "pre_live_readiness.json"
             ),
             "research_manifest.json": artifact_status(report_root, "research_manifest.json"),
+            "candidate_market_ranking.json": artifact_status(
+                report_root, "candidate_market_ranking.json"
+            ),
         },
     }
     target = output_path or report_root / "pre_live_candidate_report.json"
