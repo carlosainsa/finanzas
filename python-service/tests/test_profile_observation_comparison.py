@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 from src.research.profile_observation_comparison import (
     REPORT_VERSION,
     create_profile_observation_comparison,
@@ -52,6 +54,10 @@ def test_profile_observation_comparison_compares_activity_fills_and_blockers(
     assert find_metric(activity, "signals")["delta"] == -80.0
     assert find_metric(fill, "synthetic_fill_rate")["delta"] == -0.9
     assert find_metric(fill, "adjusted_fill_rate_gap")["delta"] == -0.15
+    quote_policy = cast(list[dict[str, Any]], deltas[0]["quote_policy_deltas"])
+    assert find_metric(quote_policy, "avg_required_quote_move")[
+        "delta"
+    ] == pytest.approx(0.01)
 
 
 def find_metric(rows: list[dict[str, Any]], metric: str) -> dict[str, Any]:
@@ -115,6 +121,11 @@ def seed_profile_report(
                 "synthetic_only_signals": signals - filled_signals,
                 "signals_without_observed_report": signals - filled_signals,
                 "dry_run_unfilled_but_synthetic_available": signals - filled_signals,
+                "avg_no_fill_distance_to_touch": 0.02,
+                "avg_no_fill_distance_to_mid": 0.01,
+                "avg_no_fill_spread": 0.05,
+                "no_fill_future_touch_rate": 0.0,
+                "avg_required_quote_move": 0.03 if profile.endswith("v2") else 0.02,
             },
             "synthetic_vs_observed_gap": [],
         },

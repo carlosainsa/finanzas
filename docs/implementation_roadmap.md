@@ -167,6 +167,8 @@ These steps improve the trading platform before introducing heavier models. The 
    - Calibrate near-touch fractions across multiple DuckDB runs with minimum market coverage before accepting a fraction; a single-window boundary candidate is not enough evidence.
    - Run the next `execution_probe_v5` observation for 60-90 minutes with both a universe-selection artifact and an `execution_probe_v5_fraction_selection.json`, then compare it against v3/v4/v5 roots.
    - The 2026-05-06 multi-market `execution_probe_v5` observation is recorded in [execution_probe_observations.md](execution_probe_observations.md). It improved activity and stale-data rate but still produced zero observed or synthetic fills, so the next step is an `execution_probe_v6` quote-policy change rather than another unchanged v5 repeat.
+   - Implement `execution_probe_v6` as a dry-run-only, at-touch research profile and use `scripts/prepare_execution_probe_cycle.sh` to automate universe selection, observation planning, and post-run comparison commands.
+   - Use `quote_execution_no_fill_diagnostics` before each new variant decision; required quote move, distance to touch, and future touch rate should explain whether the blocker is quote aggressiveness, market choice, or timing.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Operator command intents are persisted in Postgres `control_commands` before Redis Stream publication when Postgres is configured, and production/control-required mode fails closed if that audit store is unavailable.

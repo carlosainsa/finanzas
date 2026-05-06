@@ -72,3 +72,29 @@ Candidate directions:
 - add per-market quote aggressiveness from observed spread/touch dynamics;
 - keep `can_execute_trades=false` until observed fills, realized edge, and
   adverse-selection metrics become measurable.
+
+## Next Variant: execution_probe_v6
+
+`execution_probe_v6` is the next research-only variant. It should test whether
+quotes at or very near the current touch can create measurable dry-run fills.
+
+Operator flow:
+
+```bash
+scripts/prepare_execution_probe_cycle.sh \
+  --universe-duckdb "<prior-wide-run>/research.duckdb" \
+  --baseline-report-root "<prior-v5-report-root>" \
+  --duration-seconds 3600
+```
+
+Then inspect the generated `.tmp/operational/.../execution_probe_observation_plan.json`
+before running the emitted command.
+
+Required interpretation:
+
+- If v6 gets fills, compare realized edge, adverse selection, drawdown, and
+  reconciliation before any longer repeat.
+- If v6 still gets no fills, the blocker is probably market selection or signal
+  timing, not just quote distance.
+- If v6 gets fills but adverse selection is bad, keep the quote policy but add
+  stricter market/side filters.

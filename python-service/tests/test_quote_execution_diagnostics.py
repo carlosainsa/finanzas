@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import duckdb
+import pytest
 
 from src.research.quote_execution_diagnostics import (
     REPORT_VERSION,
@@ -81,9 +82,51 @@ def test_quote_execution_diagnostics_handles_empty_database(tmp_path: Path) -> N
         "quote_execution_outcomes": 0,
         "quote_execution_summary": 1,
         "quote_execution_by_market_asset": 0,
+        "quote_execution_no_fill_diagnostics": 0,
         "quote_execution_synthetic_gap": 0,
         "quote_execution_examples": 0,
     }
+
+
+def test_quote_execution_diagnostics_measures_required_quote_move(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_db(tmp_path, synthetic=False, observed=False)
+
+    report = create_quote_execution_diagnostics_report(db_path, tmp_path / "diagnostics")
+
+    diagnostics = cast(list[dict[str, Any]], report["no_fill_diagnostics"])
+    assert diagnostics[0]["signals"] == 1
+    assert diagnostics[0]["avg_distance_to_touch"] == 0.0
+    assert diagnostics[0]["avg_required_quote_move"] == 0.0
+    assert diagnostics[0]["future_touch_rate"] == 1.0
+
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select
+                touch_price_at_signal,
+                distance_to_touch,
+                future_touched_limit,
+                best_future_touch_price,
+                required_quote_move
+            from quote_execution_outcomes
+            """
+        ).fetchone()
+    assert row == (0.50, 0.0, True, 0.50, 0.0)
+
+
+def test_quote_execution_diagnostics_measures_no_fill_gap(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_db(tmp_path, synthetic=False, observed=False, signal_price=0.47)
+
+    report = create_quote_execution_diagnostics_report(db_path, tmp_path / "diagnostics")
+
+    diagnostics = cast(list[dict[str, Any]], report["no_fill_diagnostics"])
+    assert diagnostics[0]["avg_distance_to_touch"] == pytest.approx(0.03)
+    assert diagnostics[0]["avg_required_quote_move"] == pytest.approx(0.03)
+    assert diagnostics[0]["future_touch_rate"] == 0.0
 
 
 def test_quote_execution_diagnostics_rejects_invalid_config() -> None:
@@ -95,7 +138,13 @@ def test_quote_execution_diagnostics_rejects_invalid_config() -> None:
         raise AssertionError("expected ValueError")
 
 
-def seed_db(tmp_path: Path, *, synthetic: bool, observed: bool) -> Path:
+def seed_db(
+    tmp_path: Path,
+    *,
+    synthetic: bool,
+    observed: bool,
+    signal_price: float = 0.50,
+) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:
         conn.execute(
@@ -119,10 +168,11 @@ def seed_db(tmp_path: Path, *, synthetic: bool, observed: bool) -> Path:
         conn.execute(
             """
             insert into signals values (
-                'signal-1', 'market-1', 'asset-1', 'BUY', 0.50, 2.0, 0.70,
+                'signal-1', 'market-1', 'asset-1', 'BUY', ?, 2.0, 0.70,
                 'probe', 'model', 'data', 'feature', 1_000
             )
-            """
+            """,
+            [signal_price],
         )
         conn.execute(
             """

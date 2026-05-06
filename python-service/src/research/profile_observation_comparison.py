@@ -68,6 +68,17 @@ def profile_observation(report_root: Path) -> dict[str, object]:
             "fill_rate_gap": fill_rate_gap(quote_summary),
             "adjusted_fill_rate_gap": quote_summary.get("adjusted_fill_rate_gap"),
         },
+        "quote_policy": {
+            "avg_no_fill_distance_to_touch": quote_summary.get(
+                "avg_no_fill_distance_to_touch"
+            ),
+            "avg_no_fill_distance_to_mid": quote_summary.get(
+                "avg_no_fill_distance_to_mid"
+            ),
+            "avg_no_fill_spread": quote_summary.get("avg_no_fill_spread"),
+            "no_fill_future_touch_rate": quote_summary.get("no_fill_future_touch_rate"),
+            "avg_required_quote_move": quote_summary.get("avg_required_quote_move"),
+        },
         "risk": {
             "realized_edge": metrics.get("realized_edge"),
             "adverse_selection": metrics.get("adverse_selection"),
@@ -123,6 +134,17 @@ def pairwise_deltas(observations: list[dict[str, object]]) -> list[dict[str, obj
                         "drawdown",
                         "stale_data_rate",
                         "test_brier_score",
+                    ),
+                ),
+                "quote_policy_deltas": metric_deltas(
+                    typed_dict(previous.get("quote_policy")),
+                    typed_dict(current.get("quote_policy")),
+                    (
+                        "avg_no_fill_distance_to_touch",
+                        "avg_no_fill_distance_to_mid",
+                        "avg_no_fill_spread",
+                        "no_fill_future_touch_rate",
+                        "avg_required_quote_move",
                     ),
                 ),
             }

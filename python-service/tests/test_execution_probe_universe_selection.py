@@ -49,6 +49,22 @@ def test_execution_probe_universe_selection_marks_insufficient_assets(
     assert "repeat_collection" in str(report["selection_reason"])
 
 
+def test_execution_probe_universe_selection_supports_v6_profile(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_universe_db(tmp_path, asset_count=6)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(profile="execution_probe_v6", limit=5, min_assets=5),
+    )
+
+    assert report["profile"] == "execution_probe_v6"
+    assert report["can_execute_trades"] is False
+    assert report["status"] == "ready"
+
+
 def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
     try:
         ExecutionProbeUniverseConfig(profile="live")

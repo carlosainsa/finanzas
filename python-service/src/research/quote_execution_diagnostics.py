@@ -51,6 +51,7 @@ def create_quote_execution_diagnostics_report(
                 "quote_execution_outcomes",
                 "quote_execution_summary",
                 "quote_execution_by_market_asset",
+                "quote_execution_no_fill_diagnostics",
                 "quote_execution_synthetic_gap",
                 "quote_execution_examples",
             ),
@@ -71,6 +72,18 @@ def create_quote_execution_diagnostics_report(
             .fetch_df()
             .to_dict(orient="records")
         )
+        no_fill_diagnostics = normalize_records(
+            conn.execute(
+                """
+                select *
+                from quote_execution_no_fill_diagnostics
+                order by signals desc, avg_required_quote_move desc nulls last
+                limit 25
+                """
+            )
+            .fetch_df()
+            .to_dict(orient="records")
+        )
     report: dict[str, object] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -79,6 +92,7 @@ def create_quote_execution_diagnostics_report(
         "config": asdict(config),
         "counts": counts,
         "summary": summary[0] if summary else {},
+        "no_fill_diagnostics": no_fill_diagnostics,
         "synthetic_vs_observed_gap": synthetic_gap,
         "outputs": [
             "quote_execution_signal_books.parquet",
@@ -86,6 +100,7 @@ def create_quote_execution_diagnostics_report(
             "quote_execution_outcomes.parquet",
             "quote_execution_summary.parquet",
             "quote_execution_by_market_asset.parquet",
+            "quote_execution_no_fill_diagnostics.parquet",
             "quote_execution_synthetic_gap.parquet",
             "quote_execution_examples.parquet",
             "quote_execution_diagnostics.json",
@@ -138,6 +153,28 @@ def create_quote_execution_diagnostics_views(
                     then (book.best_bid + book.best_ask) / 2
                     else null
                 end as mid_at_signal,
+                case
+                    when s.side = 'BUY' then book.best_ask
+                    when s.side = 'SELL' then book.best_bid
+                    else null
+                end as touch_price_at_signal,
+                case
+                    when s.side = 'BUY' and book.best_ask is not null then book.best_ask - s.price
+                    when s.side = 'SELL' and book.best_bid is not null then s.price - book.best_bid
+                    else null
+                end as signed_distance_to_touch,
+                case
+                    when s.side = 'BUY' and book.best_ask is not null then greatest(book.best_ask - s.price, 0)
+                    when s.side = 'SELL' and book.best_bid is not null then greatest(s.price - book.best_bid, 0)
+                    else null
+                end as distance_to_touch,
+                case
+                    when s.side = 'BUY' and book.best_bid is not null and book.best_ask is not null
+                    then ((book.best_bid + book.best_ask) / 2) - s.price
+                    when s.side = 'SELL' and book.best_bid is not null and book.best_ask is not null
+                    then s.price - ((book.best_bid + book.best_ask) / 2)
+                    else null
+                end as signed_distance_to_mid,
                 case
                     when book.best_bid is not null and book.best_ask is not null
                     then abs(s.price - ((book.best_bid + book.best_ask) / 2))
@@ -244,8 +281,23 @@ def create_quote_execution_diagnostics_views(
                 synthetic_filled_size > 0 or observed_filled_size > 0 as backtest_counted_fill,
                 future_book_snapshots,
                 future_touches,
+                future_touches > 0 as future_touched_limit,
                 first_future_book_timestamp_ms,
                 first_future_touch_timestamp_ms,
+                best_future_touch_price,
+                best_future_touch_timestamp_ms,
+                case
+                    when best_future_touch_price is null then null
+                    when side = 'BUY' then best_future_touch_price - signal_price
+                    when side = 'SELL' then signal_price - best_future_touch_price
+                    else null
+                end as best_future_distance_to_limit,
+                case
+                    when best_future_touch_price is null then null
+                    when side = 'BUY' then greatest(best_future_touch_price - signal_price, 0)
+                    when side = 'SELL' then greatest(signal_price - best_future_touch_price, 0)
+                    else null
+                end as required_quote_move,
                 case
                     when first_future_book_timestamp_ms is not null and signal_timestamp_ms is not null
                     then first_future_book_timestamp_ms - signal_timestamp_ms
@@ -322,6 +374,36 @@ def create_quote_execution_diagnostics_views(
                             or (lifecycle.side = 'SELL' and future_book.best_bid >= lifecycle.signal_price)
                           )
                     ) as first_future_touch_timestamp_ms
+                    ,
+                    (
+                        select
+                            case
+                                when lifecycle.side = 'BUY' then min(future_book.best_ask)
+                                when lifecycle.side = 'SELL' then max(future_book.best_bid)
+                                else null
+                            end
+                        from orderbook_snapshots future_book
+                        where future_book.market_id = lifecycle.market_id
+                          and future_book.asset_id = lifecycle.asset_id
+                          and future_book.event_timestamp_ms > lifecycle.signal_timestamp_ms
+                          and future_book.event_timestamp_ms <= lifecycle.signal_timestamp_ms + {config.max_future_window_ms}
+                    ) as best_future_touch_price,
+                    (
+                        select future_book.event_timestamp_ms
+                        from orderbook_snapshots future_book
+                        where future_book.market_id = lifecycle.market_id
+                          and future_book.asset_id = lifecycle.asset_id
+                          and future_book.event_timestamp_ms > lifecycle.signal_timestamp_ms
+                          and future_book.event_timestamp_ms <= lifecycle.signal_timestamp_ms + {config.max_future_window_ms}
+                        order by
+                            case
+                                when lifecycle.side = 'BUY' then future_book.best_ask
+                                when lifecycle.side = 'SELL' then -future_book.best_bid
+                                else null
+                            end,
+                            future_book.event_timestamp_ms
+                        limit 1
+                    ) as best_future_touch_timestamp_ms
                 from quote_execution_lifecycle lifecycle
             ) lifecycle
             """
@@ -347,6 +429,11 @@ def create_quote_execution_diagnostics_views(
                 avg(adjusted_synthetic_fill_indicator)
                     - avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as adjusted_fill_rate_gap,
                 avg(case when backtest_counted_fill then 1.0 else 0.0 end) as backtest_fill_rate,
+                avg(case when observed_filled_size <= 0 then distance_to_touch else null end) as avg_no_fill_distance_to_touch,
+                avg(case when observed_filled_size <= 0 then distance_to_mid else null end) as avg_no_fill_distance_to_mid,
+                avg(case when observed_filled_size <= 0 then spread else null end) as avg_no_fill_spread,
+                avg(case when observed_filled_size <= 0 and future_touched_limit then 1.0 when observed_filled_size <= 0 then 0.0 else null end) as no_fill_future_touch_rate,
+                avg(case when observed_filled_size <= 0 then required_quote_move else null end) as avg_required_quote_move,
                 'synthetic fills are offline backtest evidence; promotion/go-no-go only count observed dry-run/live reports' as explanation
             from quote_execution_outcomes
             """
@@ -371,11 +458,43 @@ def create_quote_execution_diagnostics_views(
                 avg(case when quote_relation = 'behind_touch' then 1.0 else 0.0 end) as behind_touch_rate,
                 avg(spread) as avg_spread_at_signal,
                 avg(distance_to_mid) as avg_distance_to_mid,
+                avg(distance_to_touch) as avg_distance_to_touch,
+                avg(required_quote_move) as avg_required_quote_move,
+                avg(case when future_touched_limit then 1.0 else 0.0 end) as future_touch_rate,
                 avg(book_age_ms) as avg_book_age_ms,
                 avg(dry_run_terminal_latency_ms) as avg_dry_run_terminal_latency_ms,
                 avg(synthetic_touch_latency_ms) as avg_synthetic_touch_latency_ms
             from quote_execution_outcomes
             group by market_id, asset_id, side, strategy, model_version
+            """
+        )
+        conn.execute(
+            """
+            create or replace view quote_execution_no_fill_diagnostics as
+            select
+                strategy,
+                coalesce(model_version, 'unknown') as model_version,
+                coalesce(feature_version, 'unknown') as feature_version,
+                market_id,
+                asset_id,
+                side,
+                quote_relation,
+                root_cause,
+                count(*) as signals,
+                avg(distance_to_touch) as avg_distance_to_touch,
+                quantile_cont(distance_to_touch, 0.5) as p50_distance_to_touch,
+                quantile_cont(distance_to_touch, 0.9) as p90_distance_to_touch,
+                avg(distance_to_mid) as avg_distance_to_mid,
+                avg(spread) as avg_spread_at_signal,
+                sum(case when future_touched_limit then 1 else 0 end) as future_touched_limit_signals,
+                avg(case when future_touched_limit then 1.0 else 0.0 end) as future_touch_rate,
+                avg(required_quote_move) as avg_required_quote_move,
+                quantile_cont(required_quote_move, 0.5) as p50_required_quote_move,
+                quantile_cont(required_quote_move, 0.9) as p90_required_quote_move,
+                avg(ms_to_first_future_touch) as avg_ms_to_first_future_touch
+            from quote_execution_outcomes
+            where observed_filled_size <= 0
+            group by strategy, model_version, feature_version, market_id, asset_id, side, quote_relation, root_cause
             """
         )
         conn.execute(
