@@ -38,6 +38,14 @@ EXECUTION_PROBE_V2_NEAR_TOUCH_MODEL_VERSION = (
 EXECUTION_PROBE_V2_NEAR_TOUCH_FEATURE_VERSION = (
     "orderbook_top_of_book_execution_probe_near_touch_v2"
 )
+EXECUTION_PROBE_V3_MODEL_VERSION = "passive_spread_capture_execution_probe_v3"
+EXECUTION_PROBE_V3_FEATURE_VERSION = "orderbook_top_of_book_execution_probe_v3"
+EXECUTION_PROBE_V3_NEAR_TOUCH_MODEL_VERSION = (
+    "passive_spread_capture_execution_probe_near_touch_v3"
+)
+EXECUTION_PROBE_V3_NEAR_TOUCH_FEATURE_VERSION = (
+    "orderbook_top_of_book_execution_probe_near_touch_v3"
+)
 
 TOP_CHANGE_EPSILON = 1e-9
 RejectionReason = Literal[
@@ -260,6 +268,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
                 EXECUTION_PROBE_V2_MODEL_VERSION,
                 EXECUTION_PROBE_V2_FEATURE_VERSION,
             )
+        if profile.name == "execution_probe_v3":
+            return (
+                best_bid,
+                EXECUTION_PROBE_V3_MODEL_VERSION,
+                EXECUTION_PROBE_V3_FEATURE_VERSION,
+            )
         return best_bid, MODEL_VERSION, FEATURE_VERSION
     if placement != "near_touch":
         raise ValueError(f"unsupported predictor quote placement: {placement}")
@@ -271,9 +285,7 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
     offset = settings.predictor_near_touch_offset_ticks * tick_size
     cap = best_ask - offset
     max_spread_fraction = profile.near_touch_max_spread_fraction
-    fractional_price = best_bid + (
-        spread * max_spread_fraction
-    )
+    fractional_price = best_bid + (spread * max_spread_fraction)
     price = max(best_bid, min(cap, fractional_price))
     if profile.name == "conservative_v1":
         return (
@@ -298,6 +310,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
             round(price, 6),
             EXECUTION_PROBE_V2_NEAR_TOUCH_MODEL_VERSION,
             EXECUTION_PROBE_V2_NEAR_TOUCH_FEATURE_VERSION,
+        )
+    if profile.name == "execution_probe_v3":
+        return (
+            round(price, 6),
+            EXECUTION_PROBE_V3_NEAR_TOUCH_MODEL_VERSION,
+            EXECUTION_PROBE_V3_NEAR_TOUCH_FEATURE_VERSION,
         )
     return round(price, 6), NEAR_TOUCH_MODEL_VERSION, NEAR_TOUCH_FEATURE_VERSION
 
@@ -394,6 +412,25 @@ def strategy_profile() -> StrategyProfile:
                 settings.predictor_execution_probe_v2_min_signal_interval_ms
             ),
         )
+    if profile == "execution_probe_v3":
+        validate_execution_probe_allowed()
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_execution_probe_v3_min_confidence,
+            ),
+            near_touch_max_spread_fraction=(
+                settings.predictor_execution_probe_v3_near_touch_max_spread_fraction
+            ),
+            min_depth=settings.predictor_execution_probe_v3_min_depth,
+            max_top_changes=settings.predictor_execution_probe_v3_max_top_changes,
+            top_change_window_ms=settings.predictor_execution_probe_v3_top_change_window_ms,
+            risk_filters_enabled=True,
+            min_signal_interval_ms=(
+                settings.predictor_execution_probe_v3_min_signal_interval_ms
+            ),
+        )
     if profile == "conservative_v1":
         return StrategyProfile(
             name=profile,
@@ -423,6 +460,7 @@ def near_touch_model(model_version: str) -> bool:
         BALANCED_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_V2_NEAR_TOUCH_MODEL_VERSION,
+        EXECUTION_PROBE_V3_NEAR_TOUCH_MODEL_VERSION,
     }
 
 
@@ -475,4 +513,12 @@ def validate_near_touch_allowed() -> None:
     ):
         raise ValueError(
             "predictor execution probe v2 near-touch max spread fraction must be between 0 and 1"
+        )
+    if (
+        not 0
+        <= settings.predictor_execution_probe_v3_near_touch_max_spread_fraction
+        <= 1
+    ):
+        raise ValueError(
+            "predictor execution probe v3 near-touch max spread fraction must be between 0 and 1"
         )

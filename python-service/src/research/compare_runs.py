@@ -5,6 +5,10 @@ from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
 
+from src.research.profile_observation_comparison import (
+    create_profile_observation_comparison,
+)
+
 
 DEFAULT_METRICS = (
     "signals",
@@ -117,6 +121,9 @@ def compare_runs(
             "restricted_blocklist_diagnostics": restricted_blocklist_diagnostics(
                 report_root_from_row(baseline), report_root_from_row(candidate)
             ),
+            "profile_observation_comparison": profile_observation_comparison(
+                report_root_from_row(baseline), report_root_from_row(candidate)
+            ),
         },
     }
 
@@ -166,8 +173,25 @@ def compare_report_roots(
             "restricted_blocklist_diagnostics": restricted_blocklist_diagnostics(
                 baseline_report_root, candidate_report_root
             ),
+            "profile_observation_comparison": profile_observation_comparison(
+                baseline_report_root, candidate_report_root
+            ),
         },
     }
+
+
+def profile_observation_comparison(
+    baseline_report_root: Path | None,
+    candidate_report_root: Path | None,
+) -> dict[str, object]:
+    roots = [root for root in (baseline_report_root, candidate_report_root) if root]
+    if len(roots) < 2:
+        return {
+            "report_version": "profile_observation_comparison_v1",
+            "status": "missing_report_root",
+            "can_execute_trades": False,
+        }
+    return create_profile_observation_comparison(roots)
 
 
 def select_runs(

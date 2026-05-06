@@ -343,6 +343,7 @@ nim_advisory = read_json("nim_advisory.json")
 nim_advisory_exit_code = int(os.environ.get("NIM_ADVISORY_EXIT_CODE", "0"))
 synthetic_fills = read_json("synthetic_fills.json")
 feature_research_decision = read_json("feature_research_decision.json")
+profile_observation_comparison = read_json("profile_observation_comparison.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
 advisory_summary = advisory.get("summary") if isinstance(advisory.get("summary"), dict) else {}
 summary = {
@@ -372,6 +373,7 @@ summary = {
     "nim_advisory": nim_advisory,
     "nim_advisory_exit_code": nim_advisory_exit_code,
     "feature_research_decision": feature_research_decision,
+    "profile_observation_comparison": profile_observation_comparison,
 }
 summary["passed"] = bool(
     summary["pre_live_gate_passed"]
@@ -417,6 +419,21 @@ done
 PYTHONPATH=python-service python3 -m src.research.strategy_family_comparison \
   "${STRATEGY_FAMILY_ARGS[@]}" \
   --output "$REPORT_ROOT/strategy_family_comparison.json"
+PROFILE_OBSERVATION_REPORT_ROOTS=("$REPORT_ROOT")
+if [[ -n "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" ]]; then
+  IFS=',' read -r -a EXTRA_PROFILE_OBSERVATION_REPORT_ROOTS <<< "$PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS"
+  PROFILE_OBSERVATION_REPORT_ROOTS=("${EXTRA_PROFILE_OBSERVATION_REPORT_ROOTS[@]}" "$REPORT_ROOT")
+fi
+PROFILE_OBSERVATION_ARGS=()
+for profile_observation_report_root in "${PROFILE_OBSERVATION_REPORT_ROOTS[@]}"; do
+  if [[ -n "$profile_observation_report_root" ]]; then
+    PROFILE_OBSERVATION_ARGS+=(--report-root "$profile_observation_report_root")
+  fi
+done
+PYTHONPATH=python-service python3 -m src.research.profile_observation_comparison \
+  "${PROFILE_OBSERVATION_ARGS[@]}" \
+  --output "$REPORT_ROOT/profile_observation_comparison.json" \
+  > "$REPORT_ROOT/profile_observation_comparison.stdout.json"
 if [[ -n "${SIGNAL_ACTIVITY_BASELINE_REPORT_ROOT:-}" ]]; then
   PYTHONPATH=python-service python3 -m src.research.signal_activity_audit \
     --baseline-report-root "$SIGNAL_ACTIVITY_BASELINE_REPORT_ROOT" \

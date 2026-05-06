@@ -128,8 +128,12 @@ def test_compare_report_roots_reports_segment_and_blocklist_changes(
     summary = cast(dict[str, Any], comparison["segment_change_summary"])
     comparability = cast(dict[str, Any], comparison["segment_comparability"])
     blocked = cast(dict[str, Any], comparison["blocked_segment_changes"])
+    profile_observations = cast(
+        dict[str, Any], comparison["profile_observation_comparison"]
+    )
     segment_table = format_segment_changes_table(report)
     assert comparison["verdict"] == "no_comparable"
+    assert profile_observations["report_version"] == "profile_observation_comparison_v1"
     assert comparability["status"] == "no_comparable"
     assert comparability["reason"] == "unexpected_candidate_segment_loss"
     assert summary["improved_segments"] == 1
