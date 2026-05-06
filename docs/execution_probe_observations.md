@@ -92,9 +92,15 @@ before running the emitted command.
 
 Required interpretation:
 
-- If v6 gets fills, compare realized edge, adverse selection, drawdown, and
-  reconciliation before any longer repeat.
-- If v6 still gets no fills, the blocker is probably market selection or signal
-  timing, not just quote distance.
-- If v6 gets fills but adverse selection is bad, keep the quote policy but add
-  stricter market/side filters.
+- Generate `execution_probe_next_decision.json` from
+  `profile_observation_comparison.json` before choosing the next variant.
+- If v6 gets fills without synthetic optimism or risk regression, repeat v6 for
+  a longer window before any promotion discussion.
+- If v6 still gets no fills, use no-fill future-touch diagnostics to distinguish
+  filter relaxation from market/timing changes.
+- If v6 gets fills but adverse selection or drawdown is bad, keep the profile
+  research-only and add stricter market/side filters.
+
+Manual interpretation is allowed only as review of the versioned decision
+artifact. The decision engine remains offline and always emits
+`can_execute_trades=false`.

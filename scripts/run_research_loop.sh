@@ -445,6 +445,28 @@ PYTHONPATH=python-service python3 -m src.research.profile_observation_comparison
   "${PROFILE_OBSERVATION_ARGS[@]}" \
   --output "$REPORT_ROOT/profile_observation_comparison.json" \
   > "$REPORT_ROOT/profile_observation_comparison.stdout.json"
+PYTHONPATH=python-service python3 -m src.research.execution_probe_next_decision \
+  --comparison "$REPORT_ROOT/profile_observation_comparison.json" \
+  --output "$REPORT_ROOT/execution_probe_next_decision.json" \
+  --json \
+  > "$REPORT_ROOT/execution_probe_next_decision.stdout.json"
+python3 - "$REPORT_ROOT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+summary_path = root / "research_summary.json"
+if summary_path.exists():
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["execution_probe_next_decision"] = json.loads(
+        (root / "execution_probe_next_decision.json").read_text(encoding="utf-8")
+    )
+    summary_path.write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+PY
 if [[ -n "${SIGNAL_ACTIVITY_BASELINE_REPORT_ROOT:-}" ]]; then
   PYTHONPATH=python-service python3 -m src.research.signal_activity_audit \
     --baseline-report-root "$SIGNAL_ACTIVITY_BASELINE_REPORT_ROOT" \

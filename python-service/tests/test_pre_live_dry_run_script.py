@@ -105,6 +105,26 @@ def test_research_loop_passes_market_regime_resource_limits() -> None:
     assert '"${MARKET_REGIME_ARGS[@]}" > "$REPORT_ROOT/market_regime.json"' in script
 
 
+def test_research_loop_generates_execution_probe_next_decision() -> None:
+    script = (ROOT_DIR / "scripts" / "run_research_loop.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "src.research.execution_probe_next_decision" in script
+    assert "execution_probe_next_decision.json" in script
+    assert 'summary["execution_probe_next_decision"]' in script
+
+
+def test_prepare_execution_probe_cycle_prints_post_run_decision_command() -> None:
+    script = (ROOT_DIR / "scripts" / "prepare_execution_probe_cycle.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "profile_compare_after_run" in script
+    assert "decide_after_run" in script
+    assert "src.research.execution_probe_next_decision" in script
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"

@@ -83,6 +83,8 @@ OBSERVATION_COMMAND=(
   printf '\n'
   if [[ -n "$BASELINE_REPORT_ROOT" ]]; then
     printf 'compare_after_run=PYTHONPATH=python-service python3 -m src.research.compare_runs --baseline-report-root %q --candidate-report-root <NEW_REPORT_ROOT> --json > <NEW_REPORT_ROOT>/comparison_vs_baseline.json\n' "$BASELINE_REPORT_ROOT"
+    printf 'profile_compare_after_run=PYTHONPATH=python-service python3 -m src.research.profile_observation_comparison --report-root %q --report-root <NEW_REPORT_ROOT> --output <NEW_REPORT_ROOT>/profile_observation_comparison.json\n' "$BASELINE_REPORT_ROOT"
+    printf 'decide_after_run=PYTHONPATH=python-service python3 -m src.research.execution_probe_next_decision --comparison <NEW_REPORT_ROOT>/profile_observation_comparison.json --output <NEW_REPORT_ROOT>/execution_probe_next_decision.json --json\n'
   fi
 } > "$RUN_ROOT/execution_probe_cycle_plan.env"
 

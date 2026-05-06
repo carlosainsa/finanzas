@@ -264,6 +264,29 @@ scripts/run_execution_probe_v5_observation.sh \
 The wrapper forces `EXECUTION_MODE=dry_run`, `PREDICTOR_STRATEGY_PROFILE=execution_probe_v5`,
 and `can_execute_trades=false` inputs. Use `--print-plan` before long runs.
 
+For `execution_probe_v6`, prepare the cycle and let the post-run decision
+artifact choose the next adjustment:
+
+```bash
+scripts/prepare_execution_probe_cycle.sh \
+  --universe-duckdb "<prior-run>/research.duckdb" \
+  --baseline-report-root "<baseline-report-root>" \
+  --duration-seconds 5400
+```
+
+After the observation, generate or inspect:
+
+```bash
+PYTHONPATH=python-service python3 -m src.research.execution_probe_next_decision \
+  --comparison "<new-report-root>/profile_observation_comparison.json" \
+  --output "<new-report-root>/execution_probe_next_decision.json" \
+  --json
+```
+
+The decision artifact is offline only. It can recommend repeating v6, changing
+market/timing filters, relaxing signal filters, creating a less aggressive v7,
+or holding research; it never authorizes live trading.
+
 ## Exit Codes
 
 - `0`: research infra and gates passed.
