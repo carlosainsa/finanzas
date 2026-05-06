@@ -58,11 +58,15 @@ def profile_observation(report_root: Path) -> dict[str, object]:
             "dry_run_observed_fill_rate": metrics.get("dry_run_observed_fill_rate"),
             "observed_fill_rate": quote_summary.get("observed_fill_rate"),
             "synthetic_fill_rate": quote_summary.get("synthetic_fill_rate"),
+            "adjusted_synthetic_fill_rate": quote_summary.get(
+                "adjusted_synthetic_fill_rate"
+            ),
             "synthetic_only_signals": quote_summary.get("synthetic_only_signals"),
             "dry_run_unfilled_but_synthetic_available": quote_summary.get(
                 "dry_run_unfilled_but_synthetic_available"
             ),
             "fill_rate_gap": fill_rate_gap(quote_summary),
+            "adjusted_fill_rate_gap": quote_summary.get("adjusted_fill_rate_gap"),
         },
         "risk": {
             "realized_edge": metrics.get("realized_edge"),
@@ -105,7 +109,9 @@ def pairwise_deltas(observations: list[dict[str, object]]) -> list[dict[str, obj
                         "dry_run_observed_fill_rate",
                         "observed_fill_rate",
                         "synthetic_fill_rate",
+                        "adjusted_synthetic_fill_rate",
                         "fill_rate_gap",
+                        "adjusted_fill_rate_gap",
                     ),
                 ),
                 "risk_deltas": metric_deltas(

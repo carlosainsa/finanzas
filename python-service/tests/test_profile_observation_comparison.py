@@ -40,11 +40,18 @@ def test_profile_observation_comparison_compares_activity_fills_and_blockers(
         "execution_probe_v2",
     ]
     assert cast(dict[str, Any], observations[0]["fills"])["fill_rate_gap"] == 0.8
+    assert (
+        cast(dict[str, Any], observations[0]["fills"])[
+            "adjusted_synthetic_fill_rate"
+        ]
+        == 0.25
+    )
     deltas = cast(list[dict[str, Any]], report["pairwise_deltas"])
     activity = cast(list[dict[str, Any]], deltas[0]["activity_deltas"])
     fill = cast(list[dict[str, Any]], deltas[0]["fill_deltas"])
     assert find_metric(activity, "signals")["delta"] == -80.0
     assert find_metric(fill, "synthetic_fill_rate")["delta"] == -0.9
+    assert find_metric(fill, "adjusted_fill_rate_gap")["delta"] == -0.15
 
 
 def find_metric(rows: list[dict[str, Any]], metric: str) -> dict[str, Any]:
@@ -98,6 +105,13 @@ def seed_profile_report(
                 "signals": signals,
                 "observed_fill_rate": observed_fill_rate,
                 "synthetic_fill_rate": synthetic_fill_rate,
+                "adjusted_synthetic_fill_rate": (
+                    0.25 if synthetic_fill_rate > observed_fill_rate else synthetic_fill_rate
+                ),
+                "adjusted_fill_rate_gap": (
+                    0.25 if synthetic_fill_rate > observed_fill_rate else synthetic_fill_rate
+                )
+                - observed_fill_rate,
                 "synthetic_only_signals": signals - filled_signals,
                 "signals_without_observed_report": signals - filled_signals,
                 "dry_run_unfilled_but_synthetic_available": signals - filled_signals,

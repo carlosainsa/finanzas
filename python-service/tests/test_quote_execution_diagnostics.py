@@ -25,11 +25,16 @@ def test_quote_execution_diagnostics_explains_synthetic_only_gap(
     assert summary["synthetic_only_signals"] == 1
     assert summary["dry_run_filled_signals"] == 0
     assert summary["observed_fill_rate"] == 0.0
+    assert summary["adjusted_synthetic_fill_rate"] == 0.25
+    assert summary["adjusted_fill_rate_gap"] == 0.25
     assert "synthetic fills are offline backtest evidence" in summary["explanation"]
     gap = cast(list[dict[str, Any]], report["synthetic_vs_observed_gap"])
     assert gap[0]["synthetic_optimism_flag"] is True
     assert gap[0]["dominant_gap_type"] == "synthetic_only_dominates"
     assert gap[0]["fill_rate_gap"] == 1.0
+    assert gap[0]["adjusted_synthetic_fill_rate"] == 0.25
+    assert gap[0]["adjusted_fill_rate_gap"] == 0.25
+    assert gap[0]["avg_synthetic_evidence_weight"] == 0.25
 
 
 def test_quote_execution_diagnostics_explains_dry_run_unmatched_with_synthetic(
@@ -44,11 +49,12 @@ def test_quote_execution_diagnostics_explains_dry_run_unmatched_with_synthetic(
     assert summary["dry_run_signal_lifecycles"] == 1
     assert summary["dry_run_filled_signals"] == 0
     assert summary["dry_run_unfilled_but_synthetic_available"] == 1
+    assert summary["adjusted_synthetic_fill_rate"] == 0.5
 
     with duckdb.connect(str(db_path)) as conn:
         row = conn.execute(
             """
-            select root_cause, execution_path, quote_relation
+            select root_cause, execution_path, quote_relation, synthetic_evidence_weight
             from quote_execution_outcomes
             """
         ).fetchone()
@@ -56,6 +62,7 @@ def test_quote_execution_diagnostics_explains_dry_run_unmatched_with_synthetic(
         "dry_run_created_unmatched_with_synthetic_touch",
         "dry_run_unfilled",
         "at_touch",
+        0.5,
     )
 
 

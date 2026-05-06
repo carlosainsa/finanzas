@@ -255,7 +255,30 @@ def create_quote_execution_diagnostics_views(
                     when first_future_touch_timestamp_ms is not null and signal_timestamp_ms is not null
                     then first_future_touch_timestamp_ms - signal_timestamp_ms
                     else null
-                end as ms_to_first_future_touch
+                end as ms_to_first_future_touch,
+                case
+                    when synthetic_filled_size <= 0 then 0.0
+                    when observed_filled_size > 0 then 1.0
+                    when observed_order_id is null then 0.25
+                    when signal_timestamp_ms is null then 0.0
+                    when first_future_touch_timestamp_ms is null then 0.0
+                    when first_future_touch_timestamp_ms - signal_timestamp_ms > 60000 then 0.5
+                    when future_touches <= 1 then 0.5
+                    else 1.0
+                end as synthetic_evidence_weight,
+                case
+                    when synthetic_filled_size > 0 then
+                        case
+                            when observed_filled_size > 0 then 1.0
+                            when observed_order_id is null then 0.25
+                            when signal_timestamp_ms is null then 0.0
+                            when first_future_touch_timestamp_ms is null then 0.0
+                            when first_future_touch_timestamp_ms - signal_timestamp_ms > 60000 then 0.5
+                            when future_touches <= 1 then 0.5
+                            else 1.0
+                        end
+                    else 0.0
+                end as adjusted_synthetic_fill_indicator
             from (
                 select
                     lifecycle.*,
@@ -320,6 +343,9 @@ def create_quote_execution_diagnostics_views(
                 avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as observed_fill_rate,
                 avg(case when dry_run_filled then 1.0 else 0.0 end) as dry_run_fill_rate,
                 avg(case when synthetic_filled_size > 0 then 1.0 else 0.0 end) as synthetic_fill_rate,
+                avg(adjusted_synthetic_fill_indicator) as adjusted_synthetic_fill_rate,
+                avg(adjusted_synthetic_fill_indicator)
+                    - avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as adjusted_fill_rate_gap,
                 avg(case when backtest_counted_fill then 1.0 else 0.0 end) as backtest_fill_rate,
                 'synthetic fills are offline backtest evidence; promotion/go-no-go only count observed dry-run/live reports' as explanation
             from quote_execution_outcomes
@@ -369,8 +395,12 @@ def create_quote_execution_diagnostics_views(
                 sum(case when execution_path = 'neither' then 1 else 0 end) as neither_signals,
                 avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as observed_fill_rate,
                 avg(case when synthetic_filled_size > 0 then 1.0 else 0.0 end) as synthetic_fill_rate,
+                avg(adjusted_synthetic_fill_indicator) as adjusted_synthetic_fill_rate,
                 avg(case when synthetic_filled_size > 0 then 1.0 else 0.0 end)
                     - avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as fill_rate_gap,
+                avg(adjusted_synthetic_fill_indicator)
+                    - avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as adjusted_fill_rate_gap,
+                avg(synthetic_evidence_weight) as avg_synthetic_evidence_weight,
                 avg(future_touches) as avg_future_touches,
                 avg(ms_to_first_future_touch) as avg_ms_to_first_future_touch,
                 case
