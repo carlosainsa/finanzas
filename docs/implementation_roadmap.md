@@ -162,6 +162,10 @@ These steps improve the trading platform before introducing heavier models. The 
    - When a multi-segment blocklist is rejected, test a narrower generated variant such as `blocked_segments_candidate_top_1.json` before changing model or risk thresholds.
    - Use simulator regression diagnostics to identify whether protected metric regressions come from observed errors, missing future orderbook evidence, no dry-run reports, or synthetic-only fills.
    - Use `research_promotion_decision` to convert a comparable comparison into `PROMOTE`, `REJECT`, or `NEED_MORE_DATA`; do not promote from aggregate metrics alone.
+   - Rotate execution-probe observations across an offline-selected multi-market universe before tuning another global quote threshold. Repeating the same two assets after `execution_probe_v4/v5` produced no fills is underdetermined.
+   - Use `execution_probe_universe_selection_v1` to select 5-10 candidate assets from `candidate_market_ranking`; the artifact is research-only, hashed, and consumed by `scripts/run_execution_probe_v5_observation.sh`.
+   - Calibrate near-touch fractions across multiple DuckDB runs with minimum market coverage before accepting a fraction; a single-window boundary candidate is not enough evidence.
+   - Run the next `execution_probe_v5` observation for 60-90 minutes with both a universe-selection artifact and an `execution_probe_v5_fraction_selection.json`, then compare it against v3/v4/v5 roots.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Operator command intents are persisted in Postgres `control_commands` before Redis Stream publication when Postgres is configured, and production/control-required mode fails closed if that audit store is unavailable.

@@ -73,11 +73,62 @@ def test_near_touch_calibration_selects_boundary_when_no_clean_candidate(
     )
 
 
+def test_near_touch_calibration_aggregates_multiple_duckdb_inputs(
+    tmp_path: Path,
+) -> None:
+    first_db = seed_db(tmp_path / "first", asset_id="asset-1")
+    second_db = seed_db(tmp_path / "second", asset_id="asset-2")
+
+    report = create_near_touch_calibration_report(
+        (first_db, second_db),
+        tmp_path / "calibration",
+        NearTouchCalibrationConfig(
+            fractions=(0.70,),
+            min_signals=6,
+            min_market_coverage=2,
+            min_adjusted_synthetic_fill_rate=0.05,
+            max_adjusted_synthetic_fill_rate=0.25,
+            max_raw_synthetic_fill_rate=1.0,
+        ),
+    )
+
+    counts = cast(dict[str, Any], report["counts"])
+    assert counts["sources"] == 2
+    selected = cast(dict[str, Any], report["selected_fraction"])
+    assert selected["fraction"] == 0.70
+    assert selected["covered_markets"] == 2
+    assert selected["status"] == "candidate"
+
+
+def test_near_touch_calibration_requires_market_coverage(tmp_path: Path) -> None:
+    db_path = seed_db(tmp_path)
+
+    report = create_near_touch_calibration_report(
+        db_path,
+        tmp_path / "calibration",
+        NearTouchCalibrationConfig(
+            fractions=(0.70,),
+            min_signals=3,
+            min_market_coverage=2,
+            min_adjusted_synthetic_fill_rate=0.05,
+            max_adjusted_synthetic_fill_rate=0.25,
+            max_raw_synthetic_fill_rate=1.0,
+        ),
+    )
+
+    ranking = cast(list[dict[str, Any]], report["ranking"])
+    assert find_fraction(ranking, 0.70)["blockers"] == [
+        "insufficient_market_coverage"
+    ]
+    assert report["selected_fraction"] is None
+
+
 def find_fraction(rows: list[dict[str, Any]], fraction: float) -> dict[str, Any]:
     return next(row for row in rows if row["fraction"] == fraction)
 
 
-def seed_db(tmp_path: Path) -> Path:
+def seed_db(tmp_path: Path, asset_id: str = "asset-1") -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:
         conn.execute(
@@ -100,8 +151,8 @@ def seed_db(tmp_path: Path) -> Path:
             rows.extend(
                 [
                     (
-                        "market-1",
-                        "asset-1",
+                        f"market-{asset_id}",
+                        asset_id,
                         base_ts,
                         0.45,
                         0.50,
@@ -110,8 +161,8 @@ def seed_db(tmp_path: Path) -> Path:
                         5.0,
                     ),
                     (
-                        "market-1",
-                        "asset-1",
+                        f"market-{asset_id}",
+                        asset_id,
                         base_ts + 1_000,
                         0.45,
                         0.485,

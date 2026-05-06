@@ -198,6 +198,27 @@ PY
 cd "$ROOT_DIR"
 docker compose -f docker-compose.test.yml up -d --wait
 
+if [[ -z "${MARKET_ASSET_IDS:-}" && -n "${EXECUTION_PROBE_UNIVERSE_SELECTION_PATH:-}" ]]; then
+  MARKET_ASSET_IDS="$(
+    python3 - "$EXECUTION_PROBE_UNIVERSE_SELECTION_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if payload.get("can_execute_trades") is not False:
+    raise SystemExit("universe selection must be research-only")
+if payload.get("status") != "ready":
+    raise SystemExit(f"universe selection is not ready: {payload.get('status')}")
+ids = [str(item).strip() for item in payload.get("market_asset_ids", []) if str(item).strip()]
+if len(ids) < 2:
+    raise SystemExit("universe selection must contain at least two asset ids")
+print(",".join(ids))
+PY
+  )"
+  export MARKET_ASSET_IDS
+fi
+
 if [[ -z "${MARKET_ASSET_IDS:-}" ]]; then
   MARKET_ASSET_IDS="$(
     PYTHONPATH=python-service python3 - <<'PY'
@@ -447,6 +468,9 @@ async def main() -> None:
         ),
         "predictor_execution_probe_v5_fraction_selection_path": os.environ.get(
             "PREDICTOR_EXECUTION_PROBE_V5_FRACTION_SELECTION_PATH"
+        ),
+        "execution_probe_universe_selection_path": os.environ.get(
+            "EXECUTION_PROBE_UNIVERSE_SELECTION_PATH"
         ),
     }
     report_root = Path(os.environ["RESEARCH_REPORT_ROOT"])

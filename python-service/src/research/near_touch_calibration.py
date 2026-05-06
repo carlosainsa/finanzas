@@ -3,6 +3,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Iterable
 
 import duckdb
@@ -32,6 +33,7 @@ class NearTouchCalibrationConfig:
     max_raw_synthetic_fill_rate: float = 0.50
     synthetic_only_weight: float = 0.25
     max_snapshots: int = 0
+    min_market_coverage: int = 1
 
     def __post_init__(self) -> None:
         if not self.fractions:
@@ -44,14 +46,31 @@ class NearTouchCalibrationConfig:
             raise ValueError("min_signals must be non-negative")
         if self.synthetic_only_weight < 0 or self.synthetic_only_weight > 1:
             raise ValueError("synthetic_only_weight must be between 0 and 1")
+        if self.min_market_coverage <= 0:
+            raise ValueError("min_market_coverage must be positive")
+
+
+@dataclass(frozen=True)
+class CalibrationSnapshotSet:
+    source_index: int
+    source_db: Path
+    snapshots: list[dict[str, object]]
 
 
 def create_near_touch_calibration_report(
-    db_path: Path,
+    db_path: Path | Sequence[Path],
     output_dir: Path,
     config: NearTouchCalibrationConfig = NearTouchCalibrationConfig(),
 ) -> dict[str, object]:
-    snapshots = load_orderbook_snapshots(db_path, limit=config.max_snapshots)
+    db_paths = normalize_db_paths(db_path)
+    snapshot_sets = [
+        CalibrationSnapshotSet(
+            source_index=index,
+            source_db=path,
+            snapshots=load_orderbook_snapshots(path, limit=config.max_snapshots),
+        )
+        for index, path in enumerate(db_paths)
+    ]
     rows: list[dict[str, object]] = []
     original_profile = settings.predictor_strategy_profile
     original_quote_placement = settings.predictor_quote_placement
@@ -62,50 +81,54 @@ def create_near_touch_calibration_report(
         for fraction in config.fractions:
             settings.predictor_execution_probe_v4_near_touch_max_spread_fraction = fraction
             predictor = Predictor()
-            for index, snapshot in enumerate(snapshots):
-                orderbook = orderbook_from_snapshot(snapshot)
-                decision = predictor.evaluate(orderbook)
-                if not decision.accepted or decision.signal is None:
-                    continue
-                future = first_future_touch(
-                    snapshots,
-                    current_index=index,
-                    market_id=orderbook.market_id,
-                    asset_id=orderbook.asset_id,
-                    side=decision.signal.side,
-                    price=decision.signal.price,
-                    signal_timestamp_ms=orderbook.timestamp_ms,
-                    max_future_window_ms=config.max_future_window_ms,
-                )
-                future_touches = int_value(future["future_touches"])
-                rows.append(
-                    {
-                        "fraction": fraction,
-                        "profile": config.profile,
-                        "market_id": orderbook.market_id,
-                        "asset_id": orderbook.asset_id,
-                        "signal_timestamp_ms": orderbook.timestamp_ms,
-                        "best_bid": snapshot.get("best_bid"),
-                        "best_ask": snapshot.get("best_ask"),
-                        "spread": decision.spread,
-                        "confidence": decision.confidence,
-                        "top_change_count": decision.top_change_count,
-                        "signal_price": decision.signal.price,
-                        "future_touches": future_touches,
-                        "first_future_touch_timestamp_ms": future[
-                            "first_future_touch_timestamp_ms"
-                        ],
-                        "ms_to_first_future_touch": future[
-                            "ms_to_first_future_touch"
-                        ],
-                        "synthetic_fill": future_touches > 0,
-                        "synthetic_evidence_weight": (
-                            config.synthetic_only_weight
-                            if future_touches > 0
-                            else 0.0
-                        ),
-                    }
-                )
+            for snapshot_set in snapshot_sets:
+                snapshots = snapshot_set.snapshots
+                for index, snapshot in enumerate(snapshots):
+                    orderbook = orderbook_from_snapshot(snapshot)
+                    decision = predictor.evaluate(orderbook)
+                    if not decision.accepted or decision.signal is None:
+                        continue
+                    future = first_future_touch(
+                        snapshots,
+                        current_index=index,
+                        market_id=orderbook.market_id,
+                        asset_id=orderbook.asset_id,
+                        side=decision.signal.side,
+                        price=decision.signal.price,
+                        signal_timestamp_ms=orderbook.timestamp_ms,
+                        max_future_window_ms=config.max_future_window_ms,
+                    )
+                    future_touches = int_value(future["future_touches"])
+                    rows.append(
+                        {
+                            "fraction": fraction,
+                            "profile": config.profile,
+                            "source_index": snapshot_set.source_index,
+                            "source_db": str(snapshot_set.source_db),
+                            "market_id": orderbook.market_id,
+                            "asset_id": orderbook.asset_id,
+                            "signal_timestamp_ms": orderbook.timestamp_ms,
+                            "best_bid": snapshot.get("best_bid"),
+                            "best_ask": snapshot.get("best_ask"),
+                            "spread": decision.spread,
+                            "confidence": decision.confidence,
+                            "top_change_count": decision.top_change_count,
+                            "signal_price": decision.signal.price,
+                            "future_touches": future_touches,
+                            "first_future_touch_timestamp_ms": future[
+                                "first_future_touch_timestamp_ms"
+                            ],
+                            "ms_to_first_future_touch": future[
+                                "ms_to_first_future_touch"
+                            ],
+                            "synthetic_fill": future_touches > 0,
+                            "synthetic_evidence_weight": (
+                                config.synthetic_only_weight
+                                if future_touches > 0
+                                else 0.0
+                            ),
+                        }
+                    )
     finally:
         settings.predictor_strategy_profile = original_profile
         settings.predictor_quote_placement = original_quote_placement
@@ -123,10 +146,12 @@ def create_near_touch_calibration_report(
         "can_execute_trades": False,
         "decision_policy": "offline_near_touch_fraction_calibration_only",
         "config": asdict(config),
+        "sources": [str(path) for path in db_paths],
         "counts": {
-            "snapshots": len(snapshots),
+            "snapshots": sum(len(snapshot_set.snapshots) for snapshot_set in snapshot_sets),
             "candidate_signals": len(rows),
             "fractions": len(config.fractions),
+            "sources": len(db_paths),
         },
         "selected_fraction": selected,
         "ranking": ranking,
@@ -144,6 +169,15 @@ def create_near_touch_calibration_report(
     if selected is not None:
         write_v5_selection(output_dir, selected)
     return report
+
+
+def normalize_db_paths(db_path: Path | Sequence[Path]) -> tuple[Path, ...]:
+    if isinstance(db_path, Path):
+        return (db_path,)
+    paths = tuple(Path(path) for path in db_path)
+    if not paths:
+        raise ValueError("at least one DuckDB path is required")
+    return paths
 
 
 def first_future_touch(
@@ -208,6 +242,9 @@ def rank_fraction_rows(
         fraction_rows = by_fraction.get(fraction, [])
         signals = len(fraction_rows)
         synthetic_fills = sum(1 for row in fraction_rows if bool(row["synthetic_fill"]))
+        covered_assets = {
+            f"{row.get('market_id')}:{row.get('asset_id')}" for row in fraction_rows
+        }
         adjusted_synthetic_fill_rate = (
             sum(float_value(row["synthetic_evidence_weight"]) for row in fraction_rows)
             / signals
@@ -225,6 +262,7 @@ def rank_fraction_rows(
         )
         status, blockers = classify_fraction(
             signals=signals,
+            covered_markets=len(covered_assets),
             synthetic_fill_rate=synthetic_fill_rate,
             adjusted_synthetic_fill_rate=adjusted_synthetic_fill_rate,
             config=config,
@@ -233,6 +271,7 @@ def rank_fraction_rows(
             {
                 "fraction": fraction,
                 "signals": signals,
+                "covered_markets": len(covered_assets),
                 "synthetic_filled_signals": synthetic_fills,
                 "synthetic_fill_rate": synthetic_fill_rate,
                 "adjusted_synthetic_fill_rate": adjusted_synthetic_fill_rate,
@@ -249,6 +288,7 @@ def rank_fraction_rows(
 def classify_fraction(
     *,
     signals: int,
+    covered_markets: int,
     synthetic_fill_rate: float,
     adjusted_synthetic_fill_rate: float,
     config: NearTouchCalibrationConfig,
@@ -256,6 +296,8 @@ def classify_fraction(
     blockers: list[str] = []
     if signals < config.min_signals:
         blockers.append("insufficient_activity")
+    if covered_markets < config.min_market_coverage:
+        blockers.append("insufficient_market_coverage")
     if adjusted_synthetic_fill_rate < config.min_adjusted_synthetic_fill_rate:
         blockers.append("too_passive")
     if adjusted_synthetic_fill_rate > config.max_adjusted_synthetic_fill_rate:
@@ -279,6 +321,7 @@ def select_fraction(
         row
         for row in ranking
         if int_value(row["signals"]) >= config.min_signals
+        and int_value(row["covered_markets"]) >= config.min_market_coverage
         and int_value(row["synthetic_filled_signals"]) > 0
     ]
     if boundary:
@@ -290,6 +333,7 @@ def select_fraction(
         row
         for row in ranking
         if int_value(row["signals"]) >= config.min_signals
+        and int_value(row["covered_markets"]) >= config.min_market_coverage
         and float_value(row["adjusted_synthetic_fill_rate"])
         <= config.max_adjusted_synthetic_fill_rate
         and float_value(row["synthetic_fill_rate"]) <= config.max_raw_synthetic_fill_rate
@@ -370,6 +414,12 @@ def parse_fractions(value: str) -> tuple[float, ...]:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="near-touch-calibration")
     parser.add_argument("--duckdb", required=True)
+    parser.add_argument(
+        "--additional-duckdb",
+        action="append",
+        default=[],
+        help="Additional DuckDB file to aggregate into the same offline calibration.",
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--fractions", default=",".join(str(item) for item in DEFAULT_GRID))
     parser.add_argument("--profile", default=NearTouchCalibrationConfig.profile)
@@ -400,10 +450,15 @@ def main() -> int:
         default=NearTouchCalibrationConfig.synthetic_only_weight,
     )
     parser.add_argument("--max-snapshots", type=int, default=0)
+    parser.add_argument(
+        "--min-market-coverage",
+        type=int,
+        default=NearTouchCalibrationConfig.min_market_coverage,
+    )
     args = parser.parse_args()
 
     report = create_near_touch_calibration_report(
-        Path(args.duckdb),
+        tuple(Path(path) for path in [args.duckdb, *args.additional_duckdb]),
         Path(args.output_dir),
         NearTouchCalibrationConfig(
             fractions=parse_fractions(args.fractions),
@@ -415,6 +470,7 @@ def main() -> int:
             max_raw_synthetic_fill_rate=args.max_raw_synthetic_fill_rate,
             synthetic_only_weight=args.synthetic_only_weight,
             max_snapshots=args.max_snapshots,
+            min_market_coverage=args.min_market_coverage,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

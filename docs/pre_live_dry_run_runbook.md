@@ -227,6 +227,43 @@ When rejected for simulator-quality regression, inspect
 it lists the worst market/asset/side segments and attaches dominant unfilled
 reasons from the candidate run.
 
+## Multi-Market Execution Probe Observation
+
+When repeated restricted observations on the same assets produce no observed
+fills, rotate the market universe before tuning global thresholds again.
+
+Create a research-only universe from a previous DuckDB:
+
+```bash
+PYTHONPATH=python-service python3 -m src.research.execution_probe_universe_selection \
+  --duckdb "$DATA_LAKE_DUCKDB" \
+  --output-dir "$RESEARCH_REPORT_ROOT/execution_probe_universe_selection" \
+  --limit 10 \
+  --min-assets 5
+```
+
+Calibrate `near_touch` across more than one run when possible:
+
+```bash
+PYTHONPATH=python-service python3 -m src.research.near_touch_calibration \
+  --duckdb "<run-a>/research.duckdb" \
+  --additional-duckdb "<run-b>/research.duckdb" \
+  --output-dir "$RESEARCH_REPORT_ROOT/near_touch_calibration_multi_run" \
+  --min-market-coverage 5
+```
+
+Then run the controlled observation:
+
+```bash
+scripts/run_execution_probe_v5_observation.sh \
+  --universe-selection "$RESEARCH_REPORT_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json" \
+  --fraction-selection "$RESEARCH_REPORT_ROOT/near_touch_calibration_multi_run/execution_probe_v5_fraction_selection.json" \
+  --duration-seconds 3600
+```
+
+The wrapper forces `EXECUTION_MODE=dry_run`, `PREDICTOR_STRATEGY_PROFILE=execution_probe_v5`,
+and `can_execute_trades=false` inputs. Use `--print-plan` before long runs.
+
 ## Exit Codes
 
 - `0`: research infra and gates passed.
