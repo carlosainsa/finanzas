@@ -220,6 +220,15 @@ PYTHONPATH=python-service python3 -m src.research.calibration \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/calibration" \
   --train-fraction "$TRAIN_FRACTION" > "$REPORT_ROOT/calibration.json"
+PYTHONPATH=python-service python3 -m src.research.near_touch_calibration \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/near_touch_calibration" \
+  --fractions "${NEAR_TOUCH_CALIBRATION_FRACTIONS:-0.60,0.65,0.70,0.75,0.80,0.85}" \
+  --min-signals "${NEAR_TOUCH_CALIBRATION_MIN_SIGNALS:-50}" \
+  --min-adjusted-synthetic-fill-rate "${NEAR_TOUCH_CALIBRATION_MIN_ADJUSTED_SYNTHETIC_FILL_RATE:-0.02}" \
+  --max-adjusted-synthetic-fill-rate "${NEAR_TOUCH_CALIBRATION_MAX_ADJUSTED_SYNTHETIC_FILL_RATE:-0.15}" \
+  --max-raw-synthetic-fill-rate "${NEAR_TOUCH_CALIBRATION_MAX_RAW_SYNTHETIC_FILL_RATE:-0.50}" \
+  > "$REPORT_ROOT/near_touch_calibration.json"
 PYTHONPATH=python-service python3 -m src.research.pre_live_promotion \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/pre_live_promotion" \
@@ -335,6 +344,7 @@ execution_quality = read_json("execution_quality.json")
 quote_execution_diagnostics = read_json("quote_execution_diagnostics.json")
 candidate_market_ranking = read_json("candidate_market_ranking.json")
 calibration = read_json("calibration.json")
+near_touch_calibration = read_json("near_touch_calibration.json")
 promotion = read_json("pre_live_promotion.json")
 go_no_go = read_json("go_no_go.json")
 advisory = read_json("agent_advisory.json")
@@ -362,6 +372,7 @@ summary = {
     "sentiment_lift": read_json("sentiment_lift.json"),
     "signal_rejection_diagnostics": signal_rejection_diagnostics,
     "feature_blocklist_candidates": read_json("feature_blocklist_candidates.json"),
+    "near_touch_calibration": near_touch_calibration,
     "pre_live_gate_passed": pre_live.get("passed") if isinstance(pre_live, dict) else False,
     "calibration_passed": calibration.get("passed", False),
     "pre_live_promotion_passed": promotion.get("passed", False),

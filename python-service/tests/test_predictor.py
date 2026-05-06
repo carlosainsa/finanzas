@@ -1,4 +1,5 @@
 import pytest
+import json
 from pathlib import Path
 
 from src.config import settings
@@ -546,6 +547,120 @@ def test_execution_probe_v4_blocklist_uses_v4_model_version(
                 asset_id="123",
                 side="BUY",
                 model_version="passive_spread_capture_execution_probe_near_touch_v4",
+                reason="observed_synthetic_gap",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
+
+
+def test_execution_probe_v5_near_touch_uses_offline_versioned_fraction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "version": "execution_probe_fraction_selection_v1",
+                "profile": "execution_probe_v5",
+                "near_touch_max_spread_fraction": 0.70,
+                "decision_policy": "offline_fraction_selection_only",
+                "can_execute_trades": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v5")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v5_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v5_min_depth", 1.0)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v5_fraction_selection_path",
+        str(selection_path),
+    )
+
+    signal = Predictor().predict(make_book(0.45, 0.50))
+
+    assert signal is not None
+    assert signal.price == 0.485
+    assert signal.strategy == "passive_spread_capture_execution_probe_near_touch_v5"
+    assert (
+        signal.model_version == "passive_spread_capture_execution_probe_near_touch_v5"
+    )
+    assert signal.feature_version == (
+        "orderbook_top_of_book_execution_probe_near_touch_v5"
+    )
+
+
+def test_execution_probe_v5_rejects_invalid_fraction_selection_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "version": "unknown",
+                "profile": "execution_probe_v5",
+                "near_touch_max_spread_fraction": 0.70,
+                "decision_policy": "offline_fraction_selection_only",
+                "can_execute_trades": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v5")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v5_fraction_selection_path",
+        str(selection_path),
+    )
+
+    with pytest.raises(ValueError, match="unsupported execution probe v5"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_v5_rejects_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v5")
+    monkeypatch.setattr(settings, "execution_mode", "live")
+    monkeypatch.setattr(settings, "app_env", "development")
+
+    with pytest.raises(RuntimeError, match="only allowed for dry_run research"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_v5_blocklist_uses_v5_model_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v5")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v5_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v5_min_depth", 1.0)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v5_fraction_selection_path",
+        None,
+    )
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                model_version="passive_spread_capture_execution_probe_near_touch_v5",
                 reason="observed_synthetic_gap",
             )
         ]

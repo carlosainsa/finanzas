@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     predictor_execution_probe_v4_max_top_changes: int = 6
     predictor_execution_probe_v4_top_change_window_ms: int = 60_000
     predictor_execution_probe_v4_min_signal_interval_ms: int = 5_000
+    predictor_execution_probe_v5_min_confidence: float = 0.55
+    predictor_execution_probe_v5_near_touch_max_spread_fraction: float = 0.70
+    predictor_execution_probe_v5_min_depth: float = 1.0
+    predictor_execution_probe_v5_max_top_changes: int = 6
+    predictor_execution_probe_v5_top_change_window_ms: int = 60_000
+    predictor_execution_probe_v5_min_signal_interval_ms: int = 5_000
+    predictor_execution_probe_v5_fraction_selection_path: str | None = None
     predictor_blocked_segments_path: str | None = None
 
 settings = Settings()

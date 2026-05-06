@@ -430,6 +430,24 @@ async def main() -> None:
         "predictor_execution_probe_v4_min_signal_interval_ms": os.environ.get(
             "PREDICTOR_EXECUTION_PROBE_V4_MIN_SIGNAL_INTERVAL_MS"
         ),
+        "predictor_execution_probe_v5_min_confidence": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V5_MIN_CONFIDENCE"
+        ),
+        "predictor_execution_probe_v5_min_depth": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V5_MIN_DEPTH"
+        ),
+        "predictor_execution_probe_v5_max_top_changes": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V5_MAX_TOP_CHANGES"
+        ),
+        "predictor_execution_probe_v5_near_touch_max_spread_fraction": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V5_NEAR_TOUCH_MAX_SPREAD_FRACTION"
+        ),
+        "predictor_execution_probe_v5_min_signal_interval_ms": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V5_MIN_SIGNAL_INTERVAL_MS"
+        ),
+        "predictor_execution_probe_v5_fraction_selection_path": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V5_FRACTION_SELECTION_PATH"
+        ),
     }
     report_root = Path(os.environ["RESEARCH_REPORT_ROOT"])
     report_root.mkdir(parents=True, exist_ok=True)
