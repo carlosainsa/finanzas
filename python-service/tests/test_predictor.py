@@ -290,6 +290,94 @@ def test_execution_probe_blocklist_uses_probe_model_version(
     assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
 
 
+def test_execution_probe_v2_near_touch_is_less_aggressive_and_versioned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v2")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v2_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v2_min_depth", 2.0)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v2_near_touch_max_spread_fraction",
+        0.75,
+    )
+
+    signal = Predictor().predict(make_book(0.45, 0.50))
+
+    assert signal is not None
+    assert signal.price == 0.4875
+    assert signal.strategy == "passive_spread_capture_execution_probe_near_touch_v2"
+    assert (
+        signal.model_version == "passive_spread_capture_execution_probe_near_touch_v2"
+    )
+    assert signal.feature_version == (
+        "orderbook_top_of_book_execution_probe_near_touch_v2"
+    )
+
+
+def test_execution_probe_v2_rate_limits_repeated_asset_signals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v2")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v2_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v2_min_depth", 2.0)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v2_min_signal_interval_ms",
+        10_000,
+    )
+    predictor = Predictor()
+
+    assert predictor.evaluate(make_book(0.45, 0.50, timestamp_ms=1_000)).accepted
+    decision = predictor.evaluate(make_book(0.45, 0.50, timestamp_ms=5_000))
+    assert decision.signal is None
+    assert decision.rejection_reason == "rate_limited"
+    assert predictor.evaluate(make_book(0.45, 0.50, timestamp_ms=12_000)).accepted
+
+
+def test_execution_probe_v2_rejects_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v2")
+    monkeypatch.setattr(settings, "execution_mode", "live")
+    monkeypatch.setattr(settings, "app_env", "development")
+
+    with pytest.raises(RuntimeError, match="only allowed for dry_run research"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_v2_blocklist_uses_v2_model_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v2")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v2_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v2_min_depth", 2.0)
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                model_version="passive_spread_capture_execution_probe_near_touch_v2",
+                reason="observed_synthetic_gap",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
+
+
 def test_conservative_predictor_rejects_high_top_of_book_rotation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

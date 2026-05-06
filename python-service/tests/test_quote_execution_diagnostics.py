@@ -26,6 +26,10 @@ def test_quote_execution_diagnostics_explains_synthetic_only_gap(
     assert summary["dry_run_filled_signals"] == 0
     assert summary["observed_fill_rate"] == 0.0
     assert "synthetic fills are offline backtest evidence" in summary["explanation"]
+    gap = cast(list[dict[str, Any]], report["synthetic_vs_observed_gap"])
+    assert gap[0]["synthetic_optimism_flag"] is True
+    assert gap[0]["dominant_gap_type"] == "synthetic_only_dominates"
+    assert gap[0]["fill_rate_gap"] == 1.0
 
 
 def test_quote_execution_diagnostics_explains_dry_run_unmatched_with_synthetic(
@@ -70,6 +74,7 @@ def test_quote_execution_diagnostics_handles_empty_database(tmp_path: Path) -> N
         "quote_execution_outcomes": 0,
         "quote_execution_summary": 1,
         "quote_execution_by_market_asset": 0,
+        "quote_execution_synthetic_gap": 0,
         "quote_execution_examples": 0,
     }
 

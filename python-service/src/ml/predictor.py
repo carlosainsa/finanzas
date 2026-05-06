@@ -30,6 +30,14 @@ EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION = (
 EXECUTION_PROBE_NEAR_TOUCH_FEATURE_VERSION = (
     "orderbook_top_of_book_execution_probe_near_touch_v1"
 )
+EXECUTION_PROBE_V2_MODEL_VERSION = "passive_spread_capture_execution_probe_v2"
+EXECUTION_PROBE_V2_FEATURE_VERSION = "orderbook_top_of_book_execution_probe_v2"
+EXECUTION_PROBE_V2_NEAR_TOUCH_MODEL_VERSION = (
+    "passive_spread_capture_execution_probe_near_touch_v2"
+)
+EXECUTION_PROBE_V2_NEAR_TOUCH_FEATURE_VERSION = (
+    "orderbook_top_of_book_execution_probe_near_touch_v2"
+)
 
 TOP_CHANGE_EPSILON = 1e-9
 RejectionReason = Literal[
@@ -38,6 +46,7 @@ RejectionReason = Literal[
     "low_spread",
     "low_depth",
     "top_rotation",
+    "rate_limited",
     "low_confidence",
     "blocked_segment",
 ]
@@ -75,6 +84,7 @@ class Predictor:
         self._top_of_book_history: dict[
             tuple[str, str], list[tuple[int, float, float]]
         ] = {}
+        self._last_signal_timestamp_by_key: dict[tuple[str, str], int] = {}
 
     def predict(self, orderbook: OrderBook) -> TradeSignal | None:
         return self.evaluate(orderbook).signal
@@ -114,6 +124,22 @@ class Predictor:
                 return PredictionDecision(
                     signal=None,
                     rejection_reason="top_rotation",
+                    strategy_profile=profile.name,
+                    spread=spread,
+                    top_change_count=top_change_count,
+                )
+            last_signal_timestamp_ms = self._last_signal_timestamp_by_key.get(
+                (orderbook.market_id, orderbook.asset_id)
+            )
+            if (
+                last_signal_timestamp_ms is not None
+                and profile.min_signal_interval_ms > 0
+                and orderbook.timestamp_ms - last_signal_timestamp_ms
+                < profile.min_signal_interval_ms
+            ):
+                return PredictionDecision(
+                    signal=None,
+                    rejection_reason="rate_limited",
                     strategy_profile=profile.name,
                     spread=spread,
                     top_change_count=top_change_count,
@@ -170,6 +196,10 @@ class Predictor:
             data_version=DATA_VERSION,
             feature_version=feature_version,
         )
+        if profile.min_signal_interval_ms > 0:
+            self._last_signal_timestamp_by_key[
+                (orderbook.market_id, orderbook.asset_id)
+            ] = orderbook.timestamp_ms
         return PredictionDecision(
             signal=signal,
             rejection_reason="accepted",
@@ -219,7 +249,17 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
         if profile.name == "balanced_v1":
             return best_bid, BALANCED_MODEL_VERSION, BALANCED_FEATURE_VERSION
         if profile.name == "execution_probe_v1":
-            return best_bid, EXECUTION_PROBE_MODEL_VERSION, EXECUTION_PROBE_FEATURE_VERSION
+            return (
+                best_bid,
+                EXECUTION_PROBE_MODEL_VERSION,
+                EXECUTION_PROBE_FEATURE_VERSION,
+            )
+        if profile.name == "execution_probe_v2":
+            return (
+                best_bid,
+                EXECUTION_PROBE_V2_MODEL_VERSION,
+                EXECUTION_PROBE_V2_FEATURE_VERSION,
+            )
         return best_bid, MODEL_VERSION, FEATURE_VERSION
     if placement != "near_touch":
         raise ValueError(f"unsupported predictor quote placement: {placement}")
@@ -253,6 +293,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
             EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION,
             EXECUTION_PROBE_NEAR_TOUCH_FEATURE_VERSION,
         )
+    if profile.name == "execution_probe_v2":
+        return (
+            round(price, 6),
+            EXECUTION_PROBE_V2_NEAR_TOUCH_MODEL_VERSION,
+            EXECUTION_PROBE_V2_NEAR_TOUCH_FEATURE_VERSION,
+        )
     return round(price, 6), NEAR_TOUCH_MODEL_VERSION, NEAR_TOUCH_FEATURE_VERSION
 
 
@@ -271,6 +317,7 @@ class StrategyProfile:
         max_top_changes: int,
         top_change_window_ms: int,
         risk_filters_enabled: bool,
+        min_signal_interval_ms: int = 0,
     ) -> None:
         self.name = name
         self.min_confidence = min_confidence
@@ -279,6 +326,7 @@ class StrategyProfile:
         self.max_top_changes = max_top_changes
         self.top_change_window_ms = top_change_window_ms
         self.risk_filters_enabled = risk_filters_enabled
+        self.min_signal_interval_ms = min_signal_interval_ms
 
 
 def strategy_profile() -> StrategyProfile:
@@ -323,6 +371,28 @@ def strategy_profile() -> StrategyProfile:
             max_top_changes=settings.predictor_execution_probe_max_top_changes,
             top_change_window_ms=settings.predictor_execution_probe_top_change_window_ms,
             risk_filters_enabled=True,
+            min_signal_interval_ms=(
+                settings.predictor_execution_probe_min_signal_interval_ms
+            ),
+        )
+    if profile == "execution_probe_v2":
+        validate_execution_probe_allowed()
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_execution_probe_v2_min_confidence,
+            ),
+            near_touch_max_spread_fraction=(
+                settings.predictor_execution_probe_v2_near_touch_max_spread_fraction
+            ),
+            min_depth=settings.predictor_execution_probe_v2_min_depth,
+            max_top_changes=settings.predictor_execution_probe_v2_max_top_changes,
+            top_change_window_ms=settings.predictor_execution_probe_v2_top_change_window_ms,
+            risk_filters_enabled=True,
+            min_signal_interval_ms=(
+                settings.predictor_execution_probe_v2_min_signal_interval_ms
+            ),
         )
     if profile == "conservative_v1":
         return StrategyProfile(
@@ -352,6 +422,7 @@ def near_touch_model(model_version: str) -> bool:
         CONSERVATIVE_NEAR_TOUCH_MODEL_VERSION,
         BALANCED_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_NEAR_TOUCH_MODEL_VERSION,
+        EXECUTION_PROBE_V2_NEAR_TOUCH_MODEL_VERSION,
     }
 
 
@@ -360,7 +431,7 @@ def validate_execution_probe_allowed() -> None:
     app_env = settings.app_env.lower()
     if execution_mode != "dry_run" or app_env == "production":
         raise RuntimeError(
-            "execution_probe_v1 predictor profile is only allowed for dry_run research"
+            "execution probe predictor profiles are only allowed for dry_run research"
         )
 
 
@@ -389,7 +460,19 @@ def validate_near_touch_allowed() -> None:
         raise ValueError(
             "predictor balanced near-touch max spread fraction must be between 0 and 1"
         )
-    if not 0 <= settings.predictor_execution_probe_near_touch_max_spread_fraction <= 1:
+    if (
+        not 0
+        <= settings.predictor_execution_probe_near_touch_max_spread_fraction
+        <= 1
+    ):
         raise ValueError(
             "predictor execution probe near-touch max spread fraction must be between 0 and 1"
+        )
+    if (
+        not 0
+        <= settings.predictor_execution_probe_v2_near_touch_max_spread_fraction
+        <= 1
+    ):
+        raise ValueError(
+            "predictor execution probe v2 near-touch max spread fraction must be between 0 and 1"
         )

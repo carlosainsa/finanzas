@@ -51,6 +51,7 @@ def create_quote_execution_diagnostics_report(
                 "quote_execution_outcomes",
                 "quote_execution_summary",
                 "quote_execution_by_market_asset",
+                "quote_execution_synthetic_gap",
                 "quote_execution_examples",
             ),
         )
@@ -58,6 +59,17 @@ def create_quote_execution_diagnostics_report(
             conn.execute("select * from quote_execution_summary").fetch_df().to_dict(
                 orient="records"
             )
+        )
+        synthetic_gap = normalize_records(
+            conn.execute(
+                """
+                select *
+                from quote_execution_synthetic_gap
+                order by synthetic_only_signals desc, signals desc
+                """
+            )
+            .fetch_df()
+            .to_dict(orient="records")
         )
     report: dict[str, object] = {
         "report_version": REPORT_VERSION,
@@ -67,12 +79,14 @@ def create_quote_execution_diagnostics_report(
         "config": asdict(config),
         "counts": counts,
         "summary": summary[0] if summary else {},
+        "synthetic_vs_observed_gap": synthetic_gap,
         "outputs": [
             "quote_execution_signal_books.parquet",
             "quote_execution_lifecycle.parquet",
             "quote_execution_outcomes.parquet",
             "quote_execution_summary.parquet",
             "quote_execution_by_market_asset.parquet",
+            "quote_execution_synthetic_gap.parquet",
             "quote_execution_examples.parquet",
             "quote_execution_diagnostics.json",
         ],
@@ -336,6 +350,46 @@ def create_quote_execution_diagnostics_views(
                 avg(synthetic_touch_latency_ms) as avg_synthetic_touch_latency_ms
             from quote_execution_outcomes
             group by market_id, asset_id, side, strategy, model_version
+            """
+        )
+        conn.execute(
+            """
+            create or replace view quote_execution_synthetic_gap as
+            select
+                strategy,
+                coalesce(model_version, 'unknown') as model_version,
+                coalesce(feature_version, 'unknown') as feature_version,
+                quote_relation,
+                root_cause,
+                count(*) as signals,
+                sum(case when observed_filled_size > 0 then 1 else 0 end) as observed_filled_signals,
+                sum(case when synthetic_filled_size > 0 then 1 else 0 end) as synthetic_filled_signals,
+                sum(case when execution_path = 'synthetic_only' then 1 else 0 end) as synthetic_only_signals,
+                sum(case when execution_path = 'dry_run_unfilled' then 1 else 0 end) as dry_run_unfilled_signals,
+                sum(case when execution_path = 'neither' then 1 else 0 end) as neither_signals,
+                avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as observed_fill_rate,
+                avg(case when synthetic_filled_size > 0 then 1.0 else 0.0 end) as synthetic_fill_rate,
+                avg(case when synthetic_filled_size > 0 then 1.0 else 0.0 end)
+                    - avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) as fill_rate_gap,
+                avg(future_touches) as avg_future_touches,
+                avg(ms_to_first_future_touch) as avg_ms_to_first_future_touch,
+                case
+                    when avg(case when synthetic_filled_size > 0 then 1.0 else 0.0 end)
+                       - avg(case when observed_filled_size > 0 then 1.0 else 0.0 end) >= 0.25
+                    then true
+                    else false
+                end as synthetic_optimism_flag,
+                case
+                    when sum(case when execution_path = 'synthetic_only' then 1 else 0 end) > 0
+                    then 'synthetic_only_dominates'
+                    when sum(case when execution_path = 'dry_run_unfilled' then 1 else 0 end) > 0
+                    then 'dry_run_unfilled_dominates'
+                    when sum(case when execution_path = 'neither' then 1 else 0 end) > 0
+                    then 'neither_dominates'
+                    else 'observed_fill_dominates'
+                end as dominant_gap_type
+            from quote_execution_outcomes
+            group by strategy, model_version, feature_version, quote_relation, root_cause
             """
         )
         conn.execute(
