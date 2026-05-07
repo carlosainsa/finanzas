@@ -30,6 +30,7 @@ def test_profile_observation_comparison_compares_activity_fills_and_blockers(
         observed_fill_rate=0.0,
         synthetic_fill_rate=0.0,
         blockers=("has_fills",),
+        market_timing_filter="future_touch",
     )
 
     report = create_profile_observation_comparison([v1, v2])
@@ -58,6 +59,12 @@ def test_profile_observation_comparison_compares_activity_fills_and_blockers(
     assert find_metric(quote_policy, "avg_required_quote_move")[
         "delta"
     ] == pytest.approx(0.01)
+    timing_selection = cast(dict[str, Any], observations[1]["market_timing_selection"])
+    assert timing_selection["market_timing_filter"] == "future_touch"
+    assert timing_selection["min_future_touch_rate"] == 0.1
+    assert timing_selection["min_timing_signals"] == 5
+    assert timing_selection["min_avg_opportunity_spread"] == 0.01
+    assert timing_selection["market_asset_ids_count"] == 2
 
 
 def find_metric(rows: list[dict[str, Any]], metric: str) -> dict[str, Any]:
@@ -73,13 +80,35 @@ def seed_profile_report(
     observed_fill_rate: float,
     synthetic_fill_rate: float,
     blockers: tuple[str, ...],
+    market_timing_filter: str | None = None,
 ) -> Path:
     root.mkdir(parents=True)
+    universe_selection_path = ""
+    if market_timing_filter is not None:
+        universe_selection_path = str(root / "execution_probe_universe_selection.json")
+        write_json(
+            root / "execution_probe_universe_selection.json",
+            {
+                "status": "ready",
+                "profile": profile,
+                "config": {
+                    "market_timing_filter": market_timing_filter,
+                    "min_future_touch_rate": 0.1,
+                    "min_timing_signals": 5,
+                    "min_avg_opportunity_spread": 0.01,
+                    "max_avg_opportunity_spread": None,
+                },
+                "market_asset_ids_count": 2,
+                "market_asset_ids_sha256": "timing-hash",
+                "selection_reason": "ranked_multi_market_universe_meets_minimum_asset_coverage",
+            },
+        )
     write_json(
         root / "real_dry_run_evidence.json",
         {
             "predictor_strategy_profile": profile,
             "predictor_quote_placement": "near_touch",
+            "execution_probe_universe_selection_path": universe_selection_path,
             "capture_seconds": 3600,
             "market_asset_ids_count": 2,
             "market_asset_ids_sha256": "hash",

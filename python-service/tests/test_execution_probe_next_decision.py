@@ -99,6 +99,40 @@ def test_next_decision_changes_market_or_timing_when_future_books_never_touch() 
     assert "scripts/run_execution_probe_v7_cycle.sh" in templates
     assert "--market-timing-filter future_touch" in templates
     assert "near_touch_max_spread_fraction" not in templates
+    timing = cast(dict[str, Any], report["market_timing_filter_decision"])
+    assert timing["decision"] == "NOT_EVALUATED"
+
+
+def test_next_decision_marks_filtered_v7_market_timing_explicitly() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v7",
+            signals=400,
+            filled_signals=0,
+            observed_fill_rate=0.0,
+            synthetic_fill_rate=0.0,
+            no_fill_future_touch_rate=0.0,
+            market_timing_filter="future_touch",
+        )
+    )
+
+    timing = cast(dict[str, Any], report["market_timing_filter_decision"])
+    assert timing["decision"] == "RELAX_MARKET_TIMING_FILTER"
+    assert timing["can_execute_trades"] is False
+    assert timing["candidate_filter"] == "future_touch"
+    next_cycle = cast(dict[str, Any], timing["next_cycle"])
+    assert next_cycle["script"] == "scripts/run_execution_probe_v7_cycle.sh"
+    assert (
+        cast(dict[str, str], next_cycle["args"])["--market-timing-filter"]
+        == "future_touch"
+    )
+    assert (
+        cast(dict[str, str], next_cycle["args"])["--min-future-touch-rate"] == "0.05"
+    )
+    assert (
+        cast(dict[str, str], next_cycle["args"])["--min-avg-opportunity-spread"]
+        == "0.005"
+    )
 
 
 def test_next_decision_repeats_v6_when_sample_is_too_small() -> None:
@@ -200,6 +234,7 @@ def comparison_with_candidate(
     adverse_selection: float = 0.0,
     drawdown: float = 0.0,
     no_fill_future_touch_rate: float = 0.25,
+    market_timing_filter: str | None = None,
 ) -> dict[str, object]:
     return {
         "report_version": "profile_observation_comparison_v1",
@@ -226,6 +261,7 @@ def comparison_with_candidate(
                 adverse_selection=adverse_selection,
                 drawdown=drawdown,
                 no_fill_future_touch_rate=no_fill_future_touch_rate,
+                market_timing_filter=market_timing_filter,
             ),
         ],
         "pairwise_deltas": [],
@@ -243,12 +279,29 @@ def observation(
     adverse_selection: float,
     drawdown: float,
     no_fill_future_touch_rate: float,
+    market_timing_filter: str | None = None,
 ) -> dict[str, object]:
     return {
         "run_id": run_id,
         "report_root": f"/tmp/{run_id}",
         "profile": profile,
         "quote_placement": "near_touch",
+        "market_timing_selection": (
+            {
+                "source_path": "/tmp/execution_probe_universe_selection.json",
+                "status": "ready",
+                "profile": profile,
+                "market_timing_filter": market_timing_filter,
+                "min_future_touch_rate": 0.1,
+                "min_timing_signals": 5,
+                "min_avg_opportunity_spread": 0.01,
+                "max_avg_opportunity_spread": None,
+                "market_asset_ids_count": 3,
+                "market_asset_ids_sha256": "hash",
+            }
+            if market_timing_filter is not None
+            else {}
+        ),
         "activity": {
             "signals": signals,
             "filled_signals": filled_signals,

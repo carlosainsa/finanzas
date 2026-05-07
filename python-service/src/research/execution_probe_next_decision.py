@@ -19,6 +19,7 @@ class ExecutionProbeDecisionThresholds:
     max_adverse_selection: float = 0.0
     max_drawdown: float = 0.0
     min_no_fill_future_touch_rate: float = 0.10
+    min_market_timing_filter_fill_rate_lift: float = 0.005
 
 
 def decide_execution_probe_next_step(
@@ -38,6 +39,11 @@ def decide_execution_probe_next_step(
     ]
     failed = [item for item in checks if item["status"] == "FAIL"]
     missing = [item for item in checks if item["status"] == "MISSING"]
+    market_timing_filter_decision = decide_market_timing_filter(
+        baseline,
+        candidate,
+        thresholds,
+    )
     recommendation, next_step, rationale = classify_next_step(
         candidate,
         failed=failed,
@@ -56,6 +62,7 @@ def decide_execution_probe_next_step(
         "recommendation": recommendation,
         "next_step": next_step,
         "rationale": rationale,
+        "market_timing_filter_decision": market_timing_filter_decision,
         "checks": checks,
         "summary": {
             "passed": sum(1 for item in checks if item["status"] == "PASS"),
@@ -252,6 +259,7 @@ def observation_summary(observation: dict[str, Any]) -> dict[str, object]:
         "report_root": observation.get("report_root"),
         "profile": observation.get("profile"),
         "quote_placement": observation.get("quote_placement"),
+        "market_timing_selection": observation.get("market_timing_selection"),
         "signals": activity.get("signals"),
         "filled_signals": activity.get("filled_signals"),
         "observed_fill_rate": fills.get("observed_fill_rate"),
@@ -262,6 +270,140 @@ def observation_summary(observation: dict[str, Any]) -> dict[str, object]:
         "no_fill_future_touch_rate": quote_policy.get("no_fill_future_touch_rate"),
         "avg_required_quote_move": quote_policy.get("avg_required_quote_move"),
     }
+
+
+def decide_market_timing_filter(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    thresholds: ExecutionProbeDecisionThresholds,
+) -> dict[str, object]:
+    market_timing_selection = typed_dict(candidate.get("market_timing_selection"))
+    candidate_filter = market_timing_selection.get("market_timing_filter")
+    if candidate_filter != "future_touch":
+        return {
+            "decision": "NOT_EVALUATED",
+            "reason": "candidate_did_not_use_market_timing_filter",
+            "can_execute_trades": False,
+        }
+
+    baseline_fills = typed_dict(baseline.get("fills"))
+    candidate_fills = typed_dict(candidate.get("fills"))
+    baseline_risk = typed_dict(baseline.get("risk"))
+    candidate_risk = typed_dict(candidate.get("risk"))
+    candidate_activity = typed_dict(candidate.get("activity"))
+    baseline_fill_rate = numeric_or_none(baseline_fills.get("observed_fill_rate"))
+    candidate_fill_rate = numeric_or_none(candidate_fills.get("observed_fill_rate"))
+    fill_rate_gap = numeric_or_none(candidate_fills.get("fill_rate_gap"))
+    adverse_selection = numeric_or_none(candidate_risk.get("adverse_selection"))
+    drawdown = numeric_or_none(candidate_risk.get("drawdown"))
+    signals = numeric_or_none(candidate_activity.get("signals")) or 0.0
+    fill_rate_lift = (
+        candidate_fill_rate - baseline_fill_rate
+        if baseline_fill_rate is not None and candidate_fill_rate is not None
+        else None
+    )
+    checks = [
+        check_at_least(
+            "market_timing_minimum_signal_sample",
+            signals,
+            float(thresholds.min_signals),
+        ),
+        check_at_least(
+            "market_timing_fill_rate_lift",
+            fill_rate_lift,
+            thresholds.min_market_timing_filter_fill_rate_lift,
+        ),
+        check_at_most(
+            "market_timing_synthetic_observed_gap",
+            fill_rate_gap,
+            thresholds.max_synthetic_observed_gap,
+        ),
+        check_at_most(
+            "market_timing_adverse_selection",
+            adverse_selection,
+            thresholds.max_adverse_selection,
+            required=False,
+        ),
+        check_at_most(
+            "market_timing_drawdown",
+            drawdown,
+            thresholds.max_drawdown,
+            required=False,
+        ),
+    ]
+    failed = [item for item in checks if item["status"] == "FAIL"]
+    missing = [item for item in checks if item["status"] == "MISSING"]
+    if missing:
+        decision = "REPEAT_WITH_COMPLETE_FILTER_EVIDENCE"
+        reason = f"missing_checks={len(missing)}"
+    elif not failed:
+        decision = "KEEP_MARKET_TIMING_FILTER"
+        reason = "filter_improved_observed_fill_rate_without_synthetic_or_risk_regression"
+    elif candidate_fill_rate is not None and candidate_fill_rate <= 0:
+        decision = "RELAX_MARKET_TIMING_FILTER"
+        reason = "filtered_universe_still_has_no_observed_fills"
+    else:
+        decision = "REJECT_MARKET_TIMING_FILTER"
+        reason = f"failed_checks={len(failed)}"
+    return {
+        "decision": decision,
+        "reason": reason,
+        "can_execute_trades": False,
+        "candidate_filter": candidate_filter,
+        "selection": market_timing_selection,
+        "next_cycle": market_timing_next_cycle(decision, market_timing_selection),
+        "baseline_observed_fill_rate": baseline_fill_rate,
+        "candidate_observed_fill_rate": candidate_fill_rate,
+        "fill_rate_lift": fill_rate_lift,
+        "baseline_adverse_selection": numeric_or_none(
+            baseline_risk.get("adverse_selection")
+        ),
+        "candidate_adverse_selection": adverse_selection,
+        "checks": checks,
+    }
+
+
+def market_timing_next_cycle(
+    decision: str,
+    market_timing_selection: dict[str, Any],
+) -> dict[str, object]:
+    min_future_touch_rate = numeric_or_none(
+        market_timing_selection.get("min_future_touch_rate")
+    )
+    min_timing_signals = numeric_or_none(market_timing_selection.get("min_timing_signals"))
+    min_avg_opportunity_spread = numeric_or_none(
+        market_timing_selection.get("min_avg_opportunity_spread")
+    )
+    if decision == "RELAX_MARKET_TIMING_FILTER":
+        min_future_touch_rate = (
+            min_future_touch_rate / 2 if min_future_touch_rate is not None else 0.05
+        )
+        min_avg_opportunity_spread = (
+            min_avg_opportunity_spread / 2
+            if min_avg_opportunity_spread is not None
+            else 0.005
+        )
+    return {
+        "script": "scripts/run_execution_probe_v7_cycle.sh",
+        "args": {
+            "--market-timing-filter": "future_touch",
+            "--min-future-touch-rate": format_number(
+                min_future_touch_rate if min_future_touch_rate is not None else 0.10
+            ),
+            "--min-timing-signals": format_number(
+                min_timing_signals if min_timing_signals is not None else 5
+            ),
+            "--min-avg-opportunity-spread": format_number(
+                min_avg_opportunity_spread
+                if min_avg_opportunity_spread is not None
+                else 0.01
+            ),
+        },
+    }
+
+
+def format_number(value: float) -> str:
+    return f"{value:.6f}".rstrip("0").rstrip(".")
 
 
 def command_templates(recommendation: str, candidate_profile: str) -> list[str]:

@@ -35,6 +35,13 @@ def profile_observation(report_root: Path) -> dict[str, object]:
     go_no_go = read_json(report_root / "go_no_go.json")
     metrics = typed_dict(promotion.get("metrics"))
     quote_summary = typed_dict(quote.get("summary"))
+    universe_selection_path = str(
+        evidence.get("execution_probe_universe_selection_path") or ""
+    )
+    universe_selection = (
+        read_json(Path(universe_selection_path)) if universe_selection_path else {}
+    )
+    universe_config = typed_dict(universe_selection.get("config"))
     return {
         "run_id": report_root.name,
         "report_root": str(report_root),
@@ -43,6 +50,25 @@ def profile_observation(report_root: Path) -> dict[str, object]:
         "capture_seconds": evidence.get("capture_seconds"),
         "market_asset_ids_count": evidence.get("market_asset_ids_count"),
         "market_asset_ids_sha256": evidence.get("market_asset_ids_sha256"),
+        "market_timing_selection": {
+            "source_path": universe_selection_path or None,
+            "status": universe_selection.get("status"),
+            "profile": universe_selection.get("profile"),
+            "market_timing_filter": universe_config.get("market_timing_filter"),
+            "min_future_touch_rate": universe_config.get("min_future_touch_rate"),
+            "min_timing_signals": universe_config.get("min_timing_signals"),
+            "min_avg_opportunity_spread": universe_config.get(
+                "min_avg_opportunity_spread"
+            ),
+            "max_avg_opportunity_spread": universe_config.get(
+                "max_avg_opportunity_spread"
+            ),
+            "market_asset_ids_count": universe_selection.get("market_asset_ids_count"),
+            "market_asset_ids_sha256": universe_selection.get(
+                "market_asset_ids_sha256"
+            ),
+            "selection_reason": universe_selection.get("selection_reason"),
+        },
         "stream_lengths": evidence.get("stream_lengths"),
         "report_status_counts": evidence.get("recent_report_status_counts"),
         "activity": {

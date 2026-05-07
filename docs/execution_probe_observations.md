@@ -201,3 +201,15 @@ The v7 cycle defaults to `future_touch` filtering and
 `min_avg_opportunity_spread=0.01` with a three-asset minimum so one-tick offset
 quotes are not tested on markets where the spread is too tight to give useful
 execution evidence.
+
+After a filtered v7 run, `execution_probe_next_decision.json` includes
+`market_timing_filter_decision`. That block is still offline-only
+(`can_execute_trades=false`) and decides whether to keep, relax, reject, or
+repeat the market/timing filter based on fill-rate lift, synthetic-vs-observed
+gap, adverse selection, drawdown, and sample size.
+
+The 2026-05-07 filtered v7 run selected 3 assets and captured 607 signals, but
+still produced zero observed fills and zero future-touch evidence. The generated
+`market_timing_filter_decision` was `RELAX_MARKET_TIMING_FILTER`, with the next
+cycle lowering `min_future_touch_rate` to `0.05` and
+`min_avg_opportunity_spread` to `0.005` while keeping the run research-only.
