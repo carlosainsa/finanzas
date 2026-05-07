@@ -28,7 +28,7 @@ def test_next_decision_repeats_v6_when_fills_are_clean() -> None:
     assert report["report_version"] == REPORT_VERSION
     assert report["can_execute_trades"] is False
     assert report["can_promote_live"] is False
-    assert report["recommendation"] == "REPEAT_V6_LONGER"
+    assert report["recommendation"] == "REPEAT_EXECUTION_PROBE_LONGER"
     assert "run_execution_probe_v6_observation.sh" in "\n".join(
         cast(list[str], report["next_command_templates"])
     )
@@ -48,6 +48,23 @@ def test_next_decision_creates_v7_when_synthetic_optimism_returns() -> None:
 
     assert report["recommendation"] == "CREATE_V7_LESS_AGGRESSIVE_QUOTE"
     assert "EXECUTION_MODE=live" not in json.dumps(report)
+
+
+def test_next_decision_holds_v7_when_synthetic_optimism_persists() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v7",
+            signals=300,
+            filled_signals=10,
+            observed_fill_rate=0.03,
+            synthetic_fill_rate=0.20,
+            adverse_selection=-0.01,
+            drawdown=0.0,
+        )
+    )
+
+    assert report["recommendation"] == "HOLD_RESEARCH"
+    assert "synthetic-only evidence" in str(report["next_step"])
 
 
 def test_next_decision_relaxes_filters_when_large_sample_has_no_fills() -> None:
@@ -103,7 +120,7 @@ def test_next_decision_waits_for_v6_candidate() -> None:
         )
     )
 
-    assert report["recommendation"] == "WAIT_FOR_V6_OBSERVATION"
+    assert report["recommendation"] == "WAIT_FOR_EXECUTION_PROBE_OBSERVATION"
 
 
 def test_next_decision_holds_when_source_is_live_capable() -> None:
@@ -164,7 +181,7 @@ def test_next_decision_cli_writes_output(tmp_path: Path) -> None:
 
     stdout_report = json.loads(completed.stdout)
     output_report = json.loads(output_path.read_text(encoding="utf-8"))
-    assert stdout_report["recommendation"] == "REPEAT_V6_LONGER"
+    assert stdout_report["recommendation"] == "REPEAT_EXECUTION_PROBE_LONGER"
     assert output_report["recommendation"] == stdout_report["recommendation"]
 
 

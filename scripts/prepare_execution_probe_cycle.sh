@@ -44,8 +44,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$PROFILE" != "execution_probe_v6" ]]; then
-  echo "Only PROFILE=execution_probe_v6 is supported by this cycle preparer." >&2
+if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" ]]; then
+  echo "Only PROFILE=execution_probe_v6 or PROFILE=execution_probe_v7 is supported by this cycle preparer." >&2
   exit 64
 fi
 if [[ -z "$UNIVERSE_DUCKDB" || ! -f "$UNIVERSE_DUCKDB" ]]; then
@@ -68,7 +68,7 @@ PYTHONPATH=python-service python3 -m src.research.execution_probe_universe_selec
   > "$RUN_ROOT/execution_probe_universe_selection.stdout.json"
 
 OBSERVATION_COMMAND=(
-  scripts/run_execution_probe_v6_observation.sh
+  "scripts/run_${PROFILE}_observation.sh"
   --universe-selection "$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json"
   --duration-seconds "$DURATION_SECONDS"
 )

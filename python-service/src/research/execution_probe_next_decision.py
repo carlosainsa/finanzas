@@ -7,6 +7,7 @@ from typing import Any
 
 
 REPORT_VERSION = "execution_probe_next_decision_v1"
+SUPPORTED_CANDIDATE_PROFILES = {"execution_probe_v6", "execution_probe_v7"}
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,10 @@ def decide_execution_probe_next_step(
             "failed": len(failed),
             "missing": len(missing),
         },
-        "next_command_templates": command_templates(recommendation),
+        "next_command_templates": command_templates(
+            recommendation,
+            str(candidate.get("profile") or ""),
+        ),
     }
 
 
@@ -75,9 +79,9 @@ def build_checks(
     quote_policy = typed_dict(candidate.get("quote_policy"))
     return [
         check_equals(
-            "candidate_profile_is_v6",
+            "candidate_profile_is_supported_execution_probe",
             candidate.get("profile"),
-            "execution_probe_v6",
+            SUPPORTED_CANDIDATE_PROFILES,
         ),
         check_at_least(
             "minimum_signal_sample",
@@ -128,14 +132,14 @@ def classify_next_step(
     if not candidate:
         return (
             "WAIT_FOR_OBSERVATION",
-            "Run execution_probe_v6 and generate profile_observation_comparison.json.",
+            "Run execution_probe_v6 or execution_probe_v7 and generate profile_observation_comparison.json.",
             ["no_candidate_observation"],
         )
     profile = candidate.get("profile")
-    if profile != "execution_probe_v6":
+    if profile not in SUPPORTED_CANDIDATE_PROFILES:
         return (
-            "WAIT_FOR_V6_OBSERVATION",
-            "Compare a completed execution_probe_v6 report before tuning v7.",
+            "WAIT_FOR_EXECUTION_PROBE_OBSERVATION",
+            "Compare a completed execution_probe_v6 or execution_probe_v7 report before tuning.",
             [f"candidate_profile={profile}"],
         )
 
@@ -156,7 +160,7 @@ def classify_next_step(
     if signals < thresholds.min_signals:
         return (
             "REPEAT_V6_WITH_LARGER_SAMPLE",
-            "Repeat v6 with a longer duration or wider universe before changing policy.",
+            f"Repeat {profile} with a longer duration or wider universe before changing policy.",
             [f"signals={signals} below min_signals={thresholds.min_signals}"],
         )
     if filled <= 0 or observed_fill_rate <= 0:
@@ -166,7 +170,7 @@ def classify_next_step(
         ):
             return (
                 "CHANGE_MARKET_OR_TIMING_FILTERS",
-                "Keep v6 research-only and retune market/timing selection before quote aggression.",
+                f"Keep {profile} research-only and retune market/timing selection before quote aggression.",
                 [
                     "no_observed_fills",
                     (
@@ -178,10 +182,22 @@ def classify_next_step(
             )
         return (
             "RELAX_SIGNAL_FILTERS",
-            "Relax min_confidence or min_signal_interval_ms and repeat v6.",
+            f"Relax min_confidence or min_signal_interval_ms and repeat {profile}.",
             ["no_observed_fills", "sample_is_large_enough"],
         )
     if fill_rate_gap > thresholds.max_synthetic_observed_gap:
+        if profile == "execution_probe_v7":
+            return (
+                "HOLD_RESEARCH",
+                "Do not add another quote profile until synthetic-only evidence is guarded or excluded.",
+                [
+                    (
+                        "fill_rate_gap="
+                        f"{fill_rate_gap} above {thresholds.max_synthetic_observed_gap}"
+                    ),
+                    "execution_probe_v7_already_less_aggressive",
+                ],
+            )
         return (
             "CREATE_V7_LESS_AGGRESSIVE_QUOTE",
             "Create v7 with lower quote aggressiveness or stricter synthetic-fill guards.",
@@ -195,13 +211,13 @@ def classify_next_step(
     if adverse_selection is None or drawdown is None:
         return (
             "REPEAT_V6_WITH_RISK_METRICS",
-            "Repeat v6 until adverse selection and drawdown are measurable.",
+            f"Repeat {profile} until adverse selection and drawdown are measurable.",
             ["risk_metrics_missing"],
         )
     if adverse_selection > thresholds.max_adverse_selection or drawdown > thresholds.max_drawdown:
         return (
             "ADD_MARKET_SIDE_RISK_FILTERS",
-            "Keep the v6 quote policy but add market/side filters before repeating.",
+            f"Keep the {profile} quote policy but add market/side filters before repeating.",
             [
                 f"adverse_selection={adverse_selection}",
                 f"drawdown={drawdown}",
@@ -210,7 +226,7 @@ def classify_next_step(
     if missing:
         return (
             "REPEAT_V6_WITH_COMPLETE_ARTIFACTS",
-            "Repeat v6 or regenerate diagnostics until all required artifacts are present.",
+            f"Repeat {profile} or regenerate diagnostics until all required artifacts are present.",
             [f"missing_checks={len(missing)}"],
         )
     if failed:
@@ -220,9 +236,9 @@ def classify_next_step(
             [f"failed_checks={len(failed)}"],
         )
     return (
-        "REPEAT_V6_LONGER",
-        "Repeat v6 for 90 minutes before any promotion decision.",
-        ["v6_has_fills_without_synthetic_optimism_or_risk_regression"],
+        "REPEAT_EXECUTION_PROBE_LONGER",
+        f"Repeat {profile} for 90 minutes before any promotion decision.",
+        [f"{profile}_has_fills_without_synthetic_optimism_or_risk_regression"],
     )
 
 
@@ -248,8 +264,12 @@ def observation_summary(observation: dict[str, Any]) -> dict[str, object]:
     }
 
 
-def command_templates(recommendation: str) -> list[str]:
-    if recommendation == "REPEAT_V6_LONGER":
+def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
+    if recommendation == "REPEAT_EXECUTION_PROBE_LONGER":
+        if candidate_profile == "execution_probe_v7":
+            return [
+                "scripts/run_execution_probe_v7_observation.sh --duration-seconds 5400"
+            ]
         return [
             "scripts/run_execution_probe_v6_observation.sh --duration-seconds 5400"
         ]
@@ -282,6 +302,13 @@ def check_equals(
 ) -> dict[str, object]:
     if metric_value is None:
         return check_result(check_name, "MISSING", None, expected)
+    if isinstance(expected, set):
+        return check_result(
+            check_name,
+            "PASS" if metric_value in expected else "FAIL",
+            metric_value,
+            sorted(str(item) for item in expected),
+        )
     return check_result(
         check_name,
         "PASS" if metric_value == expected else "FAIL",

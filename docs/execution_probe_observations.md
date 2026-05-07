@@ -106,3 +106,64 @@ Required interpretation:
 Manual interpretation is allowed only as review of the versioned decision
 artifact. The decision engine remains offline and always emits
 `can_execute_trades=false`.
+
+## 2026-05-07 - execution_probe_v6 Cycle 90m
+
+- Run id: `execution-probe-v6-cycle-20260507T005153Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v6-cycle-20260507T005153Z/reports/execution-probe-v6-cycle-20260507T005153Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v6`
+- Universe: 6 market assets selected from `pre-live-execution-probe-45m-20260505T213534Z`
+- Baseline: `execution-probe-v5-multimarket-60m-20260506T211421Z`
+- Duration: 90 minutes
+
+Key metrics:
+
+- Orderbook snapshots: `12001`
+- Signals: `836`
+- Execution reports: `8`
+- Filled signals: `4`
+- Observed fill rate: `0.004784688995215311`
+- Synthetic fill rate: `1.0`
+- Fill-rate gap: `0.9952153110047847`
+- Adverse selection: `0.9905945570761467`
+- Realized edge: `0.08249999999999995`
+- Stale data rate: `0.004666277810182484`
+- Reconciliation divergence rate: `0.0`
+
+Decision artifact:
+
+- `execution_probe_next_decision.json`
+- Recommendation: `CREATE_V7_LESS_AGGRESSIVE_QUOTE`
+- Next step: create v7 with lower quote aggressiveness or stricter synthetic-fill guards.
+
+Interpretation:
+
+`execution_probe_v6` recovered measurable activity and observed fills, but it
+also exposed a major simulator mismatch: 832 signals were synthetic-only, while
+only 4 signals had observed dry-run fills. The dominant failure is not missing
+touch evidence; no-fill diagnostics report `avg_required_quote_move=0` and
+`no_fill_future_touch_rate=1.0`. The next variant must therefore reduce quote
+aggression and keep synthetic-only fills as diagnostic evidence, not promotion
+evidence.
+
+## Next Variant: execution_probe_v7
+
+`execution_probe_v7` is the dry-run-only response to the v6 decision artifact.
+It keeps the v6 market/universe workflow but quotes less aggressively by default:
+
+- `PREDICTOR_EXECUTION_PROBE_V7_NEAR_TOUCH_MAX_SPREAD_FRACTION=0.85`
+- `PREDICTOR_EXECUTION_PROBE_V7_OFFSET_TICKS=1`
+
+Operator flow:
+
+```bash
+scripts/run_execution_probe_v7_cycle.sh \
+  --universe-duckdb "<prior-wide-run>/research.duckdb" \
+  --baseline-report-root "<v6-report-root>" \
+  --duration-seconds 5400 \
+  --print-plan
+```
+
+Then rerun without `--print-plan` only after confirming the plan remains
+`dry_run` and `can_execute_trades=false`.

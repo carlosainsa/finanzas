@@ -7,6 +7,7 @@ from src.config import settings
 from src.ml.execution_probe_selection import (
     load_execution_probe_v5_fraction_selection,
     load_execution_probe_v6_fraction_selection,
+    load_execution_probe_v7_fraction_selection,
 )
 from src.ml.segment_blocklist import SegmentBlocklist
 from src.schemas import OrderBook, TradeSignal
@@ -73,6 +74,14 @@ EXECUTION_PROBE_V6_NEAR_TOUCH_MODEL_VERSION = (
 )
 EXECUTION_PROBE_V6_NEAR_TOUCH_FEATURE_VERSION = (
     "orderbook_top_of_book_execution_probe_near_touch_v6"
+)
+EXECUTION_PROBE_V7_MODEL_VERSION = "passive_spread_capture_execution_probe_v7"
+EXECUTION_PROBE_V7_FEATURE_VERSION = "orderbook_top_of_book_execution_probe_v7"
+EXECUTION_PROBE_V7_NEAR_TOUCH_MODEL_VERSION = (
+    "passive_spread_capture_execution_probe_near_touch_v7"
+)
+EXECUTION_PROBE_V7_NEAR_TOUCH_FEATURE_VERSION = (
+    "orderbook_top_of_book_execution_probe_near_touch_v7"
 )
 
 TOP_CHANGE_EPSILON = 1e-9
@@ -320,6 +329,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
                 EXECUTION_PROBE_V6_MODEL_VERSION,
                 EXECUTION_PROBE_V6_FEATURE_VERSION,
             )
+        if profile.name == "execution_probe_v7":
+            return (
+                best_bid,
+                EXECUTION_PROBE_V7_MODEL_VERSION,
+                EXECUTION_PROBE_V7_FEATURE_VERSION,
+            )
         return best_bid, MODEL_VERSION, FEATURE_VERSION
     if placement != "near_touch":
         raise ValueError(f"unsupported predictor quote placement: {placement}")
@@ -331,6 +346,8 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
     offset = settings.predictor_near_touch_offset_ticks * tick_size
     if profile.name == "execution_probe_v6":
         offset = settings.predictor_execution_probe_v6_offset_ticks * tick_size
+    if profile.name == "execution_probe_v7":
+        offset = settings.predictor_execution_probe_v7_offset_ticks * tick_size
     cap = best_ask - offset
     max_spread_fraction = profile.near_touch_max_spread_fraction
     fractional_price = best_bid + (spread * max_spread_fraction)
@@ -382,6 +399,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
             round(price, 6),
             EXECUTION_PROBE_V6_NEAR_TOUCH_MODEL_VERSION,
             EXECUTION_PROBE_V6_NEAR_TOUCH_FEATURE_VERSION,
+        )
+    if profile.name == "execution_probe_v7":
+        return (
+            round(price, 6),
+            EXECUTION_PROBE_V7_NEAR_TOUCH_MODEL_VERSION,
+            EXECUTION_PROBE_V7_NEAR_TOUCH_FEATURE_VERSION,
         )
     return round(price, 6), NEAR_TOUCH_MODEL_VERSION, NEAR_TOUCH_FEATURE_VERSION
 
@@ -566,6 +589,31 @@ def strategy_profile() -> StrategyProfile:
                 settings.predictor_execution_probe_v6_min_signal_interval_ms
             ),
         )
+    if profile == "execution_probe_v7":
+        validate_execution_probe_allowed()
+        selection = load_execution_probe_v7_fraction_selection(
+            settings.predictor_execution_probe_v7_fraction_selection_path,
+            default_fraction=(
+                settings.predictor_execution_probe_v7_near_touch_max_spread_fraction
+            ),
+        )
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_execution_probe_v7_min_confidence,
+            ),
+            near_touch_max_spread_fraction=(
+                selection.near_touch_max_spread_fraction
+            ),
+            min_depth=settings.predictor_execution_probe_v7_min_depth,
+            max_top_changes=settings.predictor_execution_probe_v7_max_top_changes,
+            top_change_window_ms=settings.predictor_execution_probe_v7_top_change_window_ms,
+            risk_filters_enabled=True,
+            min_signal_interval_ms=(
+                settings.predictor_execution_probe_v7_min_signal_interval_ms
+            ),
+        )
     if profile == "conservative_v1":
         return StrategyProfile(
             name=profile,
@@ -599,6 +647,7 @@ def near_touch_model(model_version: str) -> bool:
         EXECUTION_PROBE_V4_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_V5_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_V6_NEAR_TOUCH_MODEL_VERSION,
+        EXECUTION_PROBE_V7_NEAR_TOUCH_MODEL_VERSION,
     }
 
 
@@ -686,3 +735,13 @@ def validate_near_touch_allowed() -> None:
         )
     if settings.predictor_execution_probe_v6_offset_ticks < 0:
         raise ValueError("predictor execution probe v6 offset ticks must be non-negative")
+    if (
+        not 0
+        <= settings.predictor_execution_probe_v7_near_touch_max_spread_fraction
+        <= 1
+    ):
+        raise ValueError(
+            "predictor execution probe v7 near-touch max spread fraction must be between 0 and 1"
+        )
+    if settings.predictor_execution_probe_v7_offset_ticks < 0:
+        raise ValueError("predictor execution probe v7 offset ticks must be non-negative")

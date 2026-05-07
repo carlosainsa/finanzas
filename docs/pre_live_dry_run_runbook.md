@@ -292,6 +292,21 @@ The decision artifact is offline only. It can recommend repeating v6, changing
 market/timing filters, relaxing signal filters, creating a less aggressive v7,
 or holding research; it never authorizes live trading.
 
+When the decision recommends `CREATE_V7_LESS_AGGRESSIVE_QUOTE`, run the v7 cycle
+against the completed v6 report root:
+
+```bash
+scripts/run_execution_probe_v7_cycle.sh \
+  --universe-duckdb "<prior-run>/research.duckdb" \
+  --baseline-report-root "<v6-report-root>" \
+  --duration-seconds 5400 \
+  --print-plan
+```
+
+`execution_probe_v7` defaults to one tick behind touch with
+`near_touch_max_spread_fraction=0.85`. It is still research-only and must be
+evaluated by `execution_probe_next_decision.json` before any further tuning.
+
 ## Exit Codes
 
 - `0`: research infra and gates passed.

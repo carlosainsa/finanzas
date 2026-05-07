@@ -32,8 +32,14 @@ class ExecutionProbeUniverseConfig:
     recommendations: tuple[str, ...] = DEFAULT_RECOMMENDATIONS
 
     def __post_init__(self) -> None:
-        if self.profile not in {"execution_probe_v5", "execution_probe_v6"}:
-            raise ValueError("profile must be execution_probe_v5 or execution_probe_v6")
+        if self.profile not in {
+            "execution_probe_v5",
+            "execution_probe_v6",
+            "execution_probe_v7",
+        }:
+            raise ValueError(
+                "profile must be execution_probe_v5, execution_probe_v6, or execution_probe_v7"
+            )
         if self.limit <= 0:
             raise ValueError("limit must be positive")
         if self.min_assets <= 0:
