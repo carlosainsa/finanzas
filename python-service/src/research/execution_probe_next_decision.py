@@ -275,7 +275,6 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
         ]
     if recommendation in {
         "RELAX_SIGNAL_FILTERS",
-        "CHANGE_MARKET_OR_TIMING_FILTERS",
         "REPEAT_V6_WITH_LARGER_SAMPLE",
         "REPEAT_V6_WITH_COMPLETE_ARTIFACTS",
         "REPEAT_V6_WITH_RISK_METRICS",
@@ -283,6 +282,22 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
         return [
             "scripts/prepare_execution_probe_cycle.sh --universe-duckdb <RESEARCH_DUCKDB> --baseline-report-root <BASELINE_REPORT_ROOT> --duration-seconds 5400",
             "scripts/run_execution_probe_v6_observation.sh --universe-selection <UNIVERSE_SELECTION_JSON> --duration-seconds 5400",
+        ]
+    if recommendation == "CHANGE_MARKET_OR_TIMING_FILTERS":
+        cycle_script = (
+            "scripts/run_execution_probe_v7_cycle.sh"
+            if candidate_profile == "execution_probe_v7"
+            else "scripts/run_execution_probe_v6_cycle.sh"
+        )
+        return [
+            (
+                f"{cycle_script} --universe-duckdb <RESEARCH_DUCKDB> "
+                "--baseline-report-root <BASELINE_REPORT_ROOT> "
+                "--market-timing-filter future_touch "
+                "--min-future-touch-rate 0.10 "
+                "--min-timing-signals 5 "
+                "--duration-seconds 5400"
+            )
         ]
     if recommendation == "CREATE_V7_LESS_AGGRESSIVE_QUOTE":
         return [

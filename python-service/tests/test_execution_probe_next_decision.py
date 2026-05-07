@@ -85,6 +85,7 @@ def test_next_decision_relaxes_filters_when_large_sample_has_no_fills() -> None:
 def test_next_decision_changes_market_or_timing_when_future_books_never_touch() -> None:
     report = decide_execution_probe_next_step(
         comparison_with_candidate(
+            profile="execution_probe_v7",
             signals=400,
             filled_signals=0,
             observed_fill_rate=0.0,
@@ -94,6 +95,10 @@ def test_next_decision_changes_market_or_timing_when_future_books_never_touch() 
     )
 
     assert report["recommendation"] == "CHANGE_MARKET_OR_TIMING_FILTERS"
+    templates = "\n".join(cast(list[str], report["next_command_templates"]))
+    assert "scripts/run_execution_probe_v7_cycle.sh" in templates
+    assert "--market-timing-filter future_touch" in templates
+    assert "near_touch_max_spread_fraction" not in templates
 
 
 def test_next_decision_repeats_v6_when_sample_is_too_small() -> None:

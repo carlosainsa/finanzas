@@ -167,3 +167,37 @@ scripts/run_execution_probe_v7_cycle.sh \
 
 Then rerun without `--print-plan` only after confirming the plan remains
 `dry_run` and `can_execute_trades=false`.
+
+## execution_probe_v7 Result And Market/Timing Filter
+
+The 2026-05-07 90-minute `execution_probe_v7` cycle fixed the main v6
+diagnostic issue: synthetic fill-rate no longer dominated observed fill-rate.
+However, it still produced no observed fills:
+
+- signals: `949`
+- observed fill-rate: `0.0`
+- synthetic fill-rate: `0.0`
+- synthetic-vs-observed gap: `0.0`
+- no-fill future-touch rate: `0.0`
+- recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+
+That result means the next repeat should not change quote aggressiveness. It
+should keep `execution_probe_v7` dry-run-only and select markets with prior
+future-touch evidence before launching the observation:
+
+```bash
+scripts/run_execution_probe_v7_cycle.sh \
+  --universe-duckdb "<prior-wide-run>/research.duckdb" \
+  --baseline-report-root "<v7-report-root>" \
+  --market-timing-filter future_touch \
+  --min-future-touch-rate 0.10 \
+  --min-timing-signals 5 \
+  --min-assets 3 \
+  --duration-seconds 5400 \
+  --print-plan
+```
+
+The v7 cycle defaults to `future_touch` filtering and
+`min_avg_opportunity_spread=0.01` with a three-asset minimum so one-tick offset
+quotes are not tested on markets where the spread is too tight to give useful
+execution evidence.

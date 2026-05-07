@@ -12,10 +12,17 @@ DURATION_SECONDS="${REAL_DRY_RUN_SECONDS:-5400}"
 UNIVERSE_DUCKDB=""
 BASELINE_REPORT_ROOT="${BASELINE_REPORT_ROOT:-}"
 PRINT_PLAN=0
+UNIVERSE_LIMIT="${EXECUTION_PROBE_UNIVERSE_LIMIT:-10}"
+UNIVERSE_MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-3}"
+MARKET_TIMING_FILTER="${EXECUTION_PROBE_MARKET_TIMING_FILTER:-future_touch}"
+MIN_FUTURE_TOUCH_RATE="${EXECUTION_PROBE_MIN_FUTURE_TOUCH_RATE:-0.10}"
+MIN_TIMING_SIGNALS="${EXECUTION_PROBE_MIN_TIMING_SIGNALS:-5}"
+MIN_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MIN_AVG_OPPORTUNITY_SPREAD:-0.01}"
+MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_execution_probe_v7_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--print-plan]
+Usage: scripts/run_execution_probe_v7_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--market-timing-filter none|future_touch] [--print-plan]
 
 Runs the full execution_probe_v7 research cycle:
 universe selection -> dry-run observation -> profile comparison -> next decision.
@@ -35,6 +42,34 @@ while [[ $# -gt 0 ]]; do
       ;;
     --duration-seconds)
       DURATION_SECONDS="$2"
+      shift 2
+      ;;
+    --universe-limit)
+      UNIVERSE_LIMIT="$2"
+      shift 2
+      ;;
+    --min-assets)
+      UNIVERSE_MIN_ASSETS="$2"
+      shift 2
+      ;;
+    --market-timing-filter)
+      MARKET_TIMING_FILTER="$2"
+      shift 2
+      ;;
+    --min-future-touch-rate)
+      MIN_FUTURE_TOUCH_RATE="$2"
+      shift 2
+      ;;
+    --min-timing-signals)
+      MIN_TIMING_SIGNALS="$2"
+      shift 2
+      ;;
+    --min-avg-opportunity-spread)
+      MIN_AVG_OPPORTUNITY_SPREAD="$2"
+      shift 2
+      ;;
+    --max-avg-opportunity-spread)
+      MAX_AVG_OPPORTUNITY_SPREAD="$2"
       shift 2
       ;;
     --print-plan)
@@ -69,6 +104,10 @@ if ! [[ "$DURATION_SECONDS" =~ ^[0-9]+$ ]] || (( DURATION_SECONDS < 1800 || DURA
   echo "duration must be an integer between 1800 and 5400 seconds" >&2
   exit 64
 fi
+if [[ "$MARKET_TIMING_FILTER" != "none" && "$MARKET_TIMING_FILTER" != "future_touch" ]]; then
+  echo "market timing filter must be none or future_touch" >&2
+  exit 64
+fi
 
 UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json"
 OBSERVATION_COMMAND=(
@@ -78,7 +117,7 @@ OBSERVATION_COMMAND=(
 )
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" <<'PY'
+  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" <<'PY'
 import json
 import sys
 
@@ -92,6 +131,13 @@ import sys
     manifest_root,
     duration_seconds,
     universe_selection_path,
+    universe_limit,
+    universe_min_assets,
+    market_timing_filter,
+    min_future_touch_rate,
+    min_timing_signals,
+    min_avg_opportunity_spread,
+    max_avg_opportunity_spread,
 ) = sys.argv[1:]
 
 print(json.dumps({
@@ -107,6 +153,13 @@ print(json.dumps({
     "report_root": report_root,
     "manifest_root": manifest_root,
     "duration_seconds": int(duration_seconds),
+    "universe_limit": int(universe_limit),
+    "universe_min_assets": int(universe_min_assets),
+    "market_timing_filter": market_timing_filter,
+    "min_future_touch_rate": float(min_future_touch_rate),
+    "min_timing_signals": int(min_timing_signals),
+    "min_avg_opportunity_spread": float(min_avg_opportunity_spread) if min_avg_opportunity_spread else None,
+    "max_avg_opportunity_spread": float(max_avg_opportunity_spread) if max_avg_opportunity_spread else None,
     "universe_selection_path": universe_selection_path,
     "delegates_to": [
         "scripts/prepare_execution_probe_cycle.sh",
@@ -129,7 +182,18 @@ mkdir -p "$RUN_ROOT"
 PREPARE_ARGS=(
   --universe-duckdb "$UNIVERSE_DUCKDB"
   --duration-seconds "$DURATION_SECONDS"
+  --universe-limit "$UNIVERSE_LIMIT"
+  --min-assets "$UNIVERSE_MIN_ASSETS"
+  --market-timing-filter "$MARKET_TIMING_FILTER"
+  --min-future-touch-rate "$MIN_FUTURE_TOUCH_RATE"
+  --min-timing-signals "$MIN_TIMING_SIGNALS"
 )
+if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
+  PREPARE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
+fi
+if [[ -n "$MAX_AVG_OPPORTUNITY_SPREAD" ]]; then
+  PREPARE_ARGS+=(--max-avg-opportunity-spread "$MAX_AVG_OPPORTUNITY_SPREAD")
+fi
 if [[ -n "$BASELINE_REPORT_ROOT" ]]; then
   PREPARE_ARGS+=(--baseline-report-root "$BASELINE_REPORT_ROOT")
 fi

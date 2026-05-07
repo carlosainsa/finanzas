@@ -159,6 +159,8 @@ def test_execution_probe_v6_cycle_print_plan_is_safe_and_pinned(
     assert plan["universe_duckdb"] == str(universe_duckdb)
     assert plan["baseline_report_root"] == str(baseline)
     assert plan["duration_seconds"] == 1800
+    assert plan["universe_min_assets"] == 5
+    assert plan["market_timing_filter"] == "none"
     assert "execution_probe_universe_selection.json" in plan["universe_selection_path"]
     assert "src.research.execution_probe_next_decision" in plan["delegates_to"]
     outputs = plan["outputs"]
@@ -273,6 +275,11 @@ def test_execution_probe_v7_cycle_print_plan_is_safe_and_pinned(
     assert plan["execution_mode"] == "dry_run"
     assert plan["profile"] == "execution_probe_v7"
     assert plan["baseline_report_root"] == str(baseline)
+    assert plan["universe_min_assets"] == 3
+    assert plan["market_timing_filter"] == "future_touch"
+    assert plan["min_future_touch_rate"] == 0.10
+    assert plan["min_timing_signals"] == 5
+    assert plan["min_avg_opportunity_spread"] == 0.01
     assert "scripts/run_execution_probe_v7_observation.sh" in plan["delegates_to"]
     assert "execution_probe_next_decision.json" in plan["outputs"][
         "execution_probe_next_decision"
