@@ -170,6 +170,7 @@ These steps improve the trading platform before introducing heavier models. The 
    - Implement `execution_probe_v6` as a dry-run-only, at-touch research profile and use `scripts/prepare_execution_probe_cycle.sh` to automate universe selection, observation planning, and post-run comparison commands.
    - Use `quote_execution_no_fill_diagnostics` before each new variant decision; required quote move, distance to touch, and future touch rate should explain whether the blocker is quote aggressiveness, market choice, or timing.
    - Generate `execution_probe_next_decision.json` after each profile observation comparison so v6/v7 tuning is deterministic, versioned, and research-only instead of an ad hoc manual threshold discussion.
+   - Use `scripts/run_execution_probe_v6_cycle.sh` for the full v6 loop: universe selection, observation, profile comparison, next decision, and cycle summary with known report paths.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Operator command intents are persisted in Postgres `control_commands` before Redis Stream publication when Postgres is configured, and production/control-required mode fails closed if that audit store is unavailable.

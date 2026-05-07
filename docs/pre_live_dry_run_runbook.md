@@ -268,13 +268,18 @@ For `execution_probe_v6`, prepare the cycle and let the post-run decision
 artifact choose the next adjustment:
 
 ```bash
-scripts/prepare_execution_probe_cycle.sh \
+scripts/run_execution_probe_v6_cycle.sh \
   --universe-duckdb "<prior-run>/research.duckdb" \
   --baseline-report-root "<baseline-report-root>" \
   --duration-seconds 5400
 ```
 
-After the observation, generate or inspect:
+Use `--print-plan` first to verify paths, duration, baseline, and outputs
+without starting services. The cycle wrapper prepares the universe, runs the v6
+observation, generates `profile_observation_comparison.json`, and writes
+`execution_probe_next_decision.json`.
+
+To regenerate the decision manually after a completed observation:
 
 ```bash
 PYTHONPATH=python-service python3 -m src.research.execution_probe_next_decision \

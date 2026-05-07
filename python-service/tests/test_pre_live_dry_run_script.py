@@ -125,6 +125,77 @@ def test_prepare_execution_probe_cycle_prints_post_run_decision_command() -> Non
     assert "src.research.execution_probe_next_decision" in script
 
 
+def test_execution_probe_v6_cycle_print_plan_is_safe_and_pinned(
+    tmp_path: Path,
+) -> None:
+    universe_duckdb = tmp_path / "research.duckdb"
+    universe_duckdb.write_bytes(b"placeholder")
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v6_cycle.sh",
+            "--universe-duckdb",
+            str(universe_duckdb),
+            "--baseline-report-root",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v6_cycle.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["profile"] == "execution_probe_v6"
+    assert plan["universe_duckdb"] == str(universe_duckdb)
+    assert plan["baseline_report_root"] == str(baseline)
+    assert plan["duration_seconds"] == 1800
+    assert "execution_probe_universe_selection.json" in plan["universe_selection_path"]
+    assert "src.research.execution_probe_next_decision" in plan["delegates_to"]
+    outputs = plan["outputs"]
+    assert "profile_observation_comparison.json" in outputs[
+        "profile_observation_comparison"
+    ]
+    assert "execution_probe_next_decision.json" in outputs[
+        "execution_probe_next_decision"
+    ]
+
+
+def test_execution_probe_v6_cycle_refuses_missing_universe_duckdb() -> None:
+    completed = subprocess.run(
+        ["bash", "scripts/run_execution_probe_v6_cycle.sh", "--print-plan"],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 64
+    assert "--universe-duckdb is required" in completed.stderr
+
+
+def test_execution_probe_v6_cycle_contract_runs_compare_and_decision() -> None:
+    script = (ROOT_DIR / "scripts" / "run_execution_probe_v6_cycle.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "prepare_execution_probe_cycle.sh" in script
+    assert "run_execution_probe_v6_observation.sh" in script
+    assert "PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS" in script
+    assert "RESEARCH_REPORT_ROOT" in script
+    assert "src.research.profile_observation_comparison" in script
+    assert "src.research.execution_probe_next_decision" in script
+    assert "execution_probe_v6_cycle_summary.json" in script
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"

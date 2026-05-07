@@ -81,14 +81,16 @@ quotes at or very near the current touch can create measurable dry-run fills.
 Operator flow:
 
 ```bash
-scripts/prepare_execution_probe_cycle.sh \
+scripts/run_execution_probe_v6_cycle.sh \
   --universe-duckdb "<prior-wide-run>/research.duckdb" \
   --baseline-report-root "<prior-v5-report-root>" \
-  --duration-seconds 3600
+  --duration-seconds 5400 \
+  --print-plan
 ```
 
-Then inspect the generated `.tmp/operational/.../execution_probe_observation_plan.json`
-before running the emitted command.
+Then rerun without `--print-plan` to execute the observation. The wrapper writes
+`.tmp/operational/.../execution_probe_v6_cycle_summary.json` with the report
+root and the recommendation from `execution_probe_next_decision.json`.
 
 Required interpretation:
 
