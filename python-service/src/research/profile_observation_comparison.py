@@ -54,6 +54,7 @@ def profile_observation(report_root: Path) -> dict[str, object]:
             "source_path": universe_selection_path or None,
             "status": universe_selection.get("status"),
             "profile": universe_selection.get("profile"),
+            "selection_source": universe_config.get("selection_source"),
             "market_timing_filter": universe_config.get("market_timing_filter"),
             "min_future_touch_rate": universe_config.get("min_future_touch_rate"),
             "min_timing_signals": universe_config.get("min_timing_signals"),

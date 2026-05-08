@@ -31,6 +31,9 @@ def test_ml_fill_evaluation_exports_offline_metrics_without_live_capability(
     assert report["decision_policy"] == "offline_ml_fill_evaluation_only"
     counts = cast(dict[str, int], report["counts"])
     assert counts["ml_fill_evaluation_examples"] == 6
+    gate = cast(dict[str, Any], report["label_quality_gate"])
+    assert gate["status"] == "blocked"
+    assert gate["can_train_models"] is False
     assert (tmp_path / "ml_eval" / "ml_fill_evaluation_examples.parquet").exists()
     assert (tmp_path / "ml_eval" / "ml_fill_evaluation_metrics.parquet").exists()
     assert (tmp_path / "ml_eval" / "ml_fill_evaluation_buckets.parquet").exists()
@@ -125,3 +128,73 @@ def test_ml_fill_evaluation_rejects_invalid_config() -> None:
         assert "train_fraction must be between 0 and 1" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_ml_fill_label_quality_passes_two_class_sufficient_target() -> None:
+    summary = [
+        {
+            "target_name": "future_touch",
+            "train_samples": 20,
+            "test_samples": 10,
+            "train_positive_rate": 0.5,
+            "test_positive_rate": 0.5,
+        }
+    ]
+
+    from src.research.ml_fill_evaluation import build_label_quality_gate
+
+    gate = build_label_quality_gate(
+        summary,
+        MlFillEvaluationConfig(
+            min_train_samples=20,
+            min_test_samples=5,
+            min_total_samples=30,
+        ),
+    )
+
+    assert gate["status"] == "passed"
+    assert gate["can_train_models"] is True
+
+
+def test_ml_fill_label_quality_blocks_one_class_and_small_samples() -> None:
+    summary = [
+        {
+            "target_name": "future_touch",
+            "train_samples": 20,
+            "test_samples": 5,
+            "train_positive_rate": 1.0,
+            "test_positive_rate": 0.5,
+        },
+        {
+            "target_name": "will_fill_within_5m",
+            "train_samples": 1,
+            "test_samples": 1,
+            "train_positive_rate": 0.0,
+            "test_positive_rate": 0.0,
+        },
+    ]
+
+    from src.research.ml_fill_evaluation import build_label_quality_gate
+
+    gate = build_label_quality_gate(summary, MlFillEvaluationConfig())
+    blocker_codes = {
+        str(blocker["reason_code"])
+        for blocker in cast(list[dict[str, object]], gate["blockers"])
+    }
+
+    assert gate["status"] == "blocked"
+    assert gate["can_train_models"] is False
+    assert "ONE_CLASS_TRAIN_LABELS" in blocker_codes
+    assert "INSUFFICIENT_TRAIN_SAMPLES" in blocker_codes
+    assert "INSUFFICIENT_TEST_SAMPLES" in blocker_codes
+
+
+def test_ml_fill_label_quality_fails_closed_when_no_targets() -> None:
+    from src.research.ml_fill_evaluation import build_label_quality_gate
+
+    gate = build_label_quality_gate([], MlFillEvaluationConfig())
+
+    assert gate["status"] == "blocked"
+    assert gate["can_train_models"] is False
+    summary = cast(dict[str, int], gate["summary"])
+    assert summary["targets_evaluated"] == 0

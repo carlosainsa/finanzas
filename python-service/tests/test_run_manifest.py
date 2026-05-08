@@ -98,6 +98,11 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["ml_fill_evaluation_examples"] == 8
     assert counts["ml_fill_evaluation_metrics"] == 4
     assert counts["ml_fill_evaluation_summary"] == 3
+    assert counts["ml_fill_label_quality_status"] == "blocked"
+    assert counts["ml_fill_can_train_models"] is False
+    assert counts["ml_fill_label_quality_targets_passed"] == 1
+    assert counts["ml_fill_label_quality_targets_blocked"] == 2
+    assert counts["ml_fill_label_quality_blocker_count"] == 3
     assert counts["pre_live_candidate_status"] == "blocked"
     assert counts["pre_live_candidate_blockers"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -328,6 +333,11 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["ml_fill_evaluation_examples"] == 8
     assert flat["ml_fill_evaluation_metrics"] == 4
     assert flat["ml_fill_evaluation_summary"] == 3
+    assert flat["ml_fill_label_quality_status"] == "blocked"
+    assert flat["ml_fill_can_train_models"] is False
+    assert flat["ml_fill_label_quality_targets_passed"] == 1
+    assert flat["ml_fill_label_quality_targets_blocked"] == 2
+    assert flat["ml_fill_label_quality_blocker_count"] == 3
     assert flat["pre_live_candidate_status"] == "blocked"
     assert flat["pre_live_candidate_blockers"] == 1
     assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -561,6 +571,16 @@ def seed_report_root(report_root: Path) -> Path:
                 "ml_fill_evaluation_examples": 8,
                 "ml_fill_evaluation_metrics": 4,
                 "ml_fill_evaluation_summary": 3,
+            },
+            "label_quality_gate": {
+                "schema_version": "ml_fill_label_quality_gate_v1",
+                "status": "blocked",
+                "can_train_models": False,
+                "summary": {
+                    "targets_passed": 1,
+                    "targets_blocked": 2,
+                    "blocker_count": 3,
+                },
             },
         },
     )

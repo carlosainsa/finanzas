@@ -20,6 +20,7 @@ class ExecutionProbeDecisionThresholds:
     max_drawdown: float = 0.0
     min_no_fill_future_touch_rate: float = 0.10
     min_market_timing_filter_fill_rate_lift: float = 0.005
+    min_fillability_market_asset_ids: int = 5
 
 
 def decide_execution_probe_next_step(
@@ -291,6 +292,10 @@ def decide_market_timing_filter(
     baseline_risk = typed_dict(baseline.get("risk"))
     candidate_risk = typed_dict(candidate.get("risk"))
     candidate_activity = typed_dict(candidate.get("activity"))
+    selection_source = market_timing_selection.get("selection_source")
+    market_asset_ids_count = numeric_or_none(
+        market_timing_selection.get("market_asset_ids_count")
+    )
     baseline_fill_rate = numeric_or_none(baseline_fills.get("observed_fill_rate"))
     candidate_fill_rate = numeric_or_none(candidate_fills.get("observed_fill_rate"))
     fill_rate_gap = numeric_or_none(candidate_fills.get("fill_rate_gap"))
@@ -339,6 +344,18 @@ def decide_market_timing_filter(
     elif not failed:
         decision = "KEEP_MARKET_TIMING_FILTER"
         reason = "filter_improved_observed_fill_rate_without_synthetic_or_risk_regression"
+    elif (
+        selection_source == "fillability"
+        and candidate_fill_rate is not None
+        and candidate_fill_rate <= 0
+        and (
+            market_asset_ids_count is None
+            or market_asset_ids_count < thresholds.min_fillability_market_asset_ids
+            or signals < thresholds.min_signals
+        )
+    ):
+        decision = "EXPAND_FILLABILITY_UNIVERSE"
+        reason = "fillability_universe_too_sparse_for_market_timing_relaxation"
     elif candidate_fill_rate is not None and candidate_fill_rate <= 0:
         decision = "RELAX_MARKET_TIMING_FILTER"
         reason = "filtered_universe_still_has_no_observed_fills"
@@ -371,9 +388,12 @@ def market_timing_next_cycle(
         market_timing_selection.get("min_future_touch_rate")
     )
     min_timing_signals = numeric_or_none(market_timing_selection.get("min_timing_signals"))
+    min_assets = numeric_or_none(market_timing_selection.get("min_assets"))
+    limit = numeric_or_none(market_timing_selection.get("limit"))
     min_avg_opportunity_spread = numeric_or_none(
         market_timing_selection.get("min_avg_opportunity_spread")
     )
+    selection_source = market_timing_selection.get("selection_source")
     if decision == "RELAX_MARKET_TIMING_FILTER":
         min_future_touch_rate = (
             min_future_touch_rate / 2 if min_future_touch_rate is not None else 0.05
@@ -383,22 +403,37 @@ def market_timing_next_cycle(
             if min_avg_opportunity_spread is not None
             else 0.005
         )
+    args = {
+        "--market-timing-filter": "future_touch",
+        "--min-future-touch-rate": format_number(
+            min_future_touch_rate if min_future_touch_rate is not None else 0.10
+        ),
+        "--min-timing-signals": format_number(
+            min_timing_signals if min_timing_signals is not None else 5
+        ),
+        "--min-avg-opportunity-spread": format_number(
+            min_avg_opportunity_spread
+            if min_avg_opportunity_spread is not None
+            else 0.01
+        ),
+    }
+    if decision == "EXPAND_FILLABILITY_UNIVERSE":
+        resolved_min_assets = int(min_assets) if min_assets is not None else 5
+        resolved_limit = int(limit) if limit is not None else resolved_min_assets
+        args.update(
+            {
+                "--selection-source": "fillability",
+                "--limit": format_number(
+                    float(max(resolved_limit * 2, resolved_min_assets * 2, 10))
+                ),
+                "--min-assets": format_number(float(resolved_min_assets)),
+            }
+        )
+    elif selection_source == "fillability":
+        args["--selection-source"] = "fillability"
     return {
         "script": "scripts/run_execution_probe_v7_cycle.sh",
-        "args": {
-            "--market-timing-filter": "future_touch",
-            "--min-future-touch-rate": format_number(
-                min_future_touch_rate if min_future_touch_rate is not None else 0.10
-            ),
-            "--min-timing-signals": format_number(
-                min_timing_signals if min_timing_signals is not None else 5
-            ),
-            "--min-avg-opportunity-spread": format_number(
-                min_avg_opportunity_spread
-                if min_avg_opportunity_spread is not None
-                else 0.01
-            ),
-        },
+        "args": args,
     }
 
 

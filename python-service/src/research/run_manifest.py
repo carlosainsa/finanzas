@@ -324,6 +324,12 @@ def manifest_counts(
     ml_fill_evaluation_counts = typed_dict(
         typed_dict(ml_fill_evaluation).get("counts")
     )
+    ml_fill_label_quality = typed_dict(
+        typed_dict(ml_fill_evaluation).get("label_quality_gate")
+    )
+    ml_fill_label_quality_summary = typed_dict(
+        ml_fill_label_quality.get("summary")
+    )
     return {
         "orderbook_snapshots": data_lake.get("orderbook_snapshots"),
         "signals": data_lake.get("signals"),
@@ -497,6 +503,17 @@ def manifest_counts(
         ),
         "ml_fill_evaluation_summary": ml_fill_evaluation_counts.get(
             "ml_fill_evaluation_summary"
+        ),
+        "ml_fill_label_quality_status": ml_fill_label_quality.get("status"),
+        "ml_fill_can_train_models": ml_fill_label_quality.get("can_train_models"),
+        "ml_fill_label_quality_targets_passed": ml_fill_label_quality_summary.get(
+            "targets_passed"
+        ),
+        "ml_fill_label_quality_targets_blocked": ml_fill_label_quality_summary.get(
+            "targets_blocked"
+        ),
+        "ml_fill_label_quality_blocker_count": ml_fill_label_quality_summary.get(
+            "blocker_count"
         ),
         "pre_live_candidate_status": typed_dict(pre_live_candidate).get("status"),
         "pre_live_candidate_blockers": len(
@@ -764,6 +781,17 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "ml_fill_evaluation_examples": counts.get("ml_fill_evaluation_examples"),
         "ml_fill_evaluation_metrics": counts.get("ml_fill_evaluation_metrics"),
         "ml_fill_evaluation_summary": counts.get("ml_fill_evaluation_summary"),
+        "ml_fill_label_quality_status": counts.get("ml_fill_label_quality_status"),
+        "ml_fill_can_train_models": counts.get("ml_fill_can_train_models"),
+        "ml_fill_label_quality_targets_passed": counts.get(
+            "ml_fill_label_quality_targets_passed"
+        ),
+        "ml_fill_label_quality_targets_blocked": counts.get(
+            "ml_fill_label_quality_targets_blocked"
+        ),
+        "ml_fill_label_quality_blocker_count": counts.get(
+            "ml_fill_label_quality_blocker_count"
+        ),
         "pre_live_candidate_status": counts.get("pre_live_candidate_status"),
         "pre_live_candidate_blockers": counts.get("pre_live_candidate_blockers"),
         "promotion_report_version": versions.get("promotion_report"),

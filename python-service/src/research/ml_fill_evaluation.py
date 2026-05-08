@@ -3,6 +3,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pandas as pd  # type: ignore[import-untyped]
@@ -29,6 +30,9 @@ class MlFillEvaluationConfig:
     train_fraction: float = 0.70
     bucket_count: int = 10
     min_test_samples: int = 5
+    min_train_samples: int = 20
+    min_total_samples: int = 30
+    require_two_classes: bool = True
 
     def __post_init__(self) -> None:
         if not 0 < self.train_fraction < 1:
@@ -37,6 +41,10 @@ class MlFillEvaluationConfig:
             raise ValueError("bucket_count must be greater than 1")
         if self.min_test_samples <= 0:
             raise ValueError("min_test_samples must be positive")
+        if self.min_train_samples <= 0:
+            raise ValueError("min_train_samples must be positive")
+        if self.min_total_samples <= 0:
+            raise ValueError("min_total_samples must be positive")
 
 
 def create_ml_fill_evaluation_report(
@@ -62,6 +70,7 @@ def create_ml_fill_evaluation_report(
             .fetch_df()
             .to_dict(orient="records")
         )
+    label_quality_gate = build_label_quality_gate(summary, config)
     report: dict[str, object] = {
         "report_version": REPORT_VERSION,
         "dataset_version": DATASET_VERSION,
@@ -72,6 +81,7 @@ def create_ml_fill_evaluation_report(
         "config": asdict(config),
         "counts": counts,
         "summary": summary,
+        "label_quality_gate": label_quality_gate,
         "targets": list(TARGETS),
         "outputs": [
             "ml_fill_evaluation_examples.parquet",
@@ -381,6 +391,204 @@ def create_ml_fill_evaluation_views(
         )
 
 
+def build_label_quality_gate(
+    summary: list[dict[str, object]],
+    config: MlFillEvaluationConfig,
+) -> dict[str, object]:
+    target_reports = [label_quality_target(row, config) for row in summary]
+    blockers = [
+        blocker
+        for target in target_reports
+        for blocker in list_of_dicts(target.get("blockers"))
+    ]
+    targets_passed = sum(1 for target in target_reports if target.get("status") == "passed")
+    status = "passed" if target_reports and not blockers else "blocked"
+    return {
+        "schema_version": "ml_fill_label_quality_gate_v1",
+        "status": status,
+        "can_train_models": status == "passed",
+        "decision_policy": "offline_label_quality_training_gate",
+        "config": {
+            "min_train_samples": config.min_train_samples,
+            "min_test_samples": config.min_test_samples,
+            "min_total_samples": config.min_total_samples,
+            "require_two_classes": config.require_two_classes,
+            "target_scope": list(TARGETS),
+        },
+        "summary": {
+            "targets_total": len(TARGETS),
+            "targets_evaluated": len(target_reports),
+            "targets_passed": targets_passed,
+            "targets_blocked": len(target_reports) - targets_passed,
+            "blocker_count": len(blockers),
+        },
+        "blockers": blockers,
+        "targets": target_reports,
+    }
+
+
+def label_quality_target(
+    row: dict[str, object],
+    config: MlFillEvaluationConfig,
+) -> dict[str, object]:
+    target_name = str(row.get("target_name") or "")
+    train_samples = int_or_zero(row.get("train_samples"))
+    test_samples = int_or_zero(row.get("test_samples"))
+    test_positive_rate = numeric_or_none(row.get("test_positive_rate"))
+    train_positive_rate = numeric_or_none(row.get("train_positive_rate"))
+    total_samples = train_samples + test_samples
+    train_positives = count_from_rate(train_samples, train_positive_rate)
+    test_positives = count_from_rate(test_samples, test_positive_rate)
+    total_positives = train_positives + test_positives
+    train_negatives = train_samples - train_positives
+    test_negatives = test_samples - test_positives
+    total_negatives = total_samples - total_positives
+    reasons: list[str] = []
+    blockers: list[dict[str, object]] = []
+    add_sample_blockers(
+        blockers,
+        reasons,
+        target_name,
+        "train",
+        train_samples,
+        config.min_train_samples,
+        empty_reason="NO_TRAIN_SAMPLES",
+        insufficient_reason="INSUFFICIENT_TRAIN_SAMPLES",
+    )
+    add_sample_blockers(
+        blockers,
+        reasons,
+        target_name,
+        "test",
+        test_samples,
+        config.min_test_samples,
+        empty_reason="NO_TEST_SAMPLES",
+        insufficient_reason="INSUFFICIENT_TEST_SAMPLES",
+    )
+    if total_samples < config.min_total_samples:
+        reason = "INSUFFICIENT_TOTAL_SAMPLES"
+        reasons.append(reason)
+        blockers.append(
+            {
+                "target_name": target_name,
+                "split": "all",
+                "reason_code": reason,
+                "samples": total_samples,
+                "min_required": config.min_total_samples,
+            }
+        )
+    if config.require_two_classes:
+        add_class_blocker(
+            blockers,
+            reasons,
+            target_name,
+            "train",
+            train_samples,
+            train_positives,
+            train_negatives,
+            "ONE_CLASS_TRAIN_LABELS",
+        )
+        add_class_blocker(
+            blockers,
+            reasons,
+            target_name,
+            "test",
+            test_samples,
+            test_positives,
+            test_negatives,
+            "ONE_CLASS_TEST_LABELS",
+        )
+        add_class_blocker(
+            blockers,
+            reasons,
+            target_name,
+            "all",
+            total_samples,
+            total_positives,
+            total_negatives,
+            "ONE_CLASS_TOTAL_LABELS",
+        )
+    return {
+        "target_name": target_name,
+        "status": "blocked" if blockers else "passed",
+        "train_samples": train_samples,
+        "train_positives": train_positives,
+        "train_negatives": train_negatives,
+        "train_positive_rate": train_positive_rate,
+        "test_samples": test_samples,
+        "test_positives": test_positives,
+        "test_negatives": test_negatives,
+        "test_positive_rate": test_positive_rate,
+        "total_samples": total_samples,
+        "total_positives": total_positives,
+        "total_negatives": total_negatives,
+        "total_positive_rate": (
+            total_positives / total_samples if total_samples > 0 else None
+        ),
+        "reasons": sorted(set(reasons)),
+        "blockers": blockers,
+    }
+
+
+def add_sample_blockers(
+    blockers: list[dict[str, object]],
+    reasons: list[str],
+    target_name: str,
+    split: str,
+    samples: int,
+    min_required: int,
+    *,
+    empty_reason: str,
+    insufficient_reason: str,
+) -> None:
+    reason = empty_reason if samples <= 0 else (
+        insufficient_reason if samples < min_required else ""
+    )
+    if not reason:
+        return
+    reasons.append(reason)
+    blockers.append(
+        {
+            "target_name": target_name,
+            "split": split,
+            "reason_code": reason,
+            "samples": samples,
+            "min_required": min_required,
+        }
+    )
+
+
+def add_class_blocker(
+    blockers: list[dict[str, object]],
+    reasons: list[str],
+    target_name: str,
+    split: str,
+    samples: int,
+    positives: int,
+    negatives: int,
+    reason: str,
+) -> None:
+    if samples <= 0 or (positives > 0 and negatives > 0):
+        return
+    reasons.append(reason)
+    blockers.append(
+        {
+            "target_name": target_name,
+            "split": split,
+            "reason_code": reason,
+            "samples": samples,
+            "positives": positives,
+            "negatives": negatives,
+        }
+    )
+
+
+def count_from_rate(samples: int, rate: float | None) -> int:
+    if rate is None:
+        return 0
+    return int(round(samples * rate))
+
+
 def copy_views(
     conn: duckdb.DuckDBPyConnection,
     output_dir: Path,
@@ -412,6 +620,26 @@ def normalize_value(value: object) -> object:
     return value
 
 
+def list_of_dicts(value: object) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def int_or_zero(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    return 0
+
+
+def numeric_or_none(value: object) -> float | None:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate offline ML fill targets")
     parser.add_argument("--duckdb", required=True)
@@ -431,6 +659,16 @@ def main() -> int:
         type=int,
         default=MlFillEvaluationConfig.min_test_samples,
     )
+    parser.add_argument(
+        "--min-train-samples",
+        type=int,
+        default=MlFillEvaluationConfig.min_train_samples,
+    )
+    parser.add_argument(
+        "--min-total-samples",
+        type=int,
+        default=MlFillEvaluationConfig.min_total_samples,
+    )
     args = parser.parse_args()
     report = create_ml_fill_evaluation_report(
         Path(args.duckdb),
@@ -439,6 +677,8 @@ def main() -> int:
             train_fraction=args.train_fraction,
             bucket_count=args.bucket_count,
             min_test_samples=args.min_test_samples,
+            min_train_samples=args.min_train_samples,
+            min_total_samples=args.min_total_samples,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

@@ -223,6 +223,8 @@ PYTHONPATH=python-service python3 -m src.research.ml_fill_evaluation \
   --train-fraction "${ML_FILL_EVALUATION_TRAIN_FRACTION:-0.70}" \
   --bucket-count "${ML_FILL_EVALUATION_BUCKET_COUNT:-10}" \
   --min-test-samples "${ML_FILL_EVALUATION_MIN_TEST_SAMPLES:-5}" \
+  --min-train-samples "${ML_FILL_EVALUATION_MIN_TRAIN_SAMPLES:-20}" \
+  --min-total-samples "${ML_FILL_EVALUATION_MIN_TOTAL_SAMPLES:-30}" \
   > "$REPORT_ROOT/ml_fill_evaluation.json"
 PYTHONPATH=python-service python3 -m src.research.market_regime \
   --duckdb "$DUCKDB_PATH" \

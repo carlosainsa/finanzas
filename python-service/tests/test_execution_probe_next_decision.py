@@ -113,6 +113,8 @@ def test_next_decision_marks_filtered_v7_market_timing_explicitly() -> None:
             synthetic_fill_rate=0.0,
             no_fill_future_touch_rate=0.0,
             market_timing_filter="future_touch",
+            selection_source="candidate_market_ranking",
+            market_asset_ids_count=5,
         )
     )
 
@@ -133,6 +135,59 @@ def test_next_decision_marks_filtered_v7_market_timing_explicitly() -> None:
         cast(dict[str, str], next_cycle["args"])["--min-avg-opportunity-spread"]
         == "0.005"
     )
+
+
+def test_next_decision_expands_fillability_universe_before_relaxing_timing() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v7",
+            signals=68,
+            filled_signals=0,
+            observed_fill_rate=0.0,
+            synthetic_fill_rate=0.0,
+            no_fill_future_touch_rate=0.0,
+            market_timing_filter="future_touch",
+            selection_source="fillability",
+            market_asset_ids_count=1,
+            min_assets=1,
+            limit=1,
+        )
+    )
+
+    timing = cast(dict[str, Any], report["market_timing_filter_decision"])
+    assert timing["decision"] == "EXPAND_FILLABILITY_UNIVERSE"
+    assert timing["reason"] == (
+        "fillability_universe_too_sparse_for_market_timing_relaxation"
+    )
+    next_cycle = cast(dict[str, Any], timing["next_cycle"])
+    args = cast(dict[str, str], next_cycle["args"])
+    assert args["--selection-source"] == "fillability"
+    assert args["--market-timing-filter"] == "future_touch"
+    assert args["--limit"] == "10"
+    assert args["--min-assets"] == "1"
+    assert args["--min-future-touch-rate"] == "0.1"
+    assert args["--min-avg-opportunity-spread"] == "0.01"
+
+
+def test_next_decision_relaxes_fillability_timing_when_universe_is_large_enough() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v7",
+            signals=400,
+            filled_signals=0,
+            observed_fill_rate=0.0,
+            synthetic_fill_rate=0.0,
+            no_fill_future_touch_rate=0.0,
+            market_timing_filter="future_touch",
+            selection_source="fillability",
+            market_asset_ids_count=8,
+            min_assets=5,
+            limit=10,
+        )
+    )
+
+    timing = cast(dict[str, Any], report["market_timing_filter_decision"])
+    assert timing["decision"] == "RELAX_MARKET_TIMING_FILTER"
 
 
 def test_next_decision_repeats_v6_when_sample_is_too_small() -> None:
@@ -235,6 +290,10 @@ def comparison_with_candidate(
     drawdown: float = 0.0,
     no_fill_future_touch_rate: float = 0.25,
     market_timing_filter: str | None = None,
+    selection_source: str | None = None,
+    market_asset_ids_count: int = 3,
+    min_assets: int = 3,
+    limit: int = 10,
 ) -> dict[str, object]:
     return {
         "report_version": "profile_observation_comparison_v1",
@@ -262,6 +321,10 @@ def comparison_with_candidate(
                 drawdown=drawdown,
                 no_fill_future_touch_rate=no_fill_future_touch_rate,
                 market_timing_filter=market_timing_filter,
+                selection_source=selection_source,
+                market_asset_ids_count=market_asset_ids_count,
+                min_assets=min_assets,
+                limit=limit,
             ),
         ],
         "pairwise_deltas": [],
@@ -280,6 +343,10 @@ def observation(
     drawdown: float,
     no_fill_future_touch_rate: float,
     market_timing_filter: str | None = None,
+    selection_source: str | None = None,
+    market_asset_ids_count: int = 3,
+    min_assets: int = 3,
+    limit: int = 10,
 ) -> dict[str, object]:
     return {
         "run_id": run_id,
@@ -291,12 +358,15 @@ def observation(
                 "source_path": "/tmp/execution_probe_universe_selection.json",
                 "status": "ready",
                 "profile": profile,
+                "selection_source": selection_source,
                 "market_timing_filter": market_timing_filter,
                 "min_future_touch_rate": 0.1,
                 "min_timing_signals": 5,
+                "min_assets": min_assets,
+                "limit": limit,
                 "min_avg_opportunity_spread": 0.01,
                 "max_avg_opportunity_spread": None,
-                "market_asset_ids_count": 3,
+                "market_asset_ids_count": market_asset_ids_count,
                 "market_asset_ids_sha256": "hash",
             }
             if market_timing_filter is not None

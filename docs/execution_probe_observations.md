@@ -306,3 +306,25 @@ than increasing quote aggressiveness immediately.
 The new `ml_fill_evaluation_v1` report also ran on this sample. It produced 69
 evaluation examples, but the test split still has one-class or insufficient
 labels, so it is diagnostic only and not ready for model training.
+
+Follow-up rule:
+
+`execution_probe_next_decision_v1` now treats narrow fillability runs separately.
+If `selection_source=fillability` has no observed fills and the universe is too
+small or the signal sample is thin, the decision is
+`EXPAND_FILLABILITY_UNIVERSE` instead of immediately relaxing timing thresholds.
+The next dry-run plan should start from:
+
+```bash
+scripts/run_execution_probe_v7_cycle.sh \
+  --universe-duckdb ".tmp/real-dry-run-data-lake/execution-probe-v7-cycle-20260508T015251Z/research.duckdb" \
+  --baseline-report-root ".tmp/real-dry-run-data-lake/execution-probe-v7-cycle-20260508T123244Z/reports/execution-probe-v7-cycle-20260508T123244Z" \
+  --universe-selection-source fillability \
+  --universe-limit 5 \
+  --min-assets 3 \
+  --min-future-touch-rate 0.025 \
+  --min-timing-signals 5 \
+  --min-avg-opportunity-spread 0.0025 \
+  --duration-seconds 1800 \
+  --print-plan
+```
