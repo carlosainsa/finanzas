@@ -32,6 +32,8 @@ def create_run_manifest(
     execution_quality = read_json(report_root / "execution_quality.json")
     quote_execution_diagnostics = read_json(report_root / "quote_execution_diagnostics.json")
     candidate_market_ranking = read_json(report_root / "candidate_market_ranking.json")
+    fillability_baseline = read_json(report_root / "fillability_baseline.json")
+    ml_fill_dataset = read_json(report_root / "ml_fill_dataset.json")
     pre_live_candidate = read_json(report_root / "pre_live_candidate_report.json")
     sentiment_features = read_json(report_root / "sentiment_features.json")
     sentiment_lift = read_json(report_root / "sentiment_lift.json")
@@ -112,6 +114,11 @@ def create_run_manifest(
             "candidate_market_ranking_report": candidate_market_ranking.get(
                 "report_version"
             ),
+            "fillability_baseline_report": fillability_baseline.get(
+                "report_version"
+            ),
+            "ml_fill_dataset_report": ml_fill_dataset.get("report_version"),
+            "ml_fill_dataset": ml_fill_dataset.get("dataset_version"),
             "pre_live_candidate_report": pre_live_candidate.get("report_version"),
         },
         "metrics": manifest_metrics(
@@ -142,6 +149,8 @@ def create_run_manifest(
             execution_quality,
             quote_execution_diagnostics,
             candidate_market_ranking,
+            fillability_baseline,
+            ml_fill_dataset,
             pre_live_candidate,
         ),
         "artifacts": artifact_metadata(report_root),
@@ -265,6 +274,8 @@ def manifest_counts(
     execution_quality: dict[str, object] | None = None,
     quote_execution_diagnostics: dict[str, object] | None = None,
     candidate_market_ranking: dict[str, object] | None = None,
+    fillability_baseline: dict[str, object] | None = None,
+    ml_fill_dataset: dict[str, object] | None = None,
     pre_live_candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     data_lake = typed_dict(summary.get("data_lake"))
@@ -301,6 +312,8 @@ def manifest_counts(
     candidate_market_recommendations = typed_dict(
         candidate_market_counts.get("recommendations")
     )
+    fillability_counts = typed_dict(typed_dict(fillability_baseline).get("counts"))
+    ml_fill_counts = typed_dict(typed_dict(ml_fill_dataset).get("counts"))
     return {
         "orderbook_snapshots": data_lake.get("orderbook_snapshots"),
         "signals": data_lake.get("signals"),
@@ -458,6 +471,14 @@ def manifest_counts(
         "candidate_market_needs_execution_evidence": (
             candidate_market_recommendations.get("NEEDS_EXECUTION_EVIDENCE")
         ),
+        "fillability_ranked_assets": fillability_counts.get(
+            "fillability_market_ranking"
+        ),
+        "fillability_selected_assets": fillability_counts.get(
+            "selected_fillability_markets"
+        ),
+        "ml_fill_examples": ml_fill_counts.get("ml_fill_examples"),
+        "ml_fill_dataset_summary": ml_fill_counts.get("ml_fill_dataset_summary"),
         "pre_live_candidate_status": typed_dict(pre_live_candidate).get("status"),
         "pre_live_candidate_blockers": len(
             typed_list(typed_dict(pre_live_candidate).get("blockers"))
@@ -476,6 +497,8 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "execution_quality.json",
         "quote_execution_diagnostics.json",
         "candidate_market_ranking.json",
+        "fillability_baseline.json",
+        "ml_fill_dataset.json",
         "pre_live_candidate_report.json",
         "market_regime.json",
         "sentiment_features.json",
@@ -714,6 +737,10 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "candidate_market_needs_execution_evidence": counts.get(
             "candidate_market_needs_execution_evidence"
         ),
+        "fillability_ranked_assets": counts.get("fillability_ranked_assets"),
+        "fillability_selected_assets": counts.get("fillability_selected_assets"),
+        "ml_fill_examples": counts.get("ml_fill_examples"),
+        "ml_fill_dataset_summary": counts.get("ml_fill_dataset_summary"),
         "pre_live_candidate_status": counts.get("pre_live_candidate_status"),
         "pre_live_candidate_blockers": counts.get("pre_live_candidate_blockers"),
         "promotion_report_version": versions.get("promotion_report"),
@@ -757,6 +784,11 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "candidate_market_ranking_report_version": versions.get(
             "candidate_market_ranking_report"
         ),
+        "fillability_baseline_report_version": versions.get(
+            "fillability_baseline_report"
+        ),
+        "ml_fill_dataset_report_version": versions.get("ml_fill_dataset_report"),
+        "ml_fill_dataset_version": versions.get("ml_fill_dataset"),
         "pre_live_candidate_report_version": versions.get("pre_live_candidate_report"),
         "artifact_count": artifact_count(manifest),
         "artifact_bytes_total": artifact_bytes_total(manifest),

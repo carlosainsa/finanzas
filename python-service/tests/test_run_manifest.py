@@ -91,6 +91,10 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["candidate_market_selected_assets"] == 1
     assert counts["candidate_market_promoted_assets"] == 1
     assert counts["candidate_market_needs_execution_evidence"] == 1
+    assert counts["fillability_ranked_assets"] == 2
+    assert counts["fillability_selected_assets"] == 1
+    assert counts["ml_fill_examples"] == 4
+    assert counts["ml_fill_dataset_summary"] == 2
     assert counts["pre_live_candidate_status"] == "blocked"
     assert counts["pre_live_candidate_blockers"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -117,6 +121,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
         "quote_execution_diagnostics_v1"
     )
     assert versions["candidate_market_ranking_report"] == "candidate_market_ranking_v1"
+    assert versions["fillability_baseline_report"] == "fillability_baseline_v1"
+    assert versions["ml_fill_dataset_report"] == "ml_fill_dataset_v1"
+    assert versions["ml_fill_dataset"] == "ml_fill_targets_v1"
     assert versions["pre_live_candidate_report"] == "pre_live_candidate_report_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
@@ -242,6 +249,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["candidate_market_ranking_report_version"] == (
         "candidate_market_ranking_v1"
     )
+    assert flat["fillability_baseline_report_version"] == "fillability_baseline_v1"
+    assert flat["ml_fill_dataset_report_version"] == "ml_fill_dataset_v1"
+    assert flat["ml_fill_dataset_version"] == "ml_fill_targets_v1"
     assert flat["pre_live_candidate_report_version"] == "pre_live_candidate_report_v1"
     assert flat["research_feature_blocklist_candidates"] == 3
     assert flat["blocked_segment_candidates"] == 1
@@ -304,6 +314,10 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["candidate_market_selected_assets"] == 1
     assert flat["candidate_market_promoted_assets"] == 1
     assert flat["candidate_market_needs_execution_evidence"] == 1
+    assert flat["fillability_ranked_assets"] == 2
+    assert flat["fillability_selected_assets"] == 1
+    assert flat["ml_fill_examples"] == 4
+    assert flat["ml_fill_dataset_summary"] == 2
     assert flat["pre_live_candidate_status"] == "blocked"
     assert flat["pre_live_candidate_blockers"] == 1
     assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -492,6 +506,37 @@ def seed_report_root(report_root: Path) -> Path:
                 },
             },
             "selected_market_asset_ids": ["asset-1"],
+        },
+    )
+    write_json(
+        report_root / "fillability_baseline.json",
+        {
+            "report_version": "fillability_baseline_v1",
+            "decision_policy": "offline_fillability_ranking_only",
+            "can_execute_trades": False,
+            "counts": {
+                "fillability_market_ranking": 2,
+                "selected_fillability_markets": 1,
+            },
+            "selected_market_asset_ids": ["asset-1"],
+        },
+    )
+    write_json(
+        report_root / "ml_fill_dataset.json",
+        {
+            "report_version": "ml_fill_dataset_v1",
+            "dataset_version": "ml_fill_targets_v1",
+            "decision_policy": "offline_ml_dataset_only",
+            "can_execute_trades": False,
+            "counts": {
+                "ml_fill_examples": 4,
+                "ml_fill_dataset_summary": 2,
+            },
+            "targets": [
+                "will_fill_within_5m",
+                "future_touch",
+                "adverse_selection_after_fill",
+            ],
         },
     )
     write_json(

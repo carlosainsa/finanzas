@@ -203,6 +203,20 @@ if [[ -n "${CANDIDATE_MARKET_LIMIT:-}" ]]; then
 fi
 PYTHONPATH=python-service python3 "${CANDIDATE_MARKET_RANKING_ARGS[@]}" \
   > "$REPORT_ROOT/candidate_market_ranking.json"
+PYTHONPATH=python-service python3 -m src.research.fillability_baseline \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/fillability_baseline" \
+  --min-signals "${FILLABILITY_MIN_SIGNALS:-5}" \
+  --min-future-touch-rate "${FILLABILITY_MIN_FUTURE_TOUCH_RATE:-0.05}" \
+  --max-stale-rate "${FILLABILITY_MAX_STALE_RATE:-0.10}" \
+  --limit "${FILLABILITY_LIMIT:-20}" \
+  > "$REPORT_ROOT/fillability_baseline.json"
+PYTHONPATH=python-service python3 -m src.research.ml_fill_dataset \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/ml_fill_dataset" \
+  --max-future-window-ms "${ML_FILL_DATASET_MAX_FUTURE_WINDOW_MS:-300000}" \
+  --adverse-selection-window-ms "${ML_FILL_DATASET_ADVERSE_SELECTION_WINDOW_MS:-30000}" \
+  > "$REPORT_ROOT/ml_fill_dataset.json"
 PYTHONPATH=python-service python3 -m src.research.market_regime \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/market_regime" \
@@ -343,6 +357,8 @@ market_opportunity_selector = read_json("market_opportunity_selector.json")
 execution_quality = read_json("execution_quality.json")
 quote_execution_diagnostics = read_json("quote_execution_diagnostics.json")
 candidate_market_ranking = read_json("candidate_market_ranking.json")
+fillability_baseline = read_json("fillability_baseline.json")
+ml_fill_dataset = read_json("ml_fill_dataset.json")
 calibration = read_json("calibration.json")
 near_touch_calibration = read_json("near_touch_calibration.json")
 promotion = read_json("pre_live_promotion.json")
@@ -367,6 +383,8 @@ summary = {
     "execution_quality": execution_quality,
     "quote_execution_diagnostics": quote_execution_diagnostics,
     "candidate_market_ranking": candidate_market_ranking,
+    "fillability_baseline": fillability_baseline,
+    "ml_fill_dataset": ml_fill_dataset,
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
     "sentiment_lift": read_json("sentiment_lift.json"),

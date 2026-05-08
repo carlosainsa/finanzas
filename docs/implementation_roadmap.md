@@ -126,6 +126,8 @@ These steps improve the trading platform before introducing heavier models. The 
    - Sentiment inputs are implemented as timestamped external evidence features; they are not in the live signal path.
    - Sentiment lift evaluation is implemented offline with point-in-time joins against `backtest_trades` and reports realized edge, fill-rate, adverse edge rate, drawdown, and baseline lift.
    - Feature blocklist candidates are implemented offline from regime/sentiment buckets and exported as candidate-only diagnostics, not runtime rules.
+   - Fillability baseline `fillability_baseline_v1` is implemented offline to rank market/assets by observed timing evidence, spread opportunity, stale rate, and liquidity context before scheduling another execution probe.
+   - ML fill dataset `ml_fill_targets_v1` is implemented offline with point-in-time execution features and explicit training flags for `will_fill_within_5m`, `future_touch`, and `adverse_selection_after_fill`; unlabeled fills stay null instead of becoming false negatives.
    - A committee of agents is acceptable only as an offline/advisory layer for model review, bias detection, feature proposals, and signal audits.
    - Live trading decisions must not depend on free-form agent consensus; they must remain deterministic, versioned, reproducible, and gated by Rust risk controls.
    - Agent outputs can become scores or diagnostics only after they are converted into versioned, testable inputs with clear promotion metrics.
@@ -175,6 +177,8 @@ These steps improve the trading platform before introducing heavier models. The 
    - The 2026-05-07 `execution_probe_v7` 90-minute cycle removed synthetic optimism but produced zero observed fills and zero future-touch evidence; repeat v7 with market/timing selection (`future_touch`, minimum timing sample, and spread floor) instead of changing quote aggressiveness again.
    - Add `market_timing_filter_decision` to `execution_probe_next_decision.json` so filtered v7 runs deterministically keep, relax, reject, or repeat market/timing filters without manual interpretation.
    - The first filtered v7 run produced 607 signals and zero fills; next repeat should relax the filter thresholds (`min_future_touch_rate=0.05`, `min_avg_opportunity_spread=0.005`) before changing quote policy again.
+   - Integrate `fillability_baseline_v1` and `ml_fill_targets_v1` in every research loop so future market selection and ML candidate design are based on comparable offline artifacts, not one-off manual threshold searches.
+   - The 2026-05-08 relaxed filtered v7 run produced 710 signals, zero observed fills, synthetic fill-rate `0.04366197183098591`, and one fillability-selected asset with future-touch rate `0.24031007751937986`; keep v7 research-only and either relax market/timing thresholds again (`0.025`/`0.0025`) or run a focused observation on the fillability-selected asset before changing quote policy.
    - Require positive realized edge after slippage and no persistent adverse selection before enabling `EXECUTION_MODE=live`.
    - Require clean operator controls, confirmed cancellation behavior, and passing integration smoke before any live deployment.
    - Operator command intents are persisted in Postgres `control_commands` before Redis Stream publication when Postgres is configured, and production/control-required mode fails closed if that audit store is unavailable.

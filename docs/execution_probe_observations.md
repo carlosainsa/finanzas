@@ -213,3 +213,54 @@ still produced zero observed fills and zero future-touch evidence. The generated
 `market_timing_filter_decision` was `RELAX_MARKET_TIMING_FILTER`, with the next
 cycle lowering `min_future_touch_rate` to `0.05` and
 `min_avg_opportunity_spread` to `0.005` while keeping the run research-only.
+
+## 2026-05-08 - Relaxed Filtered execution_probe_v7 60m
+
+- Run id: `execution-probe-v7-cycle-20260508T015251Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v7-cycle-20260508T015251Z/reports/execution-probe-v7-cycle-20260508T015251Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v7`
+- Market/timing filter: `future_touch`
+- Filter thresholds: `min_future_touch_rate=0.05`, `min_avg_opportunity_spread=0.005`, `min_timing_signals=5`
+- Universe: 4 market assets
+- Duration: 60 minutes
+
+Key metrics:
+
+- Orderbook snapshots: `5751`
+- Signals: `710`
+- Execution reports: `8`
+- Observed fill-rate: `0.0`
+- Synthetic fill-rate: `0.04366197183098591`
+- Synthetic-only signals: `30`
+- No-fill future-touch rate: `0.04366197183098591`
+- Stale data rate: `0.0027821248478525473`
+- Reconciliation divergence rate: `0.0`
+
+Decision artifact:
+
+- `execution_probe_next_decision.json`
+- Recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- `market_timing_filter_decision.decision`: `RELAX_MARKET_TIMING_FILTER`
+- Next cycle thresholds: `min_future_touch_rate=0.025`, `min_avg_opportunity_spread=0.0025`, `min_timing_signals=5`
+
+Interpretation:
+
+The relaxed filter recovered enough activity and some future-touch evidence, but
+still produced no observed dry-run fills. The pre-live gate remains `NO_GO`
+because fill-rate is zero, positive realized edge is unavailable, and adverse
+selection remains blocked. This is still a market/timing selection problem, not
+a live-readiness problem.
+
+The new `fillability_baseline_v1` artifact selected one asset with materially
+better timing evidence:
+
+- asset: `88275040060084773376557187972215267513049848642895776801789297917961077894224`
+- future-touch rate: `0.24031007751937986`
+- signals: `129`
+- recommendation: `PROMOTE_TO_OBSERVATION`
+
+Next observation should either use the generated relaxed thresholds across the
+universe or run a focused observation on the fillability-selected asset before
+changing quote policy again. Both paths remain research-only and must keep
+`can_execute_trades=false`.
