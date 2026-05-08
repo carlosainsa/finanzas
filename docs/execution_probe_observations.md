@@ -339,3 +339,67 @@ scripts/run_execution_probe_v7_cycle.sh \
   --duration-seconds 1800 \
   --print-plan
 ```
+
+## 2026-05-08 - Fillability Fallback execution_probe_v7 60m
+
+- Run id: `execution-probe-v7-fillability-fallback-20260508T134000Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v7-fillability-fallback-20260508T134000Z/reports/execution-probe-v7-fillability-fallback-20260508T134000Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v7`
+- Selection source: `fillability`
+- Universe: 3 market assets
+- Fallback: 1 primary fillability asset + 2 `KEEP_DIAGNOSTIC` backfill assets
+- Duration: 60 minutes
+- Universe hash: `93a5e6d312296a012d5a51f4d48126e688dfd74a810e04f77d8a7b309bbdb760`
+
+Key metrics:
+
+- Orderbook stream events: `2714`
+- Signals: `415`
+- Execution reports: `6`
+- Report statuses: `3 DELAYED`, `3 UNMATCHED`
+- Observed fill-rate: `0.0`
+- Dry-run fill-rate: `0.0`
+- Synthetic fill-rate: `0.08674698795180723`
+- Synthetic-only signals: `36`
+- No-fill future-touch rate: `0.08674698795180723`
+- Adjusted synthetic fill-rate: `0.021686746987951807`
+- Stale data rate: `0.011786372007366482`
+- Reconciliation divergence rate: `0.0`
+
+Decision artifacts:
+
+- `profile_observation_comparison.json`
+- `profile_observation_comparison_all_v7.json`
+- `execution_probe_next_decision.json`
+- `execution_probe_next_decision_all_v7.json`
+- Recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- `market_timing_filter_decision.decision`: `EXPAND_FILLABILITY_UNIVERSE`
+- Reason: `fillability_universe_too_sparse_for_market_timing_relaxation`
+
+Interpretation:
+
+The fallback selector worked operationally: it produced a ready 3-asset
+fillability universe and collected enough signal volume for a meaningful
+observation. The result is still not promotable. The run recovered synthetic
+future-touch evidence, but did not produce observed fills, and only 3 signal
+lifecycles created dry-run orders. Most signals had no observed report, so the
+next step should expand the fillability universe before changing quote
+aggressiveness. The all-v7 comparison reached the same decision as the immediate
+baseline comparison.
+
+Next dry-run plan:
+
+```bash
+scripts/run_execution_probe_v7_cycle.sh \
+  --universe-duckdb ".tmp/real-dry-run-data-lake/execution-probe-v7-fillability-fallback-20260508T134000Z/research.duckdb" \
+  --baseline-report-root ".tmp/real-dry-run-data-lake/execution-probe-v7-fillability-fallback-20260508T134000Z/reports/execution-probe-v7-fillability-fallback-20260508T134000Z" \
+  --universe-selection-source fillability \
+  --universe-limit 10 \
+  --min-assets 5 \
+  --min-future-touch-rate 0.025 \
+  --min-timing-signals 5 \
+  --min-avg-opportunity-spread 0.0025 \
+  --duration-seconds 3600 \
+  --print-plan
+```
