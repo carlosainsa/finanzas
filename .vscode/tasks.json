@@ -1,0 +1,76 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "frontend: dev operator dashboard",
+      "type": "shell",
+      "command": "npm run dev:operator",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Local:.*http://127\\.0\\.0\\.1:5174"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "frontend: e2e",
+      "type": "shell",
+      "command": "npm run test:e2e",
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "python: tests",
+      "type": "shell",
+      "command": "PYTHONPATH=python-service pytest -q python-service/tests",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "rust: tests",
+      "type": "shell",
+      "command": "cargo test",
+      "options": {
+        "cwd": "${workspaceFolder}/rust-engine"
+      },
+      "group": "test",
+      "problemMatcher": [
+        "$rustc"
+      ]
+    },
+    {
+      "label": "repo: check all",
+      "type": "shell",
+      "command": "./scripts/check_all.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$rustc"
+      ]
+    }
+  ]
+}

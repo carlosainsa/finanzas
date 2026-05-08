@@ -1,0 +1,12 @@
+{
+  "workbench.browser.openLocalhostLinks": true,
+  "workbench.browser.showInTitleBar": true,
+  "github.copilot.chat.agent.backgroundTodoAgent.enabled": true,
+  "github.copilot.chat.agent.modelDetails.enabled": true,
+  "github.copilot.chat.otel.enabled": false,
+  "github.copilot.chat.otel.otlpEndpoint": "http://127.0.0.1:4318/v1/traces",
+  "chat.agent.sandbox.enabled": "allowNetwork",
+  "chat.tools.terminal.blockDetectedFileWrites": "outsideWorkspace",
+  "markdown.preview.scrollPreviewWithEditor": true,
+  "markdown.preview.scrollEditorWithPreview": true
+}
