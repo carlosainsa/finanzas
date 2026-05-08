@@ -403,3 +403,74 @@ scripts/run_execution_probe_v7_cycle.sh \
   --duration-seconds 3600 \
   --print-plan
 ```
+
+## 2026-05-08 - Fillability Expanded execution_probe_v7 60m
+
+- Run id: `execution-probe-v7-fillability-expanded-20260508T151000Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v7-fillability-expanded-20260508T151000Z/reports/execution-probe-v7-fillability-expanded-20260508T151000Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v7`
+- Selection source: `fillability`
+- Universe: 5 market assets
+- Universe config: `universe_limit=10`, `min_assets=5`
+- Filter thresholds: `min_future_touch_rate=0.025`, `min_avg_opportunity_spread=0.0025`, `min_timing_signals=5`
+- Fallback: 1 primary fillability asset + 2 `KEEP_DIAGNOSTIC` backfill assets + 2 market metadata liquidity backfill assets
+- Duration: 60 minutes
+- Universe hash: `ec55dd32946a0820d39e5c888b2abe4705a9984b333b79cd06e80af2e518fed0`
+
+Key metrics:
+
+- Orderbook stream events: `2637`
+- Orderbook snapshots: `2637`
+- Signals: `373`
+- Execution reports: `6` raw rows, `3` terminal signal reports
+- Report statuses: `3 DELAYED`, `3 UNMATCHED`
+- Observed fill-rate: `0.0`
+- Dry-run fill-rate: `0.0`
+- Synthetic fill-rate: `0.03485254691689008`
+- Synthetic-only signals: `13`
+- No-fill future-touch rate: `0.03485254691689008`
+- Adjusted synthetic fill-rate: `0.00871313672922252`
+- Stale data rate: `0.02578687902919985`
+- Reconciliation divergence rate: `0.0`
+- Filled signals: `0`
+- Realized edge: unavailable because there were no fills
+- Adverse selection: `1.0`
+- Drawdown: `0.0`
+
+Signal-to-order conversion:
+
+- `signal_to_order_conversion.report_version`: `signal_to_order_conversion_v1`
+- Signals analyzed: `373`
+- Signals with terminal report: `3`
+- Signals missing execution report: `370`
+- Orders created: `3`
+- Order creation rate: `0.00804289544235925`
+- Missing report rate: `0.9919571045576407`
+- Dominant root cause: `missing_execution_report`
+
+Decision artifacts:
+
+- `profile_observation_comparison.json`
+- `profile_observation_comparison_all_v7.json`
+- `execution_probe_next_decision.json`
+- `execution_probe_next_decision_all_v7.json`
+- `signal_to_order_conversion.json`
+- Recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- `market_timing_filter_decision.decision`: `RELAX_MARKET_TIMING_FILTER`
+- Reason: `filtered_universe_still_has_no_observed_fills`
+- Next cycle thresholds: `min_future_touch_rate=0.0125`, `min_avg_opportunity_spread=0.00125`, `min_timing_signals=5`
+
+Interpretation:
+
+The 5-asset fillability-expanded run improved universe coverage and reduced the
+synthetic-only gap versus the 3-asset fallback run, but it still produced no
+observed fills. The new signal-to-order diagnostic shows the main operational
+blocker more directly: 370 of 373 signals had no terminal execution report, and
+only 3 signals created dry-run orders. That means the current issue is not signal
+generation volume. The next research-only loop should relax market/timing
+filters and investigate why most accepted strategy signals do not become
+executor reports before changing quote aggressiveness.
+
+The run remains `research-only`; `can_execute_trades=false` and the go/no-go
+decision is `NO_GO`.

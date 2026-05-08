@@ -5,6 +5,8 @@ import duckdb
 
 from src.research.execution_probe_universe_selection import (
     FILLABILITY_FALLBACK_REASON,
+    MARKET_METADATA_FALLBACK_REASON,
+    MARKET_OPPORTUNITY_FALLBACK_REASON,
     REPORT_VERSION,
     ExecutionProbeUniverseConfig,
     create_execution_probe_universe_selection,
@@ -173,7 +175,7 @@ def test_execution_probe_universe_selection_backfills_fillability_min_assets(
     assert selected[2]["fallback_reason"] == FILLABILITY_FALLBACK_REASON
 
 
-def test_execution_probe_universe_selection_marks_insufficient_after_fallback(
+def test_execution_probe_universe_selection_expands_strict_fillability_to_ready(
     tmp_path: Path,
 ) -> None:
     db_path = seed_fillability_universe_db(tmp_path)
@@ -193,10 +195,43 @@ def test_execution_probe_universe_selection_marks_insufficient_after_fallback(
         ),
     )
 
-    assert report["status"] == "insufficient_assets"
-    assert report["market_asset_ids"] == ["asset-touch", "asset-fallback-0"]
+    assert report["status"] == "ready"
+    assert report["market_asset_ids_count"] == 4
     fallback = cast(dict[str, Any], report["fallback"])
-    assert fallback["assets_added"] == 1
+    assert fallback["assets_added"] == 3
+
+
+def test_execution_probe_universe_selection_expands_fillability_with_market_metadata(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_fillability_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v7",
+            limit=5,
+            min_assets=5,
+            selection_source="fillability",
+            min_future_touch_rate=0.05,
+            min_timing_signals=1,
+            min_avg_opportunity_spread=0.005,
+        ),
+    )
+
+    assert report["status"] == "ready"
+    assert report["market_asset_ids_count"] == 5
+    fallback = cast(dict[str, Any], report["fallback"])
+    reasons = set(cast(list[str], fallback["fallback_reasons"]))
+    assert FILLABILITY_FALLBACK_REASON in reasons
+    assert MARKET_METADATA_FALLBACK_REASON in reasons
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert any(
+        row["fallback_reason"] == MARKET_OPPORTUNITY_FALLBACK_REASON
+        or row["fallback_reason"] == MARKET_METADATA_FALLBACK_REASON
+        for row in selected
+    )
 
 
 def test_execution_probe_universe_selection_requires_timing_evidence_for_filter(
@@ -559,6 +594,34 @@ def seed_fillability_universe_db(tmp_path: Path) -> Path:
                     True,
                     3_000.0,
                     4_000.0,
+                    1,
+                ),
+                (
+                    "market-metadata-0",
+                    "asset-metadata-0",
+                    "Yes",
+                    "Question metadata 0",
+                    "question-metadata-0",
+                    True,
+                    False,
+                    False,
+                    True,
+                    10_000.0,
+                    12_000.0,
+                    1,
+                ),
+                (
+                    "market-metadata-1",
+                    "asset-metadata-1",
+                    "Yes",
+                    "Question metadata 1",
+                    "question-metadata-1",
+                    True,
+                    False,
+                    False,
+                    True,
+                    9_000.0,
+                    11_000.0,
                     1,
                 ),
             ],

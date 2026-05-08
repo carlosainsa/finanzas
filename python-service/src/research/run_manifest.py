@@ -31,6 +31,9 @@ def create_run_manifest(
     market_opportunity_selector = read_json(report_root / "market_opportunity_selector.json")
     execution_quality = read_json(report_root / "execution_quality.json")
     quote_execution_diagnostics = read_json(report_root / "quote_execution_diagnostics.json")
+    signal_to_order_conversion = read_json(
+        report_root / "signal_to_order_conversion.json"
+    )
     candidate_market_ranking = read_json(report_root / "candidate_market_ranking.json")
     fillability_baseline = read_json(report_root / "fillability_baseline.json")
     ml_fill_dataset = read_json(report_root / "ml_fill_dataset.json")
@@ -112,6 +115,9 @@ def create_run_manifest(
             "quote_execution_diagnostics_report": quote_execution_diagnostics.get(
                 "report_version"
             ),
+            "signal_to_order_conversion_report": signal_to_order_conversion.get(
+                "report_version"
+            ),
             "candidate_market_ranking_report": candidate_market_ranking.get(
                 "report_version"
             ),
@@ -153,6 +159,7 @@ def create_run_manifest(
             market_opportunity_selector,
             execution_quality,
             quote_execution_diagnostics,
+            signal_to_order_conversion,
             candidate_market_ranking,
             fillability_baseline,
             ml_fill_dataset,
@@ -279,6 +286,7 @@ def manifest_counts(
     market_opportunity_selector: dict[str, object] | None = None,
     execution_quality: dict[str, object] | None = None,
     quote_execution_diagnostics: dict[str, object] | None = None,
+    signal_to_order_conversion: dict[str, object] | None = None,
     candidate_market_ranking: dict[str, object] | None = None,
     fillability_baseline: dict[str, object] | None = None,
     ml_fill_dataset: dict[str, object] | None = None,
@@ -312,6 +320,12 @@ def manifest_counts(
     )
     quote_execution_summary = typed_dict(
         typed_dict(quote_execution_diagnostics).get("summary")
+    )
+    signal_to_order_counts = typed_dict(
+        typed_dict(signal_to_order_conversion).get("counts")
+    )
+    signal_to_order_summary = typed_dict(
+        typed_dict(signal_to_order_conversion).get("summary")
     )
     candidate_market_counts = typed_dict(
         typed_dict(candidate_market_ranking).get("counts")
@@ -475,6 +489,30 @@ def manifest_counts(
         "quote_execution_outcomes": quote_execution_counts.get(
             "quote_execution_outcomes"
         ),
+        "signal_to_order_signals": signal_to_order_summary.get("signals"),
+        "signal_to_order_reports": signal_to_order_summary.get("reports"),
+        "signal_to_order_missing_reports": signal_to_order_summary.get(
+            "missing_reports"
+        ),
+        "signal_to_order_orders_created": signal_to_order_summary.get(
+            "orders_created"
+        ),
+        "signal_to_order_filled_signals": signal_to_order_summary.get(
+            "filled_signals"
+        ),
+        "signal_to_order_report_rate": signal_to_order_summary.get("report_rate"),
+        "signal_to_order_order_creation_rate": signal_to_order_summary.get(
+            "order_creation_rate"
+        ),
+        "signal_to_order_missing_report_rate": signal_to_order_summary.get(
+            "missing_report_rate"
+        ),
+        "signal_to_order_root_causes": signal_to_order_counts.get(
+            "signal_to_order_root_causes"
+        ),
+        "signal_to_order_asset_strategy_rows": signal_to_order_counts.get(
+            "signal_to_order_by_asset_strategy"
+        ),
         "candidate_market_ranked_assets": candidate_market_counts.get(
             "candidate_market_ranking"
         ),
@@ -532,6 +570,7 @@ def artifact_metadata(report_root: Path) -> list[dict[str, object]]:
         "market_opportunity_selector.json",
         "execution_quality.json",
         "quote_execution_diagnostics.json",
+        "signal_to_order_conversion.json",
         "candidate_market_ranking.json",
         "fillability_baseline.json",
         "ml_fill_dataset.json",
@@ -764,6 +803,24 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
             "quote_execution_dry_run_filled_signals"
         ),
         "quote_execution_outcomes": counts.get("quote_execution_outcomes"),
+        "signal_to_order_signals": counts.get("signal_to_order_signals"),
+        "signal_to_order_reports": counts.get("signal_to_order_reports"),
+        "signal_to_order_missing_reports": counts.get(
+            "signal_to_order_missing_reports"
+        ),
+        "signal_to_order_orders_created": counts.get("signal_to_order_orders_created"),
+        "signal_to_order_filled_signals": counts.get("signal_to_order_filled_signals"),
+        "signal_to_order_report_rate": counts.get("signal_to_order_report_rate"),
+        "signal_to_order_order_creation_rate": counts.get(
+            "signal_to_order_order_creation_rate"
+        ),
+        "signal_to_order_missing_report_rate": counts.get(
+            "signal_to_order_missing_report_rate"
+        ),
+        "signal_to_order_root_causes": counts.get("signal_to_order_root_causes"),
+        "signal_to_order_asset_strategy_rows": counts.get(
+            "signal_to_order_asset_strategy_rows"
+        ),
         "candidate_market_ranked_assets": counts.get("candidate_market_ranked_assets"),
         "candidate_market_selected_assets": counts.get(
             "candidate_market_selected_assets"
@@ -831,6 +888,9 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         "execution_quality_report_version": versions.get("execution_quality_report"),
         "quote_execution_diagnostics_report_version": versions.get(
             "quote_execution_diagnostics_report"
+        ),
+        "signal_to_order_conversion_report_version": versions.get(
+            "signal_to_order_conversion_report"
         ),
         "candidate_market_ranking_report_version": versions.get(
             "candidate_market_ranking_report"

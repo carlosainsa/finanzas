@@ -147,6 +147,13 @@ PYTHONPATH=python-service python3 -m src.research.quote_execution_diagnostics \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/quote_execution_diagnostics" \
   > "$REPORT_ROOT/quote_execution_diagnostics.json"
+PYTHONPATH=python-service python3 -m src.research.signal_to_order_conversion \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/signal_to_order_conversion" \
+  --missing-report-after-ms "${SIGNAL_TO_ORDER_MISSING_REPORT_AFTER_MS:-300000}" \
+  --stale-book-ms "${SIGNAL_TO_ORDER_STALE_BOOK_MS:-60000}" \
+  --examples-limit "${SIGNAL_TO_ORDER_EXAMPLES_LIMIT:-100}" \
+  > "$REPORT_ROOT/signal_to_order_conversion.json"
 MARKET_OPPORTUNITY_ARGS=(
   -m src.research.market_opportunity_selector
   --duckdb "$DUCKDB_PATH"
@@ -377,6 +384,7 @@ backtest = read_json("backtest.json")
 market_opportunity_selector = read_json("market_opportunity_selector.json")
 execution_quality = read_json("execution_quality.json")
 quote_execution_diagnostics = read_json("quote_execution_diagnostics.json")
+signal_to_order_conversion = read_json("signal_to_order_conversion.json")
 candidate_market_ranking = read_json("candidate_market_ranking.json")
 fillability_baseline = read_json("fillability_baseline.json")
 ml_fill_dataset = read_json("ml_fill_dataset.json")
@@ -404,6 +412,7 @@ summary = {
     "market_opportunity_selector": market_opportunity_selector,
     "execution_quality": execution_quality,
     "quote_execution_diagnostics": quote_execution_diagnostics,
+    "signal_to_order_conversion": signal_to_order_conversion,
     "candidate_market_ranking": candidate_market_ranking,
     "fillability_baseline": fillability_baseline,
     "ml_fill_dataset": ml_fill_dataset,

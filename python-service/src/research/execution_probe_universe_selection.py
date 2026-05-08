@@ -25,6 +25,12 @@ REPORT_VERSION = "execution_probe_universe_selection_v1"
 FILLABILITY_FALLBACK_REASON = (
     "fillability_min_assets_backfill_keep_diagnostic_liquidity_spread"
 )
+MARKET_OPPORTUNITY_FALLBACK_REASON = (
+    "fillability_min_assets_backfill_market_opportunity_liquidity"
+)
+MARKET_METADATA_FALLBACK_REASON = (
+    "fillability_min_assets_backfill_market_metadata_liquidity"
+)
 DEFAULT_RECOMMENDATIONS = (
     "PROMOTE_TO_OBSERVATION",
     "KEEP_DIAGNOSTIC",
@@ -302,14 +308,8 @@ def select_fillability_universe(
     missing_assets = min(config.min_assets - len(primary), config.limit - len(primary))
     if missing_assets <= 0:
         return primary.head(config.limit)
-    selected_assets = [
-        str(asset_id)
-        for asset_id in primary.get("asset_id", pd.Series(dtype=str)).tolist()
-    ]
-    selected_filter_sql = ""
-    if selected_assets:
-        selected_list = ",".join(f"'{duckdb_literal(asset_id)}'" for asset_id in selected_assets)
-        selected_filter_sql = f"and fillability.asset_id not in ({selected_list})"
+    selected_assets = asset_ids_from_frame(primary)
+    selected_filter_sql = excluded_assets_sql(selected_assets, "fillability")
     fallback = conn.execute(
         f"""
         select
@@ -332,9 +332,183 @@ def select_fillability_universe(
         limit {missing_assets}
         """
     ).fetch_df()
-    if fallback.empty:
-        return primary.head(config.limit)
-    return pd.concat([primary, fallback], ignore_index=True).head(config.limit)
+    selected = pd.concat([primary, fallback], ignore_index=True)
+    if len(selected) >= config.min_assets:
+        return selected.head(config.limit)
+    selected_assets = asset_ids_from_frame(selected)
+    missing_assets = min(config.min_assets - len(selected), config.limit - len(selected))
+    if relation_exists(conn, "market_opportunity_ranking"):
+        opportunity = select_market_opportunity_fallback(
+            conn,
+            selected_assets,
+            missing_assets,
+            config,
+        )
+    else:
+        opportunity = pd.DataFrame()
+    selected = pd.concat([selected, opportunity], ignore_index=True)
+    if len(selected) >= config.min_assets:
+        return selected.head(config.limit)
+    selected_assets = asset_ids_from_frame(selected)
+    missing_assets = min(config.min_assets - len(selected), config.limit - len(selected))
+    metadata = select_market_metadata_fallback(conn, selected_assets, missing_assets)
+    selected = pd.concat([selected, metadata], ignore_index=True)
+    return selected.head(config.limit)
+
+
+def select_market_opportunity_fallback(
+    conn: duckdb.DuckDBPyConnection,
+    selected_assets: list[str],
+    limit: int,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    if limit <= 0:
+        return pd.DataFrame()
+    spread_filters = []
+    if config.min_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(opportunity.avg_opportunity_spread, opportunity.avg_spread, 0) >= {config.min_avg_opportunity_spread}"
+        )
+    if config.max_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(opportunity.avg_opportunity_spread, opportunity.avg_spread, 0) <= {config.max_avg_opportunity_spread}"
+        )
+    spread_filter_sql = (
+        "\n          and " + "\n          and ".join(spread_filters)
+        if spread_filters
+        else ""
+    )
+    return conn.execute(
+        f"""
+        select
+            opportunity.rank,
+            opportunity.market_id,
+            opportunity.asset_id,
+            cast(null as varchar) as side,
+            cast(null as varchar) as strategy,
+            cast(null as varchar) as model_version,
+            cast(0 as bigint) as signals,
+            cast(0 as double) as dry_run_signal_lifecycles,
+            cast(0 as double) as dry_run_filled_signals,
+            cast(0 as double) as synthetic_filled_signals,
+            cast(0 as double) as neither_signals,
+            cast(null as double) as future_touch_rate,
+            cast(null as double) as inside_spread_rate,
+            cast(null as double) as behind_touch_rate,
+            coalesce(opportunity.avg_opportunity_spread, opportunity.avg_spread) as avg_spread_at_signal,
+            cast(null as double) as avg_distance_to_mid,
+            cast(null as double) as avg_distance_to_touch,
+            cast(null as double) as avg_required_quote_move,
+            cast(null as double) as avg_book_age_ms,
+            opportunity.stale_rate,
+            opportunity.spread_opportunity_density,
+            opportunity.avg_total_depth,
+            opportunity.liquidity,
+            opportunity.volume,
+            opportunity.question,
+            opportunity.slug,
+            opportunity.outcome,
+            opportunity.opportunity_score as fillability_score,
+            'MARKET_OPPORTUNITY_BACKFILL' as recommendation,
+            cast(null as bigint) as timing_signals,
+            'market_opportunity_fallback' as selection_tier,
+            '{MARKET_OPPORTUNITY_FALLBACK_REASON}' as fallback_reason
+        from market_opportunity_ranking opportunity
+        where true
+          {excluded_assets_sql(selected_assets, "opportunity")}
+          {spread_filter_sql}
+        order by
+            opportunity.opportunity_score desc,
+            opportunity.spread_opportunity_density desc,
+            coalesce(opportunity.liquidity, 0) desc,
+            opportunity.asset_id
+        limit {limit}
+        """
+    ).fetch_df()
+
+
+def select_market_metadata_fallback(
+    conn: duckdb.DuckDBPyConnection,
+    selected_assets: list[str],
+    limit: int,
+) -> pd.DataFrame:
+    if limit <= 0:
+        return pd.DataFrame()
+    return conn.execute(
+        f"""
+        with latest_metadata as (
+            select *
+            from (
+                select
+                    *,
+                    row_number() over (
+                        partition by market_id, asset_id
+                        order by ingested_at_ms desc nulls last
+                    ) as metadata_rank
+                from market_metadata
+            )
+            where metadata_rank = 1
+        )
+        select
+            row_number() over (
+                order by coalesce(liquidity, 0) desc, coalesce(volume, 0) desc, asset_id
+            ) as rank,
+            market_id,
+            asset_id,
+            cast(null as varchar) as side,
+            cast(null as varchar) as strategy,
+            cast(null as varchar) as model_version,
+            cast(0 as bigint) as signals,
+            cast(0 as double) as dry_run_signal_lifecycles,
+            cast(0 as double) as dry_run_filled_signals,
+            cast(0 as double) as synthetic_filled_signals,
+            cast(0 as double) as neither_signals,
+            cast(null as double) as future_touch_rate,
+            cast(null as double) as inside_spread_rate,
+            cast(null as double) as behind_touch_rate,
+            cast(null as double) as avg_spread_at_signal,
+            cast(null as double) as avg_distance_to_mid,
+            cast(null as double) as avg_distance_to_touch,
+            cast(null as double) as avg_required_quote_move,
+            cast(null as double) as avg_book_age_ms,
+            cast(null as double) as stale_rate,
+            cast(null as double) as spread_opportunity_density,
+            cast(null as double) as avg_total_depth,
+            coalesce(liquidity, 0) as liquidity,
+            coalesce(volume, 0) as volume,
+            question,
+            slug,
+            outcome,
+            coalesce(liquidity, 0) / 1000 + coalesce(volume, 0) / 10000 as fillability_score,
+            'MARKET_METADATA_BACKFILL' as recommendation,
+            cast(null as bigint) as timing_signals,
+            'market_metadata_fallback' as selection_tier,
+            '{MARKET_METADATA_FALLBACK_REASON}' as fallback_reason
+        from latest_metadata
+        where coalesce(active, true)
+          and not coalesce(closed, false)
+          and not coalesce(archived, false)
+          and coalesce(enable_order_book, true)
+          {excluded_assets_sql(selected_assets, "latest_metadata")}
+        order by coalesce(liquidity, 0) desc, coalesce(volume, 0) desc, asset_id
+        limit {limit}
+        """
+    ).fetch_df()
+
+
+def asset_ids_from_frame(frame: pd.DataFrame) -> list[str]:
+    return [
+        str(asset_id)
+        for asset_id in frame.get("asset_id", pd.Series(dtype=str)).tolist()
+        if str(asset_id)
+    ]
+
+
+def excluded_assets_sql(asset_ids: list[str], alias: str) -> str:
+    if not asset_ids:
+        return ""
+    selected_list = ",".join(f"'{duckdb_literal(asset_id)}'" for asset_id in asset_ids)
+    return f"and {alias}.asset_id not in ({selected_list})"
 
 
 def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
@@ -350,7 +524,12 @@ def fillability_fallback_summary(
     fallback_assets = [
         row
         for row in selected
-        if row.get("fallback_reason") == FILLABILITY_FALLBACK_REASON
+        if row.get("fallback_reason")
+        in {
+            FILLABILITY_FALLBACK_REASON,
+            MARKET_OPPORTUNITY_FALLBACK_REASON,
+            MARKET_METADATA_FALLBACK_REASON,
+        }
     ]
     primary_assets = [
         row
@@ -359,10 +538,17 @@ def fillability_fallback_summary(
     ]
     return {
         "enabled": config.selection_source == "fillability",
-        "reason": FILLABILITY_FALLBACK_REASON,
+        "reason": "fillability_min_assets_backfill",
         "assets_added": len(fallback_assets),
         "primary_assets": len(primary_assets),
         "fallback_assets": len(fallback_assets),
+        "fallback_reasons": sorted(
+            {
+                str(row.get("fallback_reason"))
+                for row in fallback_assets
+                if row.get("fallback_reason")
+            }
+        ),
         "used": len(fallback_assets) > 0,
     }
 
@@ -386,7 +572,12 @@ def selection_reason(
     if config.max_avg_opportunity_spread is not None:
         filter_note += f";max_avg_opportunity_spread={config.max_avg_opportunity_spread}"
     if fallback.get("used"):
-        filter_note += ";fallback_fillability_backfill=KEEP_DIAGNOSTIC_LIQUIDITY_SPREAD"
+        reasons = fallback.get("fallback_reasons")
+        if isinstance(reasons, list) and reasons:
+            reason_text = ",".join(str(reason) for reason in reasons)
+        else:
+            reason_text = "unknown"
+        filter_note += f";fallback_fillability_backfill={reason_text}"
     if status == "ready":
         return "ranked_multi_market_universe_meets_minimum_asset_coverage" + filter_note
     return (

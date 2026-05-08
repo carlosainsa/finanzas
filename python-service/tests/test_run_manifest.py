@@ -87,6 +87,12 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["quote_execution_dry_run_lifecycles"] == 1
     assert counts["quote_execution_dry_run_filled_signals"] == 0
     assert counts["quote_execution_outcomes"] == 4
+    assert counts["signal_to_order_signals"] == 4
+    assert counts["signal_to_order_reports"] == 3
+    assert counts["signal_to_order_missing_reports"] == 1
+    assert counts["signal_to_order_orders_created"] == 2
+    assert counts["signal_to_order_filled_signals"] == 1
+    assert counts["signal_to_order_root_causes"] == 3
     assert counts["candidate_market_ranked_assets"] == 2
     assert counts["candidate_market_selected_assets"] == 1
     assert counts["candidate_market_promoted_assets"] == 1
@@ -127,6 +133,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert versions["execution_quality_report"] == "execution_quality_v1"
     assert versions["quote_execution_diagnostics_report"] == (
         "quote_execution_diagnostics_v1"
+    )
+    assert versions["signal_to_order_conversion_report"] == (
+        "signal_to_order_conversion_v1"
     )
     assert versions["candidate_market_ranking_report"] == "candidate_market_ranking_v1"
     assert versions["fillability_baseline_report"] == "fillability_baseline_v1"
@@ -322,6 +331,11 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["quote_execution_dry_run_lifecycles"] == 1
     assert flat["quote_execution_dry_run_filled_signals"] == 0
     assert flat["quote_execution_outcomes"] == 4
+    assert flat["signal_to_order_signals"] == 4
+    assert flat["signal_to_order_missing_reports"] == 1
+    assert flat["signal_to_order_conversion_report_version"] == (
+        "signal_to_order_conversion_v1"
+    )
     assert flat["candidate_market_ranked_assets"] == 2
     assert flat["candidate_market_selected_assets"] == 1
     assert flat["candidate_market_promoted_assets"] == 1
@@ -508,6 +522,28 @@ def seed_report_root(report_root: Path) -> Path:
                 "synthetic_only_signals": 3,
                 "dry_run_signal_lifecycles": 1,
                 "dry_run_filled_signals": 0,
+            },
+        },
+    )
+    write_json(
+        report_root / "signal_to_order_conversion.json",
+        {
+            "report_version": "signal_to_order_conversion_v1",
+            "decision_policy": "offline_signal_to_order_conversion_only",
+            "can_execute_trades": False,
+            "counts": {
+                "signal_to_order_root_causes": 3,
+                "signal_to_order_by_asset_strategy": 2,
+            },
+            "summary": {
+                "signals": 4,
+                "reports": 3,
+                "missing_reports": 1,
+                "orders_created": 2,
+                "filled_signals": 1,
+                "report_rate": 0.75,
+                "order_creation_rate": 0.5,
+                "missing_report_rate": 0.25,
             },
         },
     )
