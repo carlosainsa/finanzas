@@ -14,10 +14,11 @@ MIN_FUTURE_TOUCH_RATE="${EXECUTION_PROBE_MIN_FUTURE_TOUCH_RATE:-0.10}"
 MIN_TIMING_SIGNALS="${EXECUTION_PROBE_MIN_TIMING_SIGNALS:-5}"
 MIN_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MIN_AVG_OPPORTUNITY_SPREAD:-}"
 MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
+SELECTION_SOURCE="${EXECUTION_PROBE_UNIVERSE_SELECTION_SOURCE:-${EXECUTION_PROBE_SELECTION_SOURCE:-candidate_market_ranking}}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--market-timing-filter none|future_touch]
+Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch]
 
 Prepares a repeatable execution-probe cycle without starting services:
 market universe selection -> observation command plan -> optional baseline compare
@@ -67,6 +68,10 @@ while [[ $# -gt 0 ]]; do
       MAX_AVG_OPPORTUNITY_SPREAD="$2"
       shift 2
       ;;
+    --universe-selection-source|--selection-source)
+      SELECTION_SOURCE="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -95,6 +100,10 @@ if [[ "$MARKET_TIMING_FILTER" != "none" && "$MARKET_TIMING_FILTER" != "future_to
   echo "market timing filter must be none or future_touch" >&2
   exit 64
 fi
+if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" != "fillability" ]]; then
+  echo "selection source must be candidate_market_ranking or fillability" >&2
+  exit 64
+fi
 
 mkdir -p "$RUN_ROOT"
 
@@ -107,6 +116,7 @@ UNIVERSE_SELECTION_ARGS=(
   --market-timing-filter "$MARKET_TIMING_FILTER"
   --min-future-touch-rate "$MIN_FUTURE_TOUCH_RATE"
   --min-timing-signals "$MIN_TIMING_SIGNALS"
+  --selection-source "$SELECTION_SOURCE"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_SELECTION_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
@@ -138,6 +148,7 @@ OBSERVATION_COMMAND=(
   printf 'min_timing_signals=%s\n' "$MIN_TIMING_SIGNALS"
   printf 'min_avg_opportunity_spread=%s\n' "$MIN_AVG_OPPORTUNITY_SPREAD"
   printf 'max_avg_opportunity_spread=%s\n' "$MAX_AVG_OPPORTUNITY_SPREAD"
+  printf 'selection_source=%s\n' "$SELECTION_SOURCE"
   printf 'observation_command=%q ' "${OBSERVATION_COMMAND[@]}"
   printf '\n'
   if [[ -n "$BASELINE_REPORT_ROOT" ]]; then

@@ -14,6 +14,10 @@ from src.research.candidate_market_ranking import (
     CandidateMarketRankingConfig,
     create_candidate_market_ranking_views,
 )
+from src.research.fillability_baseline import (
+    FillabilityBaselineConfig,
+    create_fillability_baseline_views,
+)
 from src.research.game_theory import relation_exists
 
 
@@ -24,6 +28,7 @@ DEFAULT_RECOMMENDATIONS = (
     "NEEDS_EXECUTION_EVIDENCE",
 )
 MARKET_TIMING_FILTERS = ("none", "future_touch")
+SELECTION_SOURCES = ("candidate_market_ranking", "fillability")
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,7 @@ class ExecutionProbeUniverseConfig:
     min_timing_signals: int = 5
     min_avg_opportunity_spread: float | None = None
     max_avg_opportunity_spread: float | None = None
+    selection_source: str = "candidate_market_ranking"
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -57,6 +63,10 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("recommendations cannot be empty")
         if self.market_timing_filter not in MARKET_TIMING_FILTERS:
             raise ValueError("market_timing_filter must be none or future_touch")
+        if self.selection_source not in SELECTION_SOURCES:
+            raise ValueError(
+                "selection_source must be candidate_market_ranking or fillability"
+            )
         if not 0 <= self.min_future_touch_rate <= 1:
             raise ValueError("min_future_touch_rate must be between 0 and 1")
         if self.min_timing_signals <= 0:
@@ -86,9 +96,19 @@ def create_execution_probe_universe_selection(
     output_dir: Path,
     config: ExecutionProbeUniverseConfig = ExecutionProbeUniverseConfig(),
 ) -> dict[str, object]:
-    create_candidate_market_ranking_views(
-        db_path, CandidateMarketRankingConfig(limit=max(config.limit, config.min_assets))
-    )
+    if config.selection_source == "fillability":
+        create_fillability_baseline_views(
+            db_path,
+            FillabilityBaselineConfig(
+                min_signals=config.min_timing_signals,
+                min_future_touch_rate=config.min_future_touch_rate,
+                limit=max(config.limit, config.min_assets),
+            ),
+        )
+    else:
+        create_candidate_market_ranking_views(
+            db_path, CandidateMarketRankingConfig(limit=max(config.limit, config.min_assets))
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(db_path)) as conn:
         has_quote_execution_by_asset = relation_exists(conn, "quote_execution_by_market_asset")
@@ -99,29 +119,86 @@ def create_execution_probe_universe_selection(
             raise ValueError(
                 "market_timing_filter=future_touch requires quote_execution_by_market_asset"
             )
-        recommendation_list = ",".join(
-            f"'{duckdb_literal(item)}'" for item in config.recommendations
-        )
-        spread_filters = []
-        if config.min_avg_opportunity_spread is not None:
-            spread_filters.append(
-                f"coalesce(candidate.avg_opportunity_spread, candidate.avg_spread) >= {config.min_avg_opportunity_spread}"
+        if config.selection_source == "fillability":
+            frame = select_fillability_universe(conn, config)
+        else:
+            spread_filters = build_candidate_spread_filters(config)
+            recommendation_list = ",".join(
+                f"'{duckdb_literal(item)}'" for item in config.recommendations
             )
-        if config.max_avg_opportunity_spread is not None:
-            spread_filters.append(
-                f"coalesce(candidate.avg_opportunity_spread, candidate.avg_spread) <= {config.max_avg_opportunity_spread}"
+            frame = select_candidate_universe(
+                conn,
+                config,
+                has_quote_execution_by_asset,
+                recommendation_list,
+                spread_filters,
             )
-        spread_filter_sql = (
-            "\n              and " + "\n              and ".join(spread_filters)
-            if spread_filters
-            else ""
+
+    selected = normalize_records(frame.to_dict(orient="records"))
+    asset_ids = [str(row["asset_id"]) for row in selected if row.get("asset_id")]
+    status = "ready" if len(asset_ids) >= config.min_assets else "insufficient_assets"
+    output_parquet = output_dir / "execution_probe_universe_selection.parquet"
+    pd.DataFrame(selected).to_parquet(output_parquet, index=False)
+    payload: dict[str, object] = {
+        "report_version": REPORT_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "can_execute_trades": False,
+        "decision_policy": "offline_multi_market_observation_universe_only",
+        "profile": config.profile,
+        "config": asdict(config),
+        "source_duckdb": str(db_path),
+        "source_report_version": source_report_version(config),
+        "status": status,
+        "selection_reason": selection_reason(status, asset_ids, config),
+        "market_asset_ids": asset_ids,
+        "market_asset_ids_count": len(asset_ids),
+        "market_asset_ids_csv": ",".join(asset_ids),
+        "market_asset_ids_sha256": hashlib.sha256(
+            ",".join(asset_ids).encode("utf-8")
+        ).hexdigest(),
+        "selected": selected,
+        "outputs": [
+            "execution_probe_universe_selection.parquet",
+            "execution_probe_universe_selection.json",
+        ],
+    }
+    (output_dir / "execution_probe_universe_selection.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return payload
+
+
+def build_candidate_spread_filters(config: ExecutionProbeUniverseConfig) -> list[str]:
+    filters: list[str] = []
+    if config.min_avg_opportunity_spread is not None:
+        filters.append(
+            f"coalesce(candidate.avg_opportunity_spread, candidate.avg_spread) >= {config.min_avg_opportunity_spread}"
         )
-        timing_join_sql = ""
-        timing_filter_sql = ""
-        select_columns_sql = "candidate.*"
-        timing_order_sql = "(0 + 0)"
-        if has_quote_execution_by_asset:
-            timing_join_sql = """
+    if config.max_avg_opportunity_spread is not None:
+        filters.append(
+            f"coalesce(candidate.avg_opportunity_spread, candidate.avg_spread) <= {config.max_avg_opportunity_spread}"
+        )
+    return filters
+
+
+def select_candidate_universe(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+    has_quote_execution_by_asset: bool,
+    recommendation_list: str,
+    spread_filters: list[str],
+) -> pd.DataFrame:
+    spread_filter_sql = (
+        "\n              and " + "\n              and ".join(spread_filters)
+        if spread_filters
+        else ""
+    )
+    timing_join_sql = ""
+    timing_filter_sql = ""
+    select_columns_sql = "candidate.*"
+    timing_order_sql = "(0 + 0)"
+    if has_quote_execution_by_asset:
+        timing_join_sql = """
             left join (
                 select
                     market_id,
@@ -139,19 +216,19 @@ def create_execution_probe_universe_selection(
               on timing.market_id = candidate.market_id
              and timing.asset_id = candidate.asset_id
             """
-            select_columns_sql = """
+        select_columns_sql = """
                 candidate.*,
                 timing.timing_signals,
                 timing.future_touch_rate
             """
-            timing_order_sql = "coalesce(timing.future_touch_rate, 0)"
-        if config.market_timing_filter == "future_touch":
-            timing_filter_sql = f"""
+        timing_order_sql = "coalesce(timing.future_touch_rate, 0)"
+    if config.market_timing_filter == "future_touch":
+        timing_filter_sql = f"""
               and coalesce(timing.timing_signals, 0) >= {config.min_timing_signals}
               and coalesce(timing.future_touch_rate, 0) >= {config.min_future_touch_rate}
             """
-        frame = conn.execute(
-            f"""
+    return conn.execute(
+        f"""
             select {select_columns_sql}
             from candidate_market_ranking candidate
             {timing_join_sql}
@@ -173,46 +250,62 @@ def create_execution_probe_universe_selection(
                 candidate.asset_id
             limit {config.limit}
             """
-        ).fetch_df()
+    ).fetch_df()
 
-    selected = normalize_records(frame.to_dict(orient="records"))
-    asset_ids = [str(row["asset_id"]) for row in selected if row.get("asset_id")]
-    status = "ready" if len(asset_ids) >= config.min_assets else "insufficient_assets"
-    output_parquet = output_dir / "execution_probe_universe_selection.parquet"
-    pd.DataFrame(selected).to_parquet(output_parquet, index=False)
-    payload: dict[str, object] = {
-        "report_version": REPORT_VERSION,
-        "generated_at": datetime.now(UTC).isoformat(),
-        "can_execute_trades": False,
-        "decision_policy": "offline_multi_market_observation_universe_only",
-        "profile": config.profile,
-        "config": asdict(config),
-        "source_duckdb": str(db_path),
-        "source_report_version": "candidate_market_ranking_v1",
-        "status": status,
-        "selection_reason": selection_reason(status, asset_ids, config),
-        "market_asset_ids": asset_ids,
-        "market_asset_ids_count": len(asset_ids),
-        "market_asset_ids_csv": ",".join(asset_ids),
-        "market_asset_ids_sha256": hashlib.sha256(
-            ",".join(asset_ids).encode("utf-8")
-        ).hexdigest(),
-        "selected": selected,
-        "outputs": [
-            "execution_probe_universe_selection.parquet",
-            "execution_probe_universe_selection.json",
-        ],
-    }
-    (output_dir / "execution_probe_universe_selection.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+
+def select_fillability_universe(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    spread_filters = []
+    if config.min_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(fillability.avg_spread_at_signal, 0) >= {config.min_avg_opportunity_spread}"
+        )
+    if config.max_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(fillability.avg_spread_at_signal, 0) <= {config.max_avg_opportunity_spread}"
+        )
+    spread_filter_sql = (
+        "\n          and " + "\n          and ".join(spread_filters)
+        if spread_filters
+        else ""
     )
-    return payload
+    return conn.execute(
+        f"""
+        select
+            fillability.*,
+            fillability.signals as timing_signals
+        from fillability_market_ranking fillability
+        where fillability.recommendation in ('PROMOTE_TO_OBSERVATION', 'KEEP_DIAGNOSTIC')
+          and fillability.signals >= {config.min_timing_signals}
+          and coalesce(fillability.future_touch_rate, 0) >= {config.min_future_touch_rate}
+          {spread_filter_sql}
+        order by
+            case fillability.recommendation
+                when 'PROMOTE_TO_OBSERVATION' then 1
+                else 2
+            end,
+            fillability.fillability_score desc,
+            coalesce(fillability.future_touch_rate, 0) desc,
+            fillability.signals desc,
+            fillability.asset_id
+        limit {config.limit}
+        """
+    ).fetch_df()
+
+
+def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
+    if config.selection_source == "fillability":
+        return "fillability_baseline_v1"
+    return "candidate_market_ranking_v1"
 
 
 def selection_reason(
     status: str, asset_ids: list[str], config: ExecutionProbeUniverseConfig
 ) -> str:
     filter_note = ""
+    filter_note += f";selection_source={config.selection_source}"
     if config.market_timing_filter != "none":
         filter_note += (
             f";market_timing_filter={config.market_timing_filter}"
@@ -276,6 +369,11 @@ def main() -> int:
     parser.add_argument("--min-avg-opportunity-spread", type=float, default=None)
     parser.add_argument("--max-avg-opportunity-spread", type=float, default=None)
     parser.add_argument(
+        "--selection-source",
+        choices=SELECTION_SOURCES,
+        default=ExecutionProbeUniverseConfig.selection_source,
+    )
+    parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
         help="Comma-separated candidate_market_ranking recommendations to include.",
@@ -294,6 +392,7 @@ def main() -> int:
             min_timing_signals=args.min_timing_signals,
             min_avg_opportunity_spread=args.min_avg_opportunity_spread,
             max_avg_opportunity_spread=args.max_avg_opportunity_spread,
+            selection_source=args.selection_source,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

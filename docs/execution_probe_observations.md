@@ -264,3 +264,45 @@ Next observation should either use the generated relaxed thresholds across the
 universe or run a focused observation on the fillability-selected asset before
 changing quote policy again. Both paths remain research-only and must keep
 `can_execute_trades=false`.
+
+## 2026-05-08 - Fillability-Focused execution_probe_v7 30m
+
+- Run id: `execution-probe-v7-cycle-20260508T123244Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v7-cycle-20260508T123244Z/reports/execution-probe-v7-cycle-20260508T123244Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v7`
+- Selection source: `fillability_baseline_v1`
+- Universe: 1 market asset
+- Asset: `88275040060084773376557187972215267513049848642895776801789297961077894224`
+- Duration: 30 minutes
+
+Key metrics:
+
+- Orderbook snapshots: `314`
+- Signals: `68`
+- Execution reports: `2`
+- Observed fill-rate: `0.0`
+- Synthetic fill-rate: `0.0`
+- No-fill future-touch rate: `0.0`
+- Stale data rate: `0.012738853503184714`
+- Reconciliation divergence rate: `0.0`
+
+Decision artifact:
+
+- `execution_probe_next_decision.json`
+- Recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- `market_timing_filter_decision.decision`: `RELAX_MARKET_TIMING_FILTER`
+- Next cycle thresholds: `min_future_touch_rate=0.025`, `min_avg_opportunity_spread=0.0025`, `min_timing_signals=5`
+
+Interpretation:
+
+The fillability-focused run proved the new single-asset observation path works,
+but the selected asset did not produce fills or future-touch evidence in this
+window. This weakens the hypothesis that one historically better asset is enough
+to recover execution activity. The next repeat should use a broader
+fillability-first universe or the generated relaxed timing thresholds, rather
+than increasing quote aggressiveness immediately.
+
+The new `ml_fill_evaluation_v1` report also ran on this sample. It produced 69
+evaluation examples, but the test split still has one-class or insufficient
+labels, so it is diagnostic only and not ready for model training.

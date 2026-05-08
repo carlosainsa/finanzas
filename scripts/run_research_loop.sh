@@ -217,6 +217,13 @@ PYTHONPATH=python-service python3 -m src.research.ml_fill_dataset \
   --max-future-window-ms "${ML_FILL_DATASET_MAX_FUTURE_WINDOW_MS:-300000}" \
   --adverse-selection-window-ms "${ML_FILL_DATASET_ADVERSE_SELECTION_WINDOW_MS:-30000}" \
   > "$REPORT_ROOT/ml_fill_dataset.json"
+PYTHONPATH=python-service python3 -m src.research.ml_fill_evaluation \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/ml_fill_evaluation" \
+  --train-fraction "${ML_FILL_EVALUATION_TRAIN_FRACTION:-0.70}" \
+  --bucket-count "${ML_FILL_EVALUATION_BUCKET_COUNT:-10}" \
+  --min-test-samples "${ML_FILL_EVALUATION_MIN_TEST_SAMPLES:-5}" \
+  > "$REPORT_ROOT/ml_fill_evaluation.json"
 PYTHONPATH=python-service python3 -m src.research.market_regime \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/market_regime" \
@@ -359,6 +366,7 @@ quote_execution_diagnostics = read_json("quote_execution_diagnostics.json")
 candidate_market_ranking = read_json("candidate_market_ranking.json")
 fillability_baseline = read_json("fillability_baseline.json")
 ml_fill_dataset = read_json("ml_fill_dataset.json")
+ml_fill_evaluation = read_json("ml_fill_evaluation.json")
 calibration = read_json("calibration.json")
 near_touch_calibration = read_json("near_touch_calibration.json")
 promotion = read_json("pre_live_promotion.json")
@@ -385,6 +393,7 @@ summary = {
     "candidate_market_ranking": candidate_market_ranking,
     "fillability_baseline": fillability_baseline,
     "ml_fill_dataset": ml_fill_dataset,
+    "ml_fill_evaluation": ml_fill_evaluation,
     "market_regime": read_json("market_regime.json"),
     "sentiment_features": read_json("sentiment_features.json"),
     "sentiment_lift": read_json("sentiment_lift.json"),

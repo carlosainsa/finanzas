@@ -95,6 +95,9 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["fillability_selected_assets"] == 1
     assert counts["ml_fill_examples"] == 4
     assert counts["ml_fill_dataset_summary"] == 2
+    assert counts["ml_fill_evaluation_examples"] == 8
+    assert counts["ml_fill_evaluation_metrics"] == 4
+    assert counts["ml_fill_evaluation_summary"] == 3
     assert counts["pre_live_candidate_status"] == "blocked"
     assert counts["pre_live_candidate_blockers"] == 1
     assert manifest["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -124,6 +127,8 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert versions["fillability_baseline_report"] == "fillability_baseline_v1"
     assert versions["ml_fill_dataset_report"] == "ml_fill_dataset_v1"
     assert versions["ml_fill_dataset"] == "ml_fill_targets_v1"
+    assert versions["ml_fill_evaluation_report"] == "ml_fill_evaluation_v1"
+    assert versions["ml_fill_evaluation_evaluator"] == "offline_fill_scorecard_v1"
     assert versions["pre_live_candidate_report"] == "pre_live_candidate_report_v1"
     assert (manifest_root / "runs" / "run-1.json").exists()
     assert (manifest_root / "research_runs.jsonl").exists()
@@ -252,6 +257,8 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["fillability_baseline_report_version"] == "fillability_baseline_v1"
     assert flat["ml_fill_dataset_report_version"] == "ml_fill_dataset_v1"
     assert flat["ml_fill_dataset_version"] == "ml_fill_targets_v1"
+    assert flat["ml_fill_evaluation_report_version"] == "ml_fill_evaluation_v1"
+    assert flat["ml_fill_evaluation_evaluator_version"] == "offline_fill_scorecard_v1"
     assert flat["pre_live_candidate_report_version"] == "pre_live_candidate_report_v1"
     assert flat["research_feature_blocklist_candidates"] == 3
     assert flat["blocked_segment_candidates"] == 1
@@ -318,6 +325,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["fillability_selected_assets"] == 1
     assert flat["ml_fill_examples"] == 4
     assert flat["ml_fill_dataset_summary"] == 2
+    assert flat["ml_fill_evaluation_examples"] == 8
+    assert flat["ml_fill_evaluation_metrics"] == 4
+    assert flat["ml_fill_evaluation_summary"] == 3
     assert flat["pre_live_candidate_status"] == "blocked"
     assert flat["pre_live_candidate_blockers"] == 1
     assert flat["feature_research_decision"] == "PROMOTE_FEATURE"
@@ -537,6 +547,21 @@ def seed_report_root(report_root: Path) -> Path:
                 "future_touch",
                 "adverse_selection_after_fill",
             ],
+        },
+    )
+    write_json(
+        report_root / "ml_fill_evaluation.json",
+        {
+            "report_version": "ml_fill_evaluation_v1",
+            "dataset_version": "ml_fill_targets_v1",
+            "evaluator_version": "offline_fill_scorecard_v1",
+            "decision_policy": "offline_ml_fill_evaluation_only",
+            "can_execute_trades": False,
+            "counts": {
+                "ml_fill_evaluation_examples": 8,
+                "ml_fill_evaluation_metrics": 4,
+                "ml_fill_evaluation_summary": 3,
+            },
         },
     )
     write_json(

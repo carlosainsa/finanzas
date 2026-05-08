@@ -69,6 +69,9 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
     assert "ALLOW_RESEARCH_GATE_FAILURE" in script
     assert "src.research.real_dry_run_preflight" in script
     assert "real_dry_run_preflight.json" in script
+    assert 'selection_source != "fillability"' in script
+    assert "universe selection must contain at least one asset id" in script
+    assert "MARKET_ASSET_IDS must contain at least one token ID" in script
     assert "while True:" in script
     assert "count=1000" in script
     assert 'next_max = f"({last_id}"' in script
@@ -261,6 +264,8 @@ def test_execution_probe_v7_cycle_print_plan_is_safe_and_pinned(
             str(baseline),
             "--duration-seconds",
             "1800",
+            "--universe-selection-source",
+            "fillability",
             "--print-plan",
         ],
         cwd=ROOT_DIR,
@@ -276,6 +281,7 @@ def test_execution_probe_v7_cycle_print_plan_is_safe_and_pinned(
     assert plan["profile"] == "execution_probe_v7"
     assert plan["baseline_report_root"] == str(baseline)
     assert plan["universe_min_assets"] == 3
+    assert plan["selection_source"] == "fillability"
     assert plan["market_timing_filter"] == "future_touch"
     assert plan["min_future_touch_rate"] == 0.10
     assert plan["min_timing_signals"] == 5

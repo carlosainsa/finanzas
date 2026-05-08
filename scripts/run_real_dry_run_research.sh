@@ -211,7 +211,11 @@ if payload.get("can_execute_trades") is not False:
 if payload.get("status") != "ready":
     raise SystemExit(f"universe selection is not ready: {payload.get('status')}")
 ids = [str(item).strip() for item in payload.get("market_asset_ids", []) if str(item).strip()]
-if len(ids) < 2:
+config = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+selection_source = config.get("selection_source")
+if not ids:
+    raise SystemExit("universe selection must contain at least one asset id")
+if len(ids) < 2 and selection_source != "fillability":
     raise SystemExit("universe selection must contain at least two asset ids")
 print(",".join(ids))
 PY
@@ -250,10 +254,20 @@ PY
 fi
 
 PYTHONPATH=python-service python3 - <<'PY'
+import json
 import os
+from pathlib import Path
 
 ids = [item for item in os.getenv("MARKET_ASSET_IDS", "").split(",") if item.strip()]
-if len(ids) < 2:
+selection_source = None
+selection_path = os.getenv("EXECUTION_PROBE_UNIVERSE_SELECTION_PATH")
+if selection_path:
+    payload = json.loads(Path(selection_path).read_text(encoding="utf-8"))
+    config = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+    selection_source = config.get("selection_source")
+if not ids:
+    raise SystemExit("MARKET_ASSET_IDS must contain at least one token ID")
+if len(ids) < 2 and selection_source != "fillability":
     raise SystemExit("MARKET_ASSET_IDS must contain at least two token IDs")
 PY
 
