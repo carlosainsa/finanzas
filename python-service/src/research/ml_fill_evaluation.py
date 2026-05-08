@@ -346,7 +346,10 @@ def create_ml_fill_evaluation_views(
             f"""
             create or replace view ml_fill_evaluation_summary as
             with train_metrics as (
-                select target_name, samples as train_samples
+                select
+                    target_name,
+                    samples as train_samples,
+                    positive_rate as train_positive_rate
                 from ml_fill_evaluation_metrics
                 where split = 'train'
             ),
@@ -358,6 +361,7 @@ def create_ml_fill_evaluation_views(
             select
                 targets.target_name,
                 coalesce(train_metrics.train_samples, 0) as train_samples,
+                train_metrics.train_positive_rate as train_positive_rate,
                 coalesce(test_metrics.samples, 0) as test_samples,
                 test_metrics.positive_rate as test_positive_rate,
                 test_metrics.brier_score as test_brier_score,

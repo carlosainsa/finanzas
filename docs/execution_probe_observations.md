@@ -307,13 +307,24 @@ The new `ml_fill_evaluation_v1` report also ran on this sample. It produced 69
 evaluation examples, but the test split still has one-class or insufficient
 labels, so it is diagnostic only and not ready for model training.
 
+The follow-up tooling now keeps this fail-closed boundary explicit:
+`prepare_ml_training_dataset` only exports `ml_fill_training_examples.parquet`
+after `ml_fill_label_quality_gate_v1.can_train_models=true`. It can be enabled
+in the research loop with `PREPARE_ML_TRAINING_DATASET=1`, but blocked runs
+produce only a preparation report and never a trainable parquet artifact.
+
 Follow-up rule:
 
 `execution_probe_next_decision_v1` now treats narrow fillability runs separately.
 If `selection_source=fillability` has no observed fills and the universe is too
 small or the signal sample is thin, the decision is
 `EXPAND_FILLABILITY_UNIVERSE` instead of immediately relaxing timing thresholds.
-The next dry-run plan should start from:
+The universe selector can now backfill missing `min_assets` coverage from
+`KEEP_DIAGNOSTIC` markets with sufficient signals, liquidity, and spread
+evidence. Backfilled rows carry
+`fallback_reason=fillability_min_assets_backfill_keep_diagnostic_liquidity_spread`,
+so they remain diagnostic candidates, not promoted fillability winners. The
+next dry-run plan should start from:
 
 ```bash
 scripts/run_execution_probe_v7_cycle.sh \

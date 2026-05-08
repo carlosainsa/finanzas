@@ -22,6 +22,9 @@ from src.research.game_theory import relation_exists
 
 
 REPORT_VERSION = "execution_probe_universe_selection_v1"
+FILLABILITY_FALLBACK_REASON = (
+    "fillability_min_assets_backfill_keep_diagnostic_liquidity_spread"
+)
 DEFAULT_RECOMMENDATIONS = (
     "PROMOTE_TO_OBSERVATION",
     "KEEP_DIAGNOSTIC",
@@ -137,6 +140,7 @@ def create_execution_probe_universe_selection(
     selected = normalize_records(frame.to_dict(orient="records"))
     asset_ids = [str(row["asset_id"]) for row in selected if row.get("asset_id")]
     status = "ready" if len(asset_ids) >= config.min_assets else "insufficient_assets"
+    fallback = fillability_fallback_summary(selected, config)
     output_parquet = output_dir / "execution_probe_universe_selection.parquet"
     pd.DataFrame(selected).to_parquet(output_parquet, index=False)
     payload: dict[str, object] = {
@@ -149,7 +153,8 @@ def create_execution_probe_universe_selection(
         "source_duckdb": str(db_path),
         "source_report_version": source_report_version(config),
         "status": status,
-        "selection_reason": selection_reason(status, asset_ids, config),
+        "selection_reason": selection_reason(status, asset_ids, config, fallback),
+        "fallback": fallback,
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -271,28 +276,65 @@ def select_fillability_universe(
         if spread_filters
         else ""
     )
-    return conn.execute(
+    primary_limit = config.limit
+    primary = conn.execute(
         f"""
         select
             fillability.*,
-            fillability.signals as timing_signals
+            fillability.signals as timing_signals,
+            'primary' as selection_tier,
+            null::varchar as fallback_reason
         from fillability_market_ranking fillability
-        where fillability.recommendation in ('PROMOTE_TO_OBSERVATION', 'KEEP_DIAGNOSTIC')
+        where fillability.recommendation = 'PROMOTE_TO_OBSERVATION'
           and fillability.signals >= {config.min_timing_signals}
           and coalesce(fillability.future_touch_rate, 0) >= {config.min_future_touch_rate}
           {spread_filter_sql}
         order by
-            case fillability.recommendation
-                when 'PROMOTE_TO_OBSERVATION' then 1
-                else 2
-            end,
             fillability.fillability_score desc,
             coalesce(fillability.future_touch_rate, 0) desc,
             fillability.signals desc,
             fillability.asset_id
-        limit {config.limit}
+        limit {primary_limit}
         """
     ).fetch_df()
+    if len(primary) >= config.min_assets:
+        return primary.head(config.limit)
+    missing_assets = min(config.min_assets - len(primary), config.limit - len(primary))
+    if missing_assets <= 0:
+        return primary.head(config.limit)
+    selected_assets = [
+        str(asset_id)
+        for asset_id in primary.get("asset_id", pd.Series(dtype=str)).tolist()
+    ]
+    selected_filter_sql = ""
+    if selected_assets:
+        selected_list = ",".join(f"'{duckdb_literal(asset_id)}'" for asset_id in selected_assets)
+        selected_filter_sql = f"and fillability.asset_id not in ({selected_list})"
+    fallback = conn.execute(
+        f"""
+        select
+            fillability.*,
+            fillability.signals as timing_signals,
+            'fallback' as selection_tier,
+            '{FILLABILITY_FALLBACK_REASON}' as fallback_reason
+        from fillability_market_ranking fillability
+        where fillability.recommendation = 'KEEP_DIAGNOSTIC'
+          and fillability.signals >= {config.min_timing_signals}
+          {selected_filter_sql}
+          {spread_filter_sql}
+        order by
+            coalesce(fillability.liquidity, 0) desc,
+            coalesce(fillability.spread_opportunity_density, 0) desc,
+            coalesce(fillability.avg_spread_at_signal, 0) desc,
+            fillability.fillability_score desc,
+            fillability.signals desc,
+            fillability.asset_id
+        limit {missing_assets}
+        """
+    ).fetch_df()
+    if fallback.empty:
+        return primary.head(config.limit)
+    return pd.concat([primary, fallback], ignore_index=True).head(config.limit)
 
 
 def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
@@ -301,8 +343,35 @@ def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
     return "candidate_market_ranking_v1"
 
 
+def fillability_fallback_summary(
+    selected: list[dict[str, object]],
+    config: ExecutionProbeUniverseConfig,
+) -> dict[str, object]:
+    fallback_assets = [
+        row
+        for row in selected
+        if row.get("fallback_reason") == FILLABILITY_FALLBACK_REASON
+    ]
+    primary_assets = [
+        row
+        for row in selected
+        if row.get("selection_tier") == "primary"
+    ]
+    return {
+        "enabled": config.selection_source == "fillability",
+        "reason": FILLABILITY_FALLBACK_REASON,
+        "assets_added": len(fallback_assets),
+        "primary_assets": len(primary_assets),
+        "fallback_assets": len(fallback_assets),
+        "used": len(fallback_assets) > 0,
+    }
+
+
 def selection_reason(
-    status: str, asset_ids: list[str], config: ExecutionProbeUniverseConfig
+    status: str,
+    asset_ids: list[str],
+    config: ExecutionProbeUniverseConfig,
+    fallback: dict[str, object],
 ) -> str:
     filter_note = ""
     filter_note += f";selection_source={config.selection_source}"
@@ -316,6 +385,8 @@ def selection_reason(
         filter_note += f";min_avg_opportunity_spread={config.min_avg_opportunity_spread}"
     if config.max_avg_opportunity_spread is not None:
         filter_note += f";max_avg_opportunity_spread={config.max_avg_opportunity_spread}"
+    if fallback.get("used"):
+        filter_note += ";fallback_fillability_backfill=KEEP_DIAGNOSTIC_LIQUIDITY_SPREAD"
     if status == "ready":
         return "ranked_multi_market_universe_meets_minimum_asset_coverage" + filter_note
     return (

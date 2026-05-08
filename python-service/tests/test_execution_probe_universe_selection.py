@@ -4,6 +4,7 @@ from typing import Any, cast
 import duckdb
 
 from src.research.execution_probe_universe_selection import (
+    FILLABILITY_FALLBACK_REASON,
     REPORT_VERSION,
     ExecutionProbeUniverseConfig,
     create_execution_probe_universe_selection,
@@ -132,6 +133,70 @@ def test_execution_probe_universe_selection_supports_fillability_source(
     assert "selection_source=fillability" in str(report["selection_reason"])
     selected = cast(list[dict[str, Any]], report["selected"])
     assert selected[0]["recommendation"] == "PROMOTE_TO_OBSERVATION"
+    assert selected[0]["selection_tier"] == "primary"
+    assert selected[0]["fallback_reason"] is None
+    fallback = cast(dict[str, Any], report["fallback"])
+    assert fallback["assets_added"] == 0
+
+
+def test_execution_probe_universe_selection_backfills_fillability_min_assets(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_fillability_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v7",
+            limit=3,
+            min_assets=3,
+            selection_source="fillability",
+            min_future_touch_rate=0.05,
+            min_timing_signals=1,
+            min_avg_opportunity_spread=0.005,
+        ),
+    )
+
+    assert report["status"] == "ready"
+    assert report["market_asset_ids_count"] == 3
+    asset_ids = cast(list[str], report["market_asset_ids"])
+    assert asset_ids[0] == "asset-touch"
+    assert len(set(asset_ids)) == 3
+    assert "fallback_fillability_backfill" in str(report["selection_reason"])
+    fallback = cast(dict[str, Any], report["fallback"])
+    assert fallback["used"] is True
+    assert fallback["assets_added"] == 2
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert selected[0]["fallback_reason"] is None
+    assert selected[1]["fallback_reason"] == FILLABILITY_FALLBACK_REASON
+    assert selected[2]["fallback_reason"] == FILLABILITY_FALLBACK_REASON
+
+
+def test_execution_probe_universe_selection_marks_insufficient_after_fallback(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_fillability_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v7",
+            limit=4,
+            min_assets=4,
+            selection_source="fillability",
+            min_future_touch_rate=0.05,
+            min_timing_signals=1,
+            min_avg_opportunity_spread=0.02,
+            max_avg_opportunity_spread=0.08,
+        ),
+    )
+
+    assert report["status"] == "insufficient_assets"
+    assert report["market_asset_ids"] == ["asset-touch", "asset-fallback-0"]
+    fallback = cast(dict[str, Any], report["fallback"])
+    assert fallback["assets_added"] == 1
 
 
 def test_execution_probe_universe_selection_requires_timing_evidence_for_filter(
@@ -358,6 +423,34 @@ def seed_fillability_universe_db(tmp_path: Path) -> Path:
                     "feature",
                     1_000,
                 ),
+                (
+                    "signal-fallback-0",
+                    "market-fallback-0",
+                    "asset-fallback-0",
+                    "BUY",
+                    0.34,
+                    1.0,
+                    0.65,
+                    "probe",
+                    "model",
+                    "data",
+                    "feature",
+                    1_000,
+                ),
+                (
+                    "signal-fallback-1",
+                    "market-fallback-1",
+                    "asset-fallback-1",
+                    "BUY",
+                    0.30,
+                    1.0,
+                    0.65,
+                    "probe",
+                    "model",
+                    "data",
+                    "feature",
+                    1_000,
+                ),
             ],
         )
         conn.executemany(
@@ -367,6 +460,46 @@ def seed_fillability_universe_db(tmp_path: Path) -> Path:
                 ("market-touch", "asset-touch", 1_100, 0.45, 0.50, 0.05, 10.0, 10.0),
                 ("market-stale", "asset-stale", 900, 0.30, 0.40, 0.10, 10.0, 10.0),
                 ("market-stale", "asset-stale", 1_100, 0.30, 0.40, 0.10, 10.0, 10.0),
+                (
+                    "market-fallback-0",
+                    "asset-fallback-0",
+                    900,
+                    0.30,
+                    0.36,
+                    0.06,
+                    100.0,
+                    100.0,
+                ),
+                (
+                    "market-fallback-0",
+                    "asset-fallback-0",
+                    1_100,
+                    0.30,
+                    0.36,
+                    0.06,
+                    100.0,
+                    100.0,
+                ),
+                (
+                    "market-fallback-1",
+                    "asset-fallback-1",
+                    900,
+                    0.25,
+                    0.35,
+                    0.10,
+                    50.0,
+                    50.0,
+                ),
+                (
+                    "market-fallback-1",
+                    "asset-fallback-1",
+                    1_100,
+                    0.25,
+                    0.35,
+                    0.10,
+                    50.0,
+                    50.0,
+                ),
             ],
         )
         conn.executemany(
@@ -398,6 +531,34 @@ def seed_fillability_universe_db(tmp_path: Path) -> Path:
                     True,
                     1_000.0,
                     2_000.0,
+                    1,
+                ),
+                (
+                    "market-fallback-0",
+                    "asset-fallback-0",
+                    "Yes",
+                    "Question fallback 0",
+                    "question-fallback-0",
+                    True,
+                    False,
+                    False,
+                    True,
+                    5_000.0,
+                    6_000.0,
+                    1,
+                ),
+                (
+                    "market-fallback-1",
+                    "asset-fallback-1",
+                    "Yes",
+                    "Question fallback 1",
+                    "question-fallback-1",
+                    True,
+                    False,
+                    False,
+                    True,
+                    3_000.0,
+                    4_000.0,
                     1,
                 ),
             ],
