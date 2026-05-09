@@ -475,6 +475,79 @@ executor reports before changing quote aggressiveness.
 The run remains `research-only`; `can_execute_trades=false` and the go/no-go
 decision is `NO_GO`.
 
+## 2026-05-09 - Exposure Release execution_probe_v7 60m
+
+- Run id: `execution-probe-v7-exposure-release-20260509T020000Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v7-exposure-release-20260509T020000Z/reports/execution-probe-v7-exposure-release-20260509T020000Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v7`
+- Selection source: `fillability`
+- Universe: 5 market assets
+- Filter thresholds: `min_future_touch_rate=0.0125`, `min_avg_opportunity_spread=0.00125`, `min_timing_signals=5`
+- Duration: 60 minutes
+- Universe hash: `156296cf24500d8b310f7f967aed12fa47b1f9ba79738493be2bb99b7ee6d7da`
+
+Key metrics:
+
+- Orderbook stream events: `5343`
+- Signals: `574`
+- Execution reports: `1148` raw rows, `574` terminal signal reports
+- Report statuses: `572 DELAYED`, `572 UNMATCHED`
+- Observed fill-rate: `0.0`
+- Dry-run fill-rate: `0.0`
+- Synthetic fill-rate: `0.0017421602787456446`
+- Synthetic-only signals: `0`
+- No-fill future-touch rate: `0.0017421602787456446`
+- Adjusted synthetic fill-rate: `0.0017421602787456446`
+- Filled signals: `0`
+- Reconciliation divergence rate: `0.0`
+
+Signal-to-order conversion:
+
+- Signals analyzed: `574`
+- Signals consumed: `574`
+- Consumption rate: `1.0`
+- Signals missing execution report: `0`
+- Orders created: `574`
+- Order creation rate: `1.0`
+- Rejected consumed signals: `0`
+- Rejection rate: `0.0`
+- Dominant root cause: `order_created_unfilled`
+
+Unmatched diagnostics:
+
+- Top root cause: `dry_run_created_unmatched`
+- Top asset: `53831553061883006530739877284105938919721408776239639687877978808906551086026`
+- Top asset signals: `262`
+- Average distance to touch: approximately `0.01`
+- Future touch rate on top unmatched buckets: `0.0`
+- Average required quote move: approximately `0.01`
+
+Decision artifacts:
+
+- `profile_observation_comparison.json`
+- `profile_observation_comparison_all_v7.json`
+- `execution_probe_next_decision.json`
+- `execution_probe_next_decision_all_v7.json`
+- `signal_to_order_conversion.json`
+- Recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- `market_timing_filter_decision.decision`: `RELAX_MARKET_TIMING_FILTER`
+- Reason: `filtered_universe_still_has_no_observed_fills`
+- Next cycle thresholds: `min_future_touch_rate=0.00625`, `min_avg_opportunity_spread=0.000625`, `min_timing_signals=5`
+
+Interpretation:
+
+The dry-run exposure release fixed the risk-gate artifact from the previous
+run. Rejections dropped from `53` to `0`, and order creation increased from
+`381` to `574`. This isolates the remaining blocker: accepted near-touch orders
+are being placed, but they do not fill. The top unmatched diagnostics show the
+orders are still about one tick away from the touch and the future market rarely
+touches that limit. The next research-only decision should focus on market/timing
+filters or quote placement, not signal consumption or exposure accounting.
+
+The run remains `research-only`; `can_execute_trades=false` and the go/no-go
+decision is `NO_GO`.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`

@@ -65,6 +65,11 @@ def test_profile_observation_comparison_compares_activity_fills_and_blockers(
     assert timing_selection["min_timing_signals"] == 5
     assert timing_selection["min_avg_opportunity_spread"] == 0.01
     assert timing_selection["market_asset_ids_count"] == 2
+    unmatched = cast(dict[str, Any], observations[1]["unmatched_diagnostics"])
+    signal_to_order = cast(dict[str, Any], unmatched["signal_to_order_summary"])
+    assert signal_to_order["consumption_rate"] == 1.0
+    no_fill = cast(list[dict[str, Any]], unmatched["no_fill_diagnostics"])
+    assert no_fill[0]["root_cause"] == "dry_run_created_unmatched"
 
 
 def find_metric(rows: list[dict[str, Any]], metric: str) -> dict[str, Any]:
@@ -157,6 +162,37 @@ def seed_profile_report(
                 "avg_required_quote_move": 0.03 if profile.endswith("v2") else 0.02,
             },
             "synthetic_vs_observed_gap": [],
+            "no_fill_diagnostics": [
+                {
+                    "asset_id": "asset-1",
+                    "quote_relation": "inside_spread",
+                    "root_cause": "dry_run_created_unmatched",
+                    "signals": signals,
+                    "avg_distance_to_touch": 0.01,
+                    "future_touch_rate": 0.0,
+                    "avg_required_quote_move": 0.02,
+                }
+            ],
+        },
+    )
+    write_json(
+        root / "signal_to_order_conversion.json",
+        {
+            "summary": {
+                "signals": signals,
+                "consumed_signals": signals,
+                "unconsumed_signals": 0,
+                "rejected_consumed_signals": 0,
+                "consumption_rate": 1.0,
+                "rejection_rate": 0.0,
+            },
+            "top_root_causes": [
+                {
+                    "root_cause": "order_created_unfilled",
+                    "consumption_state": "consumed_order_created",
+                    "signals": signals,
+                }
+            ],
         },
     )
     write_json(

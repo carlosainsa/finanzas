@@ -153,6 +153,16 @@ impl OrderTracker {
         self.inner.lock().await.remove(order_id)
     }
 
+    pub async fn open_market_exposure(&self, market_id: &str) -> f64 {
+        self.inner
+            .lock()
+            .await
+            .values()
+            .filter(|order| order.market_id == market_id && !order.dry_run_reported)
+            .map(|order| order.remaining_size * order.limit_price.unwrap_or_default())
+            .sum()
+    }
+
     async fn apply_trade_fill(
         &self,
         order_id: &str,
@@ -179,15 +189,20 @@ impl OrderTracker {
 
     async fn dry_run_due(&self, timeout_ms: u64, now_ms: u64) -> Vec<TrackedOrder> {
         let mut inner = self.inner.lock().await;
-        inner
-            .values_mut()
-            .filter(|order| {
+        let due_order_ids: Vec<String> = inner
+            .iter()
+            .filter(|(_, order)| {
                 !order.dry_run_reported
                     && now_ms.saturating_sub(order.submitted_at_ms) >= timeout_ms
             })
-            .map(|order| {
+            .map(|(order_id, _)| order_id.clone())
+            .collect();
+        due_order_ids
+            .into_iter()
+            .filter_map(|order_id| {
+                let mut order = inner.remove(&order_id)?;
                 order.dry_run_reported = true;
-                order.clone()
+                Some(order)
             })
             .collect()
     }
@@ -1299,6 +1314,18 @@ mod tests {
 
         assert_eq!(tracker.dry_run_due(1, 10).await.len(), 1);
         assert!(tracker.dry_run_due(1, 10).await.is_empty());
+        assert!(tracker.get("dry-run-signal-1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dry_run_open_market_exposure_tracks_unreported_orders() {
+        let tracker = OrderTracker::new();
+        tracker.track_submitted(&signal(), "order-1", 1).await;
+
+        assert!((tracker.open_market_exposure("0xmarket").await - 5.7).abs() < 1e-9);
+
+        assert_eq!(tracker.dry_run_due(1, 10).await.len(), 1);
+        assert_eq!(tracker.open_market_exposure("0xmarket").await, 0.0);
     }
 
     #[tokio::test]

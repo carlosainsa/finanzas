@@ -18,6 +18,15 @@ impl RiskService {
     }
 
     pub fn validate(&self, signal: &TradeSignal, config: &Config) -> Result<()> {
+        self.validate_with_market_exposure(signal, config, 0.0)
+    }
+
+    pub fn validate_with_market_exposure(
+        &self,
+        signal: &TradeSignal,
+        config: &Config,
+        additional_market_exposure: f64,
+    ) -> Result<()> {
         if config.kill_switch {
             bail!("kill switch is enabled");
         }
@@ -44,6 +53,7 @@ impl RiskService {
             .get(&signal.market_id)
             .copied()
             .unwrap_or_default()
+            + additional_market_exposure
             + signal.size * signal.price;
         if projected_exposure > config.max_market_exposure {
             bail!("market exposure exceeds MAX_MARKET_EXPOSURE");
@@ -148,5 +158,20 @@ mod tests {
         cfg.kill_switch = true;
 
         assert!(risk.validate(&signal(), &cfg).is_err());
+    }
+
+    #[test]
+    fn validates_against_additional_market_exposure() {
+        let risk = RiskService::new();
+        let mut cfg = config();
+        cfg.max_market_exposure = 1.0;
+        let signal = signal();
+
+        assert!(risk
+            .validate_with_market_exposure(&signal, &cfg, 0.49)
+            .is_ok());
+        assert!(risk
+            .validate_with_market_exposure(&signal, &cfg, 0.51)
+            .is_err());
     }
 }

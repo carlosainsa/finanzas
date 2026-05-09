@@ -31,6 +31,7 @@ def profile_observation(report_root: Path) -> dict[str, object]:
     evidence = read_json(report_root / "real_dry_run_evidence.json")
     promotion = read_json(report_root / "pre_live_promotion.json")
     quote = read_json(report_root / "quote_execution_diagnostics.json")
+    signal_to_order = read_json(report_root / "signal_to_order_conversion.json")
     rejection = read_json(report_root / "signal_rejection_diagnostics.json")
     go_no_go = read_json(report_root / "go_no_go.json")
     metrics = typed_dict(promotion.get("metrics"))
@@ -105,6 +106,11 @@ def profile_observation(report_root: Path) -> dict[str, object]:
             "avg_no_fill_spread": quote_summary.get("avg_no_fill_spread"),
             "no_fill_future_touch_rate": quote_summary.get("no_fill_future_touch_rate"),
             "avg_required_quote_move": quote_summary.get("avg_required_quote_move"),
+        },
+        "unmatched_diagnostics": {
+            "signal_to_order_summary": typed_dict(signal_to_order.get("summary")),
+            "top_root_causes": list_of_dicts(signal_to_order.get("top_root_causes"))[:5],
+            "no_fill_diagnostics": list_of_dicts(quote.get("no_fill_diagnostics"))[:5],
         },
         "risk": {
             "realized_edge": metrics.get("realized_edge"),

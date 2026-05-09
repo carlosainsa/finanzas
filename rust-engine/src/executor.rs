@@ -220,10 +220,16 @@ impl OrderExecutor {
                 .control_store
                 .get_bool(&effective_config.operator_kill_switch_key)
                 .await?;
-        self.risk.validate(signal, &effective_config)?;
-
         if self.config.execution_mode == ExecutionMode::DryRun {
-            self.risk.record_accepted_signal(signal);
+            let open_market_exposure = self
+                .order_tracker
+                .open_market_exposure(&signal.market_id)
+                .await;
+            self.risk.validate_with_market_exposure(
+                signal,
+                &effective_config,
+                open_market_exposure,
+            )?;
             let order_id = format!("dry-run-{}", signal.signal_id);
             self.order_tracker
                 .track_submitted(signal, &order_id, now_ms())
@@ -241,6 +247,8 @@ impl OrderExecutor {
                 timestamp_ms: now_ms(),
             });
         }
+
+        self.risk.validate(signal, &effective_config)?;
 
         let clob = self
             .clob
