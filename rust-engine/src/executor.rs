@@ -81,6 +81,8 @@ pub async fn run(
             Ok(signal) => signal,
             Err(err) => {
                 error!(error = %err, raw = %message.payload, "Invalid trade signal JSON");
+                let report = invalid_signal_report(&message.id, &err.to_string());
+                publish_execution_report(&mut publisher, &executor, &report).await?;
                 publisher
                     .add_json(
                         "signals:deadletter",
@@ -112,12 +114,43 @@ pub async fn run(
         );
 
         let report = executor.execute(signal).await;
-        let payload = serde_json::to_string(&report)?;
-        publisher
-            .add_json(&executor.config.execution_reports_stream, &payload)
-            .await?;
-        executor.store.record_execution_report(&report).await?;
+        publish_execution_report(&mut publisher, &executor, &report).await?;
         consumer.ack(&message.id).await?;
+    }
+}
+
+async fn publish_execution_report(
+    publisher: &mut StreamProducer,
+    executor: &OrderExecutor,
+    report: &ExecutionReport,
+) -> Result<()> {
+    let payload = serde_json::to_string(report)?;
+    publisher
+        .add_json(&executor.config.execution_reports_stream, &payload)
+        .await?;
+    if let Err(err) = executor.store.record_execution_report(report).await {
+        error!(
+            signal_id = %report.signal_id,
+            order_id = %report.order_id,
+            status = ?report.status,
+            error = %err,
+            "Failed to persist execution report after Redis publication"
+        );
+    }
+    Ok(())
+}
+
+fn invalid_signal_report(stream_id: &str, error: &str) -> ExecutionReport {
+    ExecutionReport {
+        signal_id: format!("invalid:{stream_id}"),
+        order_id: String::new(),
+        status: ExecutionStatus::Error,
+        filled_price: None,
+        filled_size: None,
+        cumulative_filled_size: None,
+        remaining_size: None,
+        error: Some(format!("invalid_trade_signal_json: {error}")),
+        timestamp_ms: now_ms(),
     }
 }
 
@@ -295,4 +328,23 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .expect("system clock before UNIX_EPOCH")
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_signal_report_is_traceable_error() {
+        let report = invalid_signal_report("1-0", "expected value");
+
+        assert_eq!(report.signal_id, "invalid:1-0");
+        assert_eq!(report.order_id, "");
+        assert_eq!(report.status, ExecutionStatus::Error);
+        assert!(report
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("invalid_trade_signal_json:"));
+    }
 }

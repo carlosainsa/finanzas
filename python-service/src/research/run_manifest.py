@@ -500,7 +500,26 @@ def manifest_counts(
         "signal_to_order_filled_signals": signal_to_order_summary.get(
             "filled_signals"
         ),
+        "signal_to_order_consumed_signals": signal_to_order_summary.get(
+            "consumed_signals"
+        ),
+        "signal_to_order_unconsumed_signals": signal_to_order_summary.get(
+            "unconsumed_signals"
+        ),
+        "signal_to_order_unconsumed_expired_signals": signal_to_order_summary.get(
+            "unconsumed_expired_signals"
+        ),
+        "signal_to_order_unconsumed_pending_signals": signal_to_order_summary.get(
+            "unconsumed_pending_signals"
+        ),
+        "signal_to_order_rejected_consumed_signals": signal_to_order_summary.get(
+            "rejected_consumed_signals"
+        ),
         "signal_to_order_report_rate": signal_to_order_summary.get("report_rate"),
+        "signal_to_order_consumption_rate": signal_to_order_summary.get(
+            "consumption_rate"
+        ),
+        "signal_to_order_rejection_rate": signal_to_order_summary.get("rejection_rate"),
         "signal_to_order_order_creation_rate": signal_to_order_summary.get(
             "order_creation_rate"
         ),
@@ -810,7 +829,26 @@ def flatten_manifest(manifest: dict[str, object]) -> dict[str, object]:
         ),
         "signal_to_order_orders_created": counts.get("signal_to_order_orders_created"),
         "signal_to_order_filled_signals": counts.get("signal_to_order_filled_signals"),
+        "signal_to_order_consumed_signals": counts.get(
+            "signal_to_order_consumed_signals"
+        ),
+        "signal_to_order_unconsumed_signals": counts.get(
+            "signal_to_order_unconsumed_signals"
+        ),
+        "signal_to_order_unconsumed_expired_signals": counts.get(
+            "signal_to_order_unconsumed_expired_signals"
+        ),
+        "signal_to_order_unconsumed_pending_signals": counts.get(
+            "signal_to_order_unconsumed_pending_signals"
+        ),
+        "signal_to_order_rejected_consumed_signals": counts.get(
+            "signal_to_order_rejected_consumed_signals"
+        ),
         "signal_to_order_report_rate": counts.get("signal_to_order_report_rate"),
+        "signal_to_order_consumption_rate": counts.get(
+            "signal_to_order_consumption_rate"
+        ),
+        "signal_to_order_rejection_rate": counts.get("signal_to_order_rejection_rate"),
         "signal_to_order_order_creation_rate": counts.get(
             "signal_to_order_order_creation_rate"
         ),

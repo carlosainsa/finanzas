@@ -195,6 +195,19 @@ def create_signal_to_order_conversion_views(
         )
         conn.execute(
             f"""
+            create or replace view signal_to_order_analysis_watermark as
+            select coalesce(max(event_timestamp_ms), 0) as analysis_watermark_ms
+            from (
+                select event_timestamp_ms from signals
+                union all
+                select event_timestamp_ms from execution_reports
+                union all
+                select event_timestamp_ms from orderbook_snapshots
+            )
+            """
+        )
+        conn.execute(
+            f"""
             create or replace view signal_to_order_outcomes as
             select
                 *,
@@ -206,6 +219,28 @@ def create_signal_to_order_conversion_views(
                 terminal_status = 'ERROR' or error is not null as is_error,
                 terminal_status in ('CANCELLED', 'UNMATCHED') as is_cancelled_or_unmatched,
                 raw_report_rows = 0 as missing_report,
+                raw_report_rows > 0 as consumed_signal,
+                raw_report_rows = 0 as unconsumed_signal,
+                raw_report_rows = 0
+                    and watermark.analysis_watermark_ms - coalesce(signal_timestamp_ms, 0)
+                        >= {config.missing_report_after_ms} as unconsumed_expired,
+                raw_report_rows = 0
+                    and watermark.analysis_watermark_ms - coalesce(signal_timestamp_ms, 0)
+                        < {config.missing_report_after_ms} as unconsumed_pending,
+                raw_report_rows > 0
+                    and (terminal_status = 'ERROR' or error is not null)
+                    and not order_created as rejection_reported,
+                case
+                    when raw_report_rows = 0
+                         and watermark.analysis_watermark_ms - coalesce(signal_timestamp_ms, 0)
+                             < {config.missing_report_after_ms}
+                    then 'unconsumed_pending'
+                    when raw_report_rows = 0 then 'unconsumed_expired'
+                    when (terminal_status = 'ERROR' or error is not null) and not order_created
+                    then 'consumed_rejected'
+                    when order_created then 'consumed_order_created'
+                    else 'consumed_reported_no_order'
+                end as consumption_state,
                 case
                     when raw_report_rows = 0 then 'signal_only'
                     when terminal_status = 'ERROR' or error is not null then 'error_terminal'
@@ -229,6 +264,7 @@ def create_signal_to_order_conversion_views(
                     else 'unknown_no_report'
                 end as root_cause
             from signal_to_order_lifecycle
+            cross join signal_to_order_analysis_watermark watermark
             """
         )
         conn.execute(
@@ -238,6 +274,7 @@ def create_signal_to_order_conversion_views(
                 root_cause,
                 strategy,
                 asset_id,
+                consumption_state,
                 terminal_status,
                 count(*) as signals,
                 sum(case when has_report then 1 else 0 end) as reports,
@@ -246,7 +283,7 @@ def create_signal_to_order_conversion_views(
                 sum(case when is_error then 1 else 0 end) as error_reports,
                 avg(report_latency_ms) as avg_report_latency_ms
             from signal_to_order_outcomes
-            group by root_cause, strategy, asset_id, terminal_status
+            group by root_cause, strategy, asset_id, consumption_state, terminal_status
             """
         )
         conn.execute(
@@ -265,11 +302,18 @@ def create_signal_to_order_conversion_views(
                 coalesce(sum(case when is_filled then 1 else 0 end), 0) as filled_signals,
                 coalesce(sum(case when is_partial then 1 else 0 end), 0) as partial_signals,
                 coalesce(sum(case when is_error then 1 else 0 end), 0) as error_reports,
+                coalesce(sum(case when consumed_signal then 1 else 0 end), 0) as consumed_signals,
+                coalesce(sum(case when unconsumed_signal then 1 else 0 end), 0) as unconsumed_signals,
+                coalesce(sum(case when unconsumed_expired then 1 else 0 end), 0) as unconsumed_expired_signals,
+                coalesce(sum(case when unconsumed_pending then 1 else 0 end), 0) as unconsumed_pending_signals,
+                coalesce(sum(case when rejection_reported then 1 else 0 end), 0) as rejected_consumed_signals,
                 sum(case when has_report then 1 else 0 end)::double / count(*) as report_rate,
                 sum(case when has_order_id then 1 else 0 end)::double / count(*) as order_creation_rate,
                 sum(case when is_filled then 1 else 0 end)::double / count(*) as fill_rate,
                 sum(case when missing_report then 1 else 0 end)::double / count(*) as missing_report_rate,
                 sum(case when is_error then 1 else 0 end)::double / count(*) as error_rate,
+                sum(case when consumed_signal then 1 else 0 end)::double / count(*) as consumption_rate,
+                sum(case when rejection_reported then 1 else 0 end)::double / count(*) as rejection_rate,
                 avg(report_latency_ms) as avg_report_latency_ms
             from signal_to_order_outcomes
             group by market_id, asset_id, strategy, side, model_version
@@ -280,13 +324,14 @@ def create_signal_to_order_conversion_views(
             create or replace view signal_to_order_status_summary as
             select
                 coalesce(terminal_status, 'NO_REPORT') as terminal_status,
+                consumption_state,
                 conversion_stage,
                 count(*) as signals,
                 sum(case when has_report then 1 else 0 end) as reports,
                 sum(case when has_order_id then 1 else 0 end) as orders_created,
                 sum(case when is_filled then 1 else 0 end) as filled_signals
             from signal_to_order_outcomes
-            group by terminal_status, conversion_stage
+            group by terminal_status, consumption_state, conversion_stage
             """
         )
         conn.execute(
@@ -317,11 +362,18 @@ def create_signal_to_order_conversion_views(
                 coalesce(sum(case when is_filled then 1 else 0 end), 0) as filled_signals,
                 coalesce(sum(case when is_partial then 1 else 0 end), 0) as partial_signals,
                 coalesce(sum(case when is_error then 1 else 0 end), 0) as error_reports,
+                coalesce(sum(case when consumed_signal then 1 else 0 end), 0) as consumed_signals,
+                coalesce(sum(case when unconsumed_signal then 1 else 0 end), 0) as unconsumed_signals,
+                coalesce(sum(case when unconsumed_expired then 1 else 0 end), 0) as unconsumed_expired_signals,
+                coalesce(sum(case when unconsumed_pending then 1 else 0 end), 0) as unconsumed_pending_signals,
+                coalesce(sum(case when rejection_reported then 1 else 0 end), 0) as rejected_consumed_signals,
                 case when count(*) > 0 then sum(case when has_report then 1 else 0 end)::double / count(*) else 0 end as report_rate,
                 case when count(*) > 0 then sum(case when has_order_id then 1 else 0 end)::double / count(*) else 0 end as order_creation_rate,
                 case when count(*) > 0 then sum(case when is_filled then 1 else 0 end)::double / count(*) else 0 end as fill_rate,
                 case when count(*) > 0 then sum(case when missing_report then 1 else 0 end)::double / count(*) else 0 end as missing_report_rate,
                 case when count(*) > 0 then sum(case when is_error then 1 else 0 end)::double / count(*) else 0 end as error_rate,
+                case when count(*) > 0 then sum(case when consumed_signal then 1 else 0 end)::double / count(*) else 0 end as consumption_rate,
+                case when count(*) > 0 then sum(case when rejection_reported then 1 else 0 end)::double / count(*) else 0 end as rejection_rate,
                 avg(report_latency_ms) as avg_report_latency_ms
             from signal_to_order_outcomes
             """
@@ -353,11 +405,18 @@ def empty_summary() -> dict[str, object]:
         "filled_signals": 0,
         "partial_signals": 0,
         "error_reports": 0,
+        "consumed_signals": 0,
+        "unconsumed_signals": 0,
+        "unconsumed_expired_signals": 0,
+        "unconsumed_pending_signals": 0,
+        "rejected_consumed_signals": 0,
         "report_rate": 0.0,
         "order_creation_rate": 0.0,
         "fill_rate": 0.0,
         "missing_report_rate": 0.0,
         "error_rate": 0.0,
+        "consumption_rate": 0.0,
+        "rejection_rate": 0.0,
         "avg_report_latency_ms": None,
     }
 

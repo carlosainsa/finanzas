@@ -71,33 +71,12 @@ impl StreamConsumer {
 
     pub async fn next_message(&mut self) -> Result<StreamMessage> {
         loop {
-            let opts = StreamReadOptions::default()
-                .group(&self.group, &self.consumer)
-                .count(1)
-                .block(1_000);
-            let reply: StreamReadReply = match self
-                .conn
-                .xread_options(&[self.stream.as_str()], &[">"], &opts)
-                .await
-            {
-                Ok(reply) => reply,
-                Err(err) if is_stream_read_timeout(&err) => continue,
-                Err(err) => return Err(err.into()),
-            };
-
-            let Some(key) = reply.keys.first() else {
-                continue;
-            };
-            let Some(message) = key.ids.first() else {
-                continue;
-            };
-            let payload = message
-                .get::<String>("payload")
-                .ok_or_else(|| anyhow::anyhow!("stream message missing payload field"))?;
-            return Ok(StreamMessage {
-                id: message.id.clone(),
-                payload,
-            });
+            if let Some(message) = self.read_message("0", false).await? {
+                return Ok(message);
+            }
+            if let Some(message) = self.read_message(">", true).await? {
+                return Ok(message);
+            }
         }
     }
 
@@ -107,6 +86,42 @@ impl StreamConsumer {
             .await?;
         Ok(())
     }
+
+    async fn read_message(
+        &mut self,
+        stream_id: &str,
+        block: bool,
+    ) -> Result<Option<StreamMessage>> {
+        let mut opts = StreamReadOptions::default()
+            .group(&self.group, &self.consumer)
+            .count(1);
+        if block {
+            opts = opts.block(1_000);
+        }
+        let reply: StreamReadReply = match self
+            .conn
+            .xread_options(&[self.stream.as_str()], &[stream_id], &opts)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(err) if is_stream_read_timeout(&err) => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
+
+        let Some(key) = reply.keys.first() else {
+            return Ok(None);
+        };
+        let Some(message) = key.ids.first() else {
+            return Ok(None);
+        };
+        let payload = message
+            .get::<String>("payload")
+            .ok_or_else(|| anyhow::anyhow!("stream message missing payload field"))?;
+        Ok(Some(StreamMessage {
+            id: message.id.clone(),
+            payload,
+        }))
+    }
 }
 
 fn is_stream_read_timeout(err: &redis::RedisError) -> bool {
@@ -114,10 +129,26 @@ fn is_stream_read_timeout(err: &redis::RedisError) -> bool {
 }
 
 async fn ensure_group(conn: &mut ConnectionManager, stream: &str, group: &str) -> Result<()> {
-    let result: redis::RedisResult<()> = conn.xgroup_create_mkstream(stream, group, "$").await;
+    let result: redis::RedisResult<()> = conn
+        .xgroup_create_mkstream(stream, group, consumer_group_start_id())
+        .await;
     match result {
         Ok(()) => Ok(()),
         Err(err) if err.to_string().contains("BUSYGROUP") => Ok(()),
         Err(err) => Err(err.into()),
+    }
+}
+
+fn consumer_group_start_id() -> &'static str {
+    "0"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn consumer_group_starts_from_stream_beginning() {
+        assert_eq!(consumer_group_start_id(), "0");
     }
 }

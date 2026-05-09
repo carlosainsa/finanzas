@@ -18,7 +18,7 @@ def test_signal_to_order_conversion_classifies_missing_and_filled(
     report = create_signal_to_order_conversion_report(
         db_path,
         tmp_path / "conversion",
-        SignalToOrderConversionConfig(examples_limit=10),
+        SignalToOrderConversionConfig(examples_limit=10, missing_report_after_ms=1),
     )
 
     assert report["report_version"] == REPORT_VERSION
@@ -30,7 +30,14 @@ def test_signal_to_order_conversion_classifies_missing_and_filled(
     assert summary["missing_reports"] == 1
     assert summary["orders_created"] == 2
     assert summary["filled_signals"] == 1
+    assert summary["consumed_signals"] == 3
+    assert summary["unconsumed_signals"] == 1
+    assert summary["unconsumed_expired_signals"] == 1
+    assert summary["unconsumed_pending_signals"] == 0
+    assert summary["rejected_consumed_signals"] == 1
     assert summary["report_rate"] == 0.75
+    assert summary["consumption_rate"] == 0.75
+    assert summary["rejection_rate"] == 0.25
     root_causes = {
         str(row["root_cause"])
         for row in cast(list[dict[str, Any]], report["top_root_causes"])
@@ -40,6 +47,19 @@ def test_signal_to_order_conversion_classifies_missing_and_filled(
     assert "order_created_unfilled" in root_causes
     assert "executor_reported_error" in root_causes
     assert (tmp_path / "conversion" / "signal_to_order_outcomes.parquet").exists()
+    with duckdb.connect() as conn:
+        outcomes = {
+            row[0]: row[1]
+            for row in conn.execute(
+                f"""
+                select signal_id, consumption_state
+                from read_parquet('{(tmp_path / "conversion" / "signal_to_order_outcomes.parquet").as_posix()}')
+                """
+            ).fetchall()
+        }
+    assert outcomes["s-missing"] == "unconsumed_expired"
+    assert outcomes["s-error"] == "consumed_rejected"
+    assert outcomes["s-filled"] == "consumed_order_created"
 
 
 def test_signal_to_order_conversion_handles_empty_database(tmp_path: Path) -> None:
@@ -54,6 +74,33 @@ def test_signal_to_order_conversion_handles_empty_database(tmp_path: Path) -> No
     assert summary["missing_reports"] == 0
     counts = cast(dict[str, int], report["counts"])
     assert counts["signal_to_order_outcomes"] == 0
+
+
+def test_signal_to_order_conversion_marks_recent_missing_report_pending(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_conversion_db(tmp_path)
+
+    report = create_signal_to_order_conversion_report(
+        db_path,
+        tmp_path / "conversion",
+        SignalToOrderConversionConfig(missing_report_after_ms=10_000),
+    )
+
+    summary = cast(dict[str, Any], report["summary"])
+    assert summary["unconsumed_signals"] == 1
+    assert summary["unconsumed_pending_signals"] == 1
+    assert summary["unconsumed_expired_signals"] == 0
+    with duckdb.connect() as conn:
+        row = conn.execute(
+            f"""
+            select consumption_state
+            from read_parquet('{(tmp_path / "conversion" / "signal_to_order_outcomes.parquet").as_posix()}')
+            where signal_id = 's-missing'
+            """
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "unconsumed_pending"
 
 
 def test_signal_to_order_conversion_rejects_invalid_config() -> None:

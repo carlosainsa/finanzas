@@ -153,6 +153,7 @@ PYTHONPATH=python-service python3 -m src.research.signal_to_order_conversion \
   --missing-report-after-ms "${SIGNAL_TO_ORDER_MISSING_REPORT_AFTER_MS:-300000}" \
   --stale-book-ms "${SIGNAL_TO_ORDER_STALE_BOOK_MS:-60000}" \
   --examples-limit "${SIGNAL_TO_ORDER_EXAMPLES_LIMIT:-100}" \
+  --min-signals "${SIGNAL_TO_ORDER_MIN_SIGNALS:-1}" \
   > "$REPORT_ROOT/signal_to_order_conversion.json"
 MARKET_OPPORTUNITY_ARGS=(
   -m src.research.market_opportunity_selector

@@ -474,3 +474,72 @@ executor reports before changing quote aggressiveness.
 
 The run remains `research-only`; `can_execute_trades=false` and the go/no-go
 decision is `NO_GO`.
+
+## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
+
+- Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v7-relaxed-timing-20260509T000000Z/reports/execution-probe-v7-relaxed-timing-20260509T000000Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v7`
+- Selection source: `fillability`
+- Universe: 5 market assets
+- Filter thresholds: `min_future_touch_rate=0.0125`, `min_avg_opportunity_spread=0.00125`, `min_timing_signals=5`
+- Duration: 60 minutes
+- Universe hash: `85e07aab664e24f9e1e01f879974ee8c00e0cc604bf11dca75d2d6dbb05042e2`
+
+Key metrics:
+
+- Orderbook stream events: `4671`
+- Orderbook snapshots: `4672`
+- Signals: `434`
+- Execution reports: `815` raw rows, `434` terminal signal reports
+- Report statuses: `381 DELAYED`, `381 UNMATCHED`, `53 ERROR`
+- Observed fill-rate: `0.0`
+- Dry-run fill-rate: `0.0`
+- Synthetic fill-rate: `0.06451612903225806`
+- Synthetic-only signals: `0`
+- No-fill future-touch rate: `0.06451612903225806`
+- Adjusted synthetic fill-rate: `0.04032258064516129`
+- Stale data rate: `0.004066780821917808`
+- Reconciliation divergence rate: `0.0`
+- Filled signals: `0`
+- Adverse selection: `1.0`
+- Drawdown: `0.0`
+
+Signal-to-order conversion:
+
+- `signal_to_order_conversion.report_version`: `signal_to_order_conversion_v1`
+- Signals analyzed: `434`
+- Signals consumed: `434`
+- Consumption rate: `1.0`
+- Signals missing execution report: `0`
+- Orders created: `381`
+- Order creation rate: `0.8778801843317973`
+- Rejected consumed signals: `53`
+- Rejection rate: `0.12211981566820276`
+- Rejection reason: `market exposure exceeds MAX_MARKET_EXPOSURE`
+- Dominant root cause after pipeline fix: `order_created_unfilled`
+
+Decision artifacts:
+
+- `profile_observation_comparison.json`
+- `profile_observation_comparison_all_v7.json`
+- `execution_probe_next_decision.json`
+- `execution_probe_next_decision_all_v7.json`
+- `signal_to_order_conversion.json`
+- Recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- `market_timing_filter_decision.decision`: `RELAX_MARKET_TIMING_FILTER`
+- Reason: `filtered_universe_still_has_no_observed_fills`
+- Next cycle thresholds: `min_future_touch_rate=0.00625`, `min_avg_opportunity_spread=0.000625`, `min_timing_signals=5`
+
+Interpretation:
+
+The executor/Redis durability fix changed the problem materially. The previous
+expanded run had 370 of 373 signals without an observed report. This run had
+zero missing execution reports: every signal was consumed and classified. The
+remaining blocker is no longer signal-to-order traceability; it is execution
+quality. Most consumed signals created dry-run orders and ended `UNMATCHED`, and
+the explicit `ERROR` reports are risk gate rejections from max market exposure.
+
+The run remains `research-only`; `can_execute_trades=false` and the go/no-go
+decision is `NO_GO`.

@@ -92,6 +92,13 @@ def test_run_manifest_persists_versioned_summary_and_index(tmp_path: Path) -> No
     assert counts["signal_to_order_missing_reports"] == 1
     assert counts["signal_to_order_orders_created"] == 2
     assert counts["signal_to_order_filled_signals"] == 1
+    assert counts["signal_to_order_consumed_signals"] == 3
+    assert counts["signal_to_order_unconsumed_signals"] == 1
+    assert counts["signal_to_order_unconsumed_expired_signals"] == 1
+    assert counts["signal_to_order_unconsumed_pending_signals"] == 0
+    assert counts["signal_to_order_rejected_consumed_signals"] == 1
+    assert counts["signal_to_order_consumption_rate"] == 0.75
+    assert counts["signal_to_order_rejection_rate"] == 0.25
     assert counts["signal_to_order_root_causes"] == 3
     assert counts["candidate_market_ranked_assets"] == 2
     assert counts["candidate_market_selected_assets"] == 1
@@ -333,6 +340,9 @@ def test_flatten_manifest_keeps_comparison_fields(tmp_path: Path) -> None:
     assert flat["quote_execution_outcomes"] == 4
     assert flat["signal_to_order_signals"] == 4
     assert flat["signal_to_order_missing_reports"] == 1
+    assert flat["signal_to_order_consumed_signals"] == 3
+    assert flat["signal_to_order_unconsumed_signals"] == 1
+    assert flat["signal_to_order_rejected_consumed_signals"] == 1
     assert flat["signal_to_order_conversion_report_version"] == (
         "signal_to_order_conversion_v1"
     )
@@ -541,7 +551,14 @@ def seed_report_root(report_root: Path) -> Path:
                 "missing_reports": 1,
                 "orders_created": 2,
                 "filled_signals": 1,
+                "consumed_signals": 3,
+                "unconsumed_signals": 1,
+                "unconsumed_expired_signals": 1,
+                "unconsumed_pending_signals": 0,
+                "rejected_consumed_signals": 1,
                 "report_rate": 0.75,
+                "consumption_rate": 0.75,
+                "rejection_rate": 0.25,
                 "order_creation_rate": 0.5,
                 "missing_report_rate": 0.25,
             },
