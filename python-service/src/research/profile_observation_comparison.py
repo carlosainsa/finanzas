@@ -106,6 +106,7 @@ def profile_observation(report_root: Path) -> dict[str, object]:
             "avg_no_fill_spread": quote_summary.get("avg_no_fill_spread"),
             "no_fill_future_touch_rate": quote_summary.get("no_fill_future_touch_rate"),
             "avg_required_quote_move": quote_summary.get("avg_required_quote_move"),
+            **effective_quote_policy(evidence),
         },
         "unmatched_diagnostics": {
             "signal_to_order_summary": typed_dict(signal_to_order.get("summary")),
@@ -178,6 +179,8 @@ def pairwise_deltas(observations: list[dict[str, object]]) -> list[dict[str, obj
                         "avg_no_fill_spread",
                         "no_fill_future_touch_rate",
                         "avg_required_quote_move",
+                        "near_touch_max_spread_fraction",
+                        "offset_ticks",
                     ),
                 ),
             }
@@ -217,6 +220,18 @@ def fill_rate_gap(summary: dict[str, Any]) -> float | None:
     return synthetic - observed
 
 
+def effective_quote_policy(evidence: dict[str, object]) -> dict[str, object]:
+    profile = str(evidence.get("predictor_strategy_profile") or "")
+    key_prefix = f"predictor_{profile}"
+    return {
+        "near_touch_max_spread_fraction": numeric_or_none(
+            evidence.get(f"{key_prefix}_near_touch_max_spread_fraction")
+        ),
+        "offset_ticks": numeric_or_none(evidence.get(f"{key_prefix}_offset_ticks")),
+        "fraction_selection_path": evidence.get(f"{key_prefix}_fraction_selection_path"),
+    }
+
+
 def read_json(path: Path) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -238,6 +253,11 @@ def numeric_or_none(value: object) -> float | None:
         return 1.0 if value else 0.0
     if isinstance(value, (int, float)):
         return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
     return None
 
 

@@ -7,7 +7,11 @@ from typing import Any
 
 
 REPORT_VERSION = "execution_probe_next_decision_v1"
-SUPPORTED_CANDIDATE_PROFILES = {"execution_probe_v6", "execution_probe_v7"}
+SUPPORTED_CANDIDATE_PROFILES = {
+    "execution_probe_v6",
+    "execution_probe_v7",
+    "execution_probe_v8",
+}
 
 
 @dataclass(frozen=True)
@@ -21,6 +25,7 @@ class ExecutionProbeDecisionThresholds:
     min_no_fill_future_touch_rate: float = 0.10
     min_market_timing_filter_fill_rate_lift: float = 0.005
     min_fillability_market_asset_ids: int = 5
+    min_quote_move_to_create_v8: float = 0.005
 
 
 def decide_execution_probe_next_step(
@@ -45,6 +50,10 @@ def decide_execution_probe_next_step(
         candidate,
         thresholds,
     )
+    quote_aggressiveness_decision = decide_quote_aggressiveness(
+        candidate,
+        thresholds,
+    )
     recommendation, next_step, rationale = classify_next_step(
         candidate,
         failed=failed,
@@ -64,6 +73,7 @@ def decide_execution_probe_next_step(
         "next_step": next_step,
         "rationale": rationale,
         "market_timing_filter_decision": market_timing_filter_decision,
+        "quote_aggressiveness_decision": quote_aggressiveness_decision,
         "checks": checks,
         "summary": {
             "passed": sum(1 for item in checks if item["status"] == "PASS"),
@@ -140,14 +150,14 @@ def classify_next_step(
     if not candidate:
         return (
             "WAIT_FOR_OBSERVATION",
-            "Run execution_probe_v6 or execution_probe_v7 and generate profile_observation_comparison.json.",
+            "Run execution_probe_v6, execution_probe_v7, or execution_probe_v8 and generate profile_observation_comparison.json.",
             ["no_candidate_observation"],
         )
     profile = candidate.get("profile")
     if profile not in SUPPORTED_CANDIDATE_PROFILES:
         return (
             "WAIT_FOR_EXECUTION_PROBE_OBSERVATION",
-            "Compare a completed execution_probe_v6 or execution_probe_v7 report before tuning.",
+            "Compare a completed execution_probe_v6, execution_probe_v7, or execution_probe_v8 report before tuning.",
             [f"candidate_profile={profile}"],
         )
 
@@ -164,6 +174,16 @@ def classify_next_step(
     no_fill_future_touch_rate = numeric_or_none(
         quote_policy.get("no_fill_future_touch_rate")
     )
+    avg_required_quote_move = numeric_or_none(
+        quote_policy.get("avg_required_quote_move")
+    )
+    unmatched_diagnostics = typed_dict(candidate.get("unmatched_diagnostics"))
+    no_fill_diagnostics = list_of_dicts(unmatched_diagnostics.get("no_fill_diagnostics"))
+    dominant_no_fill_root = (
+        str(no_fill_diagnostics[0].get("root_cause"))
+        if no_fill_diagnostics
+        else None
+    )
 
     if signals < thresholds.min_signals:
         return (
@@ -172,6 +192,25 @@ def classify_next_step(
             [f"signals={signals} below min_signals={thresholds.min_signals}"],
         )
     if filled <= 0 or observed_fill_rate <= 0:
+        if (
+            profile == "execution_probe_v7"
+            and avg_required_quote_move is not None
+            and avg_required_quote_move >= thresholds.min_quote_move_to_create_v8
+            and dominant_no_fill_root
+            in {
+                "dry_run_created_unmatched",
+                "dry_run_created_unmatched_with_synthetic_touch",
+            }
+        ):
+            return (
+                "CREATE_V8_AT_TOUCH_TIMING_PROBE",
+                "Create execution_probe_v8 as research-only at-touch quote/timing probe before relaxing filters further.",
+                [
+                    "no_observed_fills",
+                    f"avg_required_quote_move={avg_required_quote_move}",
+                    f"dominant_no_fill_root={dominant_no_fill_root}",
+                ],
+            )
         if (
             no_fill_future_touch_rate is not None
             and no_fill_future_touch_rate < thresholds.min_no_fill_future_touch_rate
@@ -194,7 +233,7 @@ def classify_next_step(
             ["no_observed_fills", "sample_is_large_enough"],
         )
     if fill_rate_gap > thresholds.max_synthetic_observed_gap:
-        if profile == "execution_probe_v7":
+        if profile in {"execution_probe_v7", "execution_probe_v8"}:
             return (
                 "HOLD_RESEARCH",
                 "Do not add another quote profile until synthetic-only evidence is guarded or excluded.",
@@ -203,7 +242,7 @@ def classify_next_step(
                         "fill_rate_gap="
                         f"{fill_rate_gap} above {thresholds.max_synthetic_observed_gap}"
                     ),
-                    "execution_probe_v7_already_less_aggressive",
+                    f"{profile}_already_in_quote_tuning_stage",
                 ],
             )
         return (
@@ -437,12 +476,170 @@ def market_timing_next_cycle(
     }
 
 
+def decide_quote_aggressiveness(
+    candidate: dict[str, Any],
+    thresholds: ExecutionProbeDecisionThresholds,
+) -> dict[str, object]:
+    profile = str(candidate.get("profile") or "")
+    if profile not in {"execution_probe_v7", "execution_probe_v8"}:
+        return {
+            "decision": "NOT_EVALUATED",
+            "reason": "candidate_profile_not_quote_tuning_stage",
+            "can_execute_trades": False,
+        }
+
+    activity = typed_dict(candidate.get("activity"))
+    fills = typed_dict(candidate.get("fills"))
+    risk = typed_dict(candidate.get("risk"))
+    quote_policy = typed_dict(candidate.get("quote_policy"))
+    unmatched_diagnostics = typed_dict(candidate.get("unmatched_diagnostics"))
+    no_fill_diagnostics = list_of_dicts(unmatched_diagnostics.get("no_fill_diagnostics"))
+    top_no_fill = no_fill_diagnostics[0] if no_fill_diagnostics else {}
+
+    signals = numeric_or_none(activity.get("signals")) or 0.0
+    filled = numeric_or_none(activity.get("filled_signals")) or 0.0
+    observed_fill_rate = numeric_or_none(fills.get("observed_fill_rate")) or 0.0
+    fill_rate_gap = numeric_or_none(fills.get("fill_rate_gap")) or 0.0
+    avg_required_quote_move = numeric_or_none(
+        quote_policy.get("avg_required_quote_move")
+    )
+    no_fill_future_touch_rate = numeric_or_none(
+        quote_policy.get("no_fill_future_touch_rate")
+    )
+    adverse_selection = numeric_or_none(risk.get("adverse_selection"))
+    drawdown = numeric_or_none(risk.get("drawdown"))
+    root_cause = str(top_no_fill.get("root_cause") or "")
+
+    checks = [
+        check_at_least(
+            "quote_tuning_minimum_signal_sample",
+            signals,
+            float(thresholds.min_signals),
+        ),
+        check_at_least(
+            "quote_tuning_required_quote_move",
+            avg_required_quote_move,
+            thresholds.min_quote_move_to_create_v8,
+            required=False,
+        ),
+        check_at_most(
+            "quote_tuning_synthetic_observed_gap",
+            fill_rate_gap,
+            thresholds.max_synthetic_observed_gap,
+        ),
+        check_at_most(
+            "quote_tuning_adverse_selection",
+            adverse_selection,
+            thresholds.max_adverse_selection,
+            required=False,
+        ),
+        check_at_most(
+            "quote_tuning_drawdown",
+            drawdown,
+            thresholds.max_drawdown,
+            required=False,
+        ),
+    ]
+    failed = [item for item in checks if item["status"] == "FAIL"]
+
+    if profile == "execution_probe_v7" and filled <= 0 and observed_fill_rate <= 0:
+        if (
+            avg_required_quote_move is not None
+            and avg_required_quote_move >= thresholds.min_quote_move_to_create_v8
+            and root_cause
+            in {
+                "dry_run_created_unmatched",
+                "dry_run_created_unmatched_with_synthetic_touch",
+            }
+        ):
+            decision = "CREATE_V8_AT_TOUCH_TIMING_PROBE"
+            reason = "v7_orders_remain_one_tick_away_from_touch"
+        elif (
+            no_fill_future_touch_rate is not None
+            and no_fill_future_touch_rate < thresholds.min_no_fill_future_touch_rate
+        ):
+            decision = "RETUNE_MARKET_TIMING_BEFORE_QUOTE"
+            reason = "future_books_do_not_touch_candidate_limits"
+        else:
+            decision = "RELAX_SIGNAL_FILTERS_BEFORE_QUOTE"
+            reason = "unmatched_evidence_does_not_isolate_quote_distance"
+    elif profile == "execution_probe_v8" and filled <= 0 and observed_fill_rate <= 0:
+        decision = "RETUNE_MARKET_OR_TIMING_AFTER_AT_TOUCH"
+        reason = "at_touch_quote_probe_still_has_no_observed_fills"
+    elif profile == "execution_probe_v8" and not failed:
+        decision = "REPEAT_V8_LONGER"
+        reason = "at_touch_quote_probe_has_fills_without_synthetic_or_risk_regression"
+    else:
+        decision = "HOLD_QUOTE_POLICY"
+        reason = f"failed_checks={len(failed)}"
+
+    return {
+        "decision": decision,
+        "reason": reason,
+        "can_execute_trades": False,
+        "candidate_profile": profile,
+        "avg_required_quote_move": avg_required_quote_move,
+        "no_fill_future_touch_rate": no_fill_future_touch_rate,
+        "dominant_no_fill_root_cause": root_cause or None,
+        "next_cycle": quote_aggressiveness_next_cycle(decision, candidate),
+        "checks": checks,
+    }
+
+
+def quote_aggressiveness_next_cycle(
+    decision: str,
+    candidate: dict[str, Any],
+) -> dict[str, object] | None:
+    if decision == "CREATE_V8_AT_TOUCH_TIMING_PROBE":
+        market_timing_selection = typed_dict(candidate.get("market_timing_selection"))
+        min_future_touch_rate = numeric_or_none(
+            market_timing_selection.get("min_future_touch_rate")
+        )
+        min_timing_signals = numeric_or_none(
+            market_timing_selection.get("min_timing_signals")
+        )
+        min_avg_opportunity_spread = numeric_or_none(
+            market_timing_selection.get("min_avg_opportunity_spread")
+        )
+        selection_source = market_timing_selection.get("selection_source") or "fillability"
+        return {
+            "script": "scripts/run_execution_probe_v8_cycle.sh",
+            "args": {
+                "--selection-source": str(selection_source),
+                "--market-timing-filter": "future_touch",
+                "--min-future-touch-rate": format_number(
+                    min_future_touch_rate
+                    if min_future_touch_rate is not None
+                    else 0.00625
+                ),
+                "--min-timing-signals": format_number(
+                    min_timing_signals if min_timing_signals is not None else 5
+                ),
+                "--min-avg-opportunity-spread": format_number(
+                    min_avg_opportunity_spread
+                    if min_avg_opportunity_spread is not None
+                    else 0.000625
+                ),
+            },
+        }
+    if decision == "REPEAT_V8_LONGER":
+        return {
+            "script": "scripts/run_execution_probe_v8_observation.sh",
+            "args": {"--duration-seconds": "5400"},
+        }
+    return None
+
+
 def format_number(value: float) -> str:
     return f"{value:.6f}".rstrip("0").rstrip(".")
 
 
 def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
     if recommendation == "REPEAT_EXECUTION_PROBE_LONGER":
+        if candidate_profile == "execution_probe_v8":
+            return [
+                "scripts/run_execution_probe_v8_observation.sh --duration-seconds 5400"
+            ]
         if candidate_profile == "execution_probe_v7":
             return [
                 "scripts/run_execution_probe_v7_observation.sh --duration-seconds 5400"
@@ -462,9 +659,13 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
         ]
     if recommendation == "CHANGE_MARKET_OR_TIMING_FILTERS":
         cycle_script = (
-            "scripts/run_execution_probe_v7_cycle.sh"
-            if candidate_profile == "execution_probe_v7"
-            else "scripts/run_execution_probe_v6_cycle.sh"
+            "scripts/run_execution_probe_v8_cycle.sh"
+            if candidate_profile == "execution_probe_v8"
+            else (
+                "scripts/run_execution_probe_v7_cycle.sh"
+                if candidate_profile == "execution_probe_v7"
+                else "scripts/run_execution_probe_v6_cycle.sh"
+            )
         )
         return [
             (
@@ -473,6 +674,19 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
                 "--market-timing-filter future_touch "
                 "--min-future-touch-rate 0.10 "
                 "--min-timing-signals 5 "
+                "--duration-seconds 5400"
+            )
+        ]
+    if recommendation == "CREATE_V8_AT_TOUCH_TIMING_PROBE":
+        return [
+            (
+                "scripts/run_execution_probe_v8_cycle.sh --universe-duckdb <RESEARCH_DUCKDB> "
+                "--baseline-report-root <BASELINE_REPORT_ROOT> "
+                "--selection-source fillability "
+                "--market-timing-filter future_touch "
+                "--min-future-touch-rate 0.00625 "
+                "--min-timing-signals 5 "
+                "--min-avg-opportunity-spread 0.000625 "
                 "--duration-seconds 5400"
             )
         ]

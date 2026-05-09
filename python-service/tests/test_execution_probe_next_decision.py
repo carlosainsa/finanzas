@@ -103,6 +103,38 @@ def test_next_decision_changes_market_or_timing_when_future_books_never_touch() 
     assert timing["decision"] == "NOT_EVALUATED"
 
 
+def test_next_decision_creates_v8_when_v7_orders_stay_one_tick_away() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v7",
+            signals=400,
+            filled_signals=0,
+            observed_fill_rate=0.0,
+            synthetic_fill_rate=0.0,
+            no_fill_future_touch_rate=0.0,
+            avg_required_quote_move=0.01,
+            no_fill_root_cause="dry_run_created_unmatched",
+            market_timing_filter="future_touch",
+            selection_source="fillability",
+            market_asset_ids_count=5,
+        )
+    )
+
+    assert report["recommendation"] == "CREATE_V8_AT_TOUCH_TIMING_PROBE"
+    assert "EXECUTION_MODE=live" not in json.dumps(report)
+    templates = "\n".join(cast(list[str], report["next_command_templates"]))
+    assert "scripts/run_execution_probe_v8_cycle.sh" in templates
+    quote = cast(dict[str, Any], report["quote_aggressiveness_decision"])
+    assert quote["decision"] == "CREATE_V8_AT_TOUCH_TIMING_PROBE"
+    assert quote["can_execute_trades"] is False
+    next_cycle = cast(dict[str, Any], quote["next_cycle"])
+    assert next_cycle["script"] == "scripts/run_execution_probe_v8_cycle.sh"
+    assert (
+        cast(dict[str, str], next_cycle["args"])["--market-timing-filter"]
+        == "future_touch"
+    )
+
+
 def test_next_decision_marks_filtered_v7_market_timing_explicitly() -> None:
     report = decide_execution_probe_next_step(
         comparison_with_candidate(
@@ -203,6 +235,27 @@ def test_next_decision_repeats_v6_when_sample_is_too_small() -> None:
     assert report["recommendation"] == "REPEAT_V6_WITH_LARGER_SAMPLE"
 
 
+def test_next_decision_repeats_v8_when_at_touch_probe_is_clean() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v8",
+            signals=300,
+            filled_signals=12,
+            observed_fill_rate=0.04,
+            synthetic_fill_rate=0.05,
+            adverse_selection=-0.02,
+            drawdown=0.0,
+        )
+    )
+
+    assert report["recommendation"] == "REPEAT_EXECUTION_PROBE_LONGER"
+    templates = "\n".join(cast(list[str], report["next_command_templates"]))
+    assert "scripts/run_execution_probe_v8_observation.sh" in templates
+    quote = cast(dict[str, Any], report["quote_aggressiveness_decision"])
+    assert quote["decision"] == "REPEAT_V8_LONGER"
+    assert quote["can_execute_trades"] is False
+
+
 def test_next_decision_waits_for_v6_candidate() -> None:
     report = decide_execution_probe_next_step(
         comparison_with_candidate(
@@ -289,6 +342,8 @@ def comparison_with_candidate(
     adverse_selection: float = 0.0,
     drawdown: float = 0.0,
     no_fill_future_touch_rate: float = 0.25,
+    avg_required_quote_move: float = 0.01,
+    no_fill_root_cause: str | None = None,
     market_timing_filter: str | None = None,
     selection_source: str | None = None,
     market_asset_ids_count: int = 3,
@@ -320,6 +375,8 @@ def comparison_with_candidate(
                 adverse_selection=adverse_selection,
                 drawdown=drawdown,
                 no_fill_future_touch_rate=no_fill_future_touch_rate,
+                avg_required_quote_move=avg_required_quote_move,
+                no_fill_root_cause=no_fill_root_cause,
                 market_timing_filter=market_timing_filter,
                 selection_source=selection_source,
                 market_asset_ids_count=market_asset_ids_count,
@@ -342,6 +399,8 @@ def observation(
     adverse_selection: float,
     drawdown: float,
     no_fill_future_touch_rate: float,
+    avg_required_quote_move: float = 0.01,
+    no_fill_root_cause: str | None = None,
     market_timing_filter: str | None = None,
     selection_source: str | None = None,
     market_asset_ids_count: int = 3,
@@ -387,6 +446,20 @@ def observation(
         },
         "quote_policy": {
             "no_fill_future_touch_rate": no_fill_future_touch_rate,
-            "avg_required_quote_move": 0.01,
+            "avg_required_quote_move": avg_required_quote_move,
+        },
+        "unmatched_diagnostics": {
+            "no_fill_diagnostics": (
+                [
+                    {
+                        "root_cause": no_fill_root_cause,
+                        "signals": signals,
+                        "avg_required_quote_move": avg_required_quote_move,
+                        "future_touch_rate": no_fill_future_touch_rate,
+                    }
+                ]
+                if no_fill_root_cause is not None
+                else []
+            )
         },
     }

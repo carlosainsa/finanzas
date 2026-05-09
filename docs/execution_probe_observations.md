@@ -548,6 +548,13 @@ filters or quote placement, not signal consumption or exposure accounting.
 The run remains `research-only`; `can_execute_trades=false` and the go/no-go
 decision is `NO_GO`.
 
+Next probe:
+
+- `execution_probe_v8` is the reproducible follow-up for this blocker.
+- It keeps `EXECUTION_MODE=dry_run`, `PREDICTOR_QUOTE_PLACEMENT=near_touch`, `PREDICTOR_EXECUTION_PROBE_V8_NEAR_TOUCH_MAX_SPREAD_FRACTION=1.0`, and `PREDICTOR_EXECUTION_PROBE_V8_OFFSET_TICKS=0`.
+- It must be launched through `scripts/run_execution_probe_v8_cycle.sh` so the at-touch quote test is constrained by explicit market/timing filters and produces `quote_aggressiveness_decision`.
+- Passing v8 requires observed fills without synthetic optimism, adverse selection, or drawdown regression; it does not enable live execution.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`

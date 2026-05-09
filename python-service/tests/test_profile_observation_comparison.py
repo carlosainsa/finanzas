@@ -72,6 +72,51 @@ def test_profile_observation_comparison_compares_activity_fills_and_blockers(
     assert no_fill[0]["root_cause"] == "dry_run_created_unmatched"
 
 
+def test_profile_observation_comparison_extracts_effective_quote_policy(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_profile_report(
+        tmp_path / "baseline",
+        profile="execution_probe_v7",
+        signals=100,
+        filled_signals=0,
+        observed_fill_rate=0.0,
+        synthetic_fill_rate=0.0,
+        blockers=("has_fills",),
+        near_touch_fraction=0.85,
+        offset_ticks=1,
+        fraction_selection_path="/tmp/v7-fraction.json",
+    )
+    candidate = seed_profile_report(
+        tmp_path / "candidate",
+        profile="execution_probe_v8",
+        signals=120,
+        filled_signals=1,
+        observed_fill_rate=0.01,
+        synthetic_fill_rate=0.01,
+        blockers=(),
+        near_touch_fraction=1.0,
+        offset_ticks=0,
+    )
+
+    report = create_profile_observation_comparison([baseline, candidate])
+
+    observations = cast(list[dict[str, Any]], report["observations"])
+    baseline_quote = cast(dict[str, Any], observations[0]["quote_policy"])
+    candidate_quote = cast(dict[str, Any], observations[1]["quote_policy"])
+    assert baseline_quote["near_touch_max_spread_fraction"] == 0.85
+    assert baseline_quote["offset_ticks"] == 1.0
+    assert baseline_quote["fraction_selection_path"] == "/tmp/v7-fraction.json"
+    assert candidate_quote["near_touch_max_spread_fraction"] == 1.0
+    assert candidate_quote["offset_ticks"] == 0.0
+    deltas = cast(list[dict[str, Any]], report["pairwise_deltas"])
+    quote_policy = cast(list[dict[str, Any]], deltas[0]["quote_policy_deltas"])
+    assert find_metric(quote_policy, "near_touch_max_spread_fraction")[
+        "delta"
+    ] == pytest.approx(0.15)
+    assert find_metric(quote_policy, "offset_ticks")["delta"] == -1.0
+
+
 def find_metric(rows: list[dict[str, Any]], metric: str) -> dict[str, Any]:
     return next(row for row in rows if row["metric"] == metric)
 
@@ -86,6 +131,9 @@ def seed_profile_report(
     synthetic_fill_rate: float,
     blockers: tuple[str, ...],
     market_timing_filter: str | None = None,
+    near_touch_fraction: float | None = None,
+    offset_ticks: int | None = None,
+    fraction_selection_path: str | None = None,
 ) -> Path:
     root.mkdir(parents=True)
     universe_selection_path = ""
@@ -108,9 +156,7 @@ def seed_profile_report(
                 "selection_reason": "ranked_multi_market_universe_meets_minimum_asset_coverage",
             },
         )
-    write_json(
-        root / "real_dry_run_evidence.json",
-        {
+    evidence: dict[str, object] = {
             "predictor_strategy_profile": profile,
             "predictor_quote_placement": "near_touch",
             "execution_probe_universe_selection_path": universe_selection_path,
@@ -119,8 +165,18 @@ def seed_profile_report(
             "market_asset_ids_sha256": "hash",
             "stream_lengths": {"signals": signals},
             "recent_report_status_counts": {"MATCHED": filled_signals},
-        },
-    )
+    }
+    if near_touch_fraction is not None:
+        evidence[f"predictor_{profile}_near_touch_max_spread_fraction"] = str(
+            near_touch_fraction
+        )
+    if offset_ticks is not None:
+        evidence[f"predictor_{profile}_offset_ticks"] = str(offset_ticks)
+    if fraction_selection_path is not None:
+        evidence[f"predictor_{profile}_fraction_selection_path"] = (
+            fraction_selection_path
+        )
+    write_json(root / "real_dry_run_evidence.json", evidence)
     write_json(
         root / "pre_live_promotion.json",
         {

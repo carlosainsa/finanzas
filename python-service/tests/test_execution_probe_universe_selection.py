@@ -84,6 +84,22 @@ def test_execution_probe_universe_selection_supports_v7_profile(
     assert report["status"] == "ready"
 
 
+def test_execution_probe_universe_selection_supports_v8_profile(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_universe_db(tmp_path, asset_count=6)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(profile="execution_probe_v8", limit=5, min_assets=5),
+    )
+
+    assert report["profile"] == "execution_probe_v8"
+    assert report["can_execute_trades"] is False
+    assert report["status"] == "ready"
+
+
 def test_execution_probe_universe_selection_filters_by_future_touch_timing(
     tmp_path: Path,
 ) -> None:
@@ -261,7 +277,7 @@ def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
         ExecutionProbeUniverseConfig(profile="live")
     except ValueError as exc:
         assert (
-            "profile must be execution_probe_v5, execution_probe_v6, or execution_probe_v7"
+            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, or execution_probe_v8"
             in str(exc)
         )
     else:

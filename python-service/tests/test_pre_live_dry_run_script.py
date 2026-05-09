@@ -292,6 +292,95 @@ def test_execution_probe_v7_cycle_print_plan_is_safe_and_pinned(
     ]
 
 
+def test_execution_probe_v8_observation_print_plan_is_safe_and_pinned(
+    tmp_path: Path,
+) -> None:
+    universe = tmp_path / "execution_probe_universe_selection.json"
+    universe.write_text(
+        json.dumps(
+            {
+                "can_execute_trades": False,
+                "status": "ready",
+                "profile": "execution_probe_v8",
+                "market_asset_ids": ["asset-1", "asset-2"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v8_observation.sh",
+            "--universe-selection",
+            str(universe),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v8_observation.sh"
+    assert plan["delegates_to"] == "scripts/run_pre_live_dry_run.sh"
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["predictor_strategy_profile"] == "execution_probe_v8"
+    assert plan["predictor_quote_placement"] == "near_touch"
+    assert plan["predictor_execution_probe_v8_near_touch_max_spread_fraction"] == 1.0
+    assert plan["predictor_execution_probe_v8_offset_ticks"] == 0
+    assert plan["go_no_go_profile"] == "pre_live"
+    assert plan["real_dry_run_seconds"] == 1800
+
+
+def test_execution_probe_v8_cycle_print_plan_is_safe_and_pinned(
+    tmp_path: Path,
+) -> None:
+    universe_duckdb = tmp_path / "research.duckdb"
+    universe_duckdb.write_bytes(b"placeholder")
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v8_cycle.sh",
+            "--universe-duckdb",
+            str(universe_duckdb),
+            "--baseline-report-root",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v8_cycle.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["profile"] == "execution_probe_v8"
+    assert plan["baseline_report_root"] == str(baseline)
+    assert plan["universe_min_assets"] == 5
+    assert plan["selection_source"] == "fillability"
+    assert plan["market_timing_filter"] == "future_touch"
+    assert plan["min_future_touch_rate"] == 0.00625
+    assert plan["min_timing_signals"] == 5
+    assert plan["min_avg_opportunity_spread"] == 0.000625
+    assert "scripts/run_execution_probe_v8_observation.sh" in plan["delegates_to"]
+    assert "execution_probe_next_decision.json" in plan["outputs"][
+        "execution_probe_next_decision"
+    ]
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"

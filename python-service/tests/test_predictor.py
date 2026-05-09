@@ -832,6 +832,101 @@ def test_execution_probe_v7_blocklist_uses_v7_model_version(
     assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
 
 
+def test_execution_probe_v8_quotes_at_touch_with_timing_profile_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v8")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v8_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v8_min_depth", 1.0)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v8_max_top_changes", 4)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v8_fraction_selection_path",
+        None,
+    )
+
+    signal = Predictor().predict(make_book(0.45, 0.50))
+
+    assert signal is not None
+    assert signal.price == 0.50
+    assert signal.strategy == "passive_spread_capture_execution_probe_near_touch_v8"
+    assert (
+        signal.feature_version
+        == "orderbook_top_of_book_execution_probe_near_touch_v8"
+    )
+
+
+def test_execution_probe_v8_rejects_live_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v8")
+    monkeypatch.setattr(settings, "execution_mode", "live")
+    monkeypatch.setattr(settings, "app_env", "development")
+
+    with pytest.raises(RuntimeError, match="only allowed for dry_run research"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_v8_rejects_live_fraction_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selection_path = tmp_path / "selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "version": "execution_probe_fraction_selection_v1",
+                "profile": "execution_probe_v8",
+                "near_touch_max_spread_fraction": 1.0,
+                "decision_policy": "offline_fraction_selection_only",
+                "can_execute_trades": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v8")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v8_fraction_selection_path",
+        str(selection_path),
+    )
+
+    with pytest.raises(ValueError, match="cannot enable trades"):
+        Predictor().predict(make_book(0.45, 0.50))
+
+
+def test_execution_probe_v8_blocklist_uses_v8_model_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v8")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v8_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v8_min_depth", 1.0)
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                model_version="passive_spread_capture_execution_probe_near_touch_v8",
+                reason="quote_timing_probe_failed",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
+
+
 def test_conservative_predictor_rejects_high_top_of_book_rotation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
