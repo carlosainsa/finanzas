@@ -20,6 +20,9 @@ MIN_TIMING_SIGNALS="${EXECUTION_PROBE_MIN_TIMING_SIGNALS:-5}"
 MIN_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MIN_AVG_OPPORTUNITY_SPREAD:-0.000625}"
 MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 SELECTION_SOURCE="${EXECUTION_PROBE_UNIVERSE_SELECTION_SOURCE:-${EXECUTION_PROBE_SELECTION_SOURCE:-fillability}}"
+ADVERSE_SELECTION_FILTER="${EXECUTION_PROBE_ADVERSE_SELECTION_FILTER:-none}"
+MAX_ADVERSE_30S_RATE="${EXECUTION_PROBE_MAX_ADVERSE_30S_RATE:-0.50}"
+MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
 
 usage() {
   cat <<'EOF'
@@ -77,6 +80,18 @@ while [[ $# -gt 0 ]]; do
       SELECTION_SOURCE="$2"
       shift 2
       ;;
+    --adverse-selection-filter)
+      ADVERSE_SELECTION_FILTER="$2"
+      shift 2
+      ;;
+    --max-adverse-30s-rate)
+      MAX_ADVERSE_30S_RATE="$2"
+      shift 2
+      ;;
+    --min-adverse-filled-events)
+      MIN_ADVERSE_FILLED_EVENTS="$2"
+      shift 2
+      ;;
     --print-plan)
       PRINT_PLAN=1
       shift
@@ -117,6 +132,10 @@ if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" !
   echo "selection source must be candidate_market_ranking or fillability" >&2
   exit 64
 fi
+if [[ "$ADVERSE_SELECTION_FILTER" != "none" && "$ADVERSE_SELECTION_FILTER" != "market_side" ]]; then
+  echo "adverse selection filter must be none or market_side" >&2
+  exit 64
+fi
 
 UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json"
 OBSERVATION_COMMAND=(
@@ -126,7 +145,7 @@ OBSERVATION_COMMAND=(
 )
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" <<'PY'
+  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" <<'PY'
 import json
 import sys
 
@@ -148,6 +167,9 @@ import sys
     min_avg_opportunity_spread,
     max_avg_opportunity_spread,
     selection_source,
+    adverse_selection_filter,
+    max_adverse_30s_rate,
+    min_adverse_filled_events,
 ) = sys.argv[1:]
 
 print(json.dumps({
@@ -171,6 +193,9 @@ print(json.dumps({
     "min_avg_opportunity_spread": float(min_avg_opportunity_spread) if min_avg_opportunity_spread else None,
     "max_avg_opportunity_spread": float(max_avg_opportunity_spread) if max_avg_opportunity_spread else None,
     "selection_source": selection_source,
+    "adverse_selection_filter": adverse_selection_filter,
+    "max_adverse_30s_rate": float(max_adverse_30s_rate),
+    "min_adverse_filled_events": int(min_adverse_filled_events),
     "universe_selection_path": universe_selection_path,
     "delegates_to": [
         "scripts/prepare_execution_probe_cycle.sh",
@@ -180,6 +205,7 @@ print(json.dumps({
         "src.research.asset_execution_decision",
     ],
     "outputs": {
+        "execution_probe_universe_adverse_exclusions": f"{run_root}/execution_probe_universe_selection/execution_probe_universe_adverse_exclusions.parquet",
         "profile_observation_comparison": f"{report_root}/profile_observation_comparison.json",
         "execution_probe_next_decision": f"{report_root}/execution_probe_next_decision.json",
         "asset_execution_decision": f"{report_root}/asset_execution_decision/asset_execution_decision.json",
@@ -201,6 +227,9 @@ PREPARE_ARGS=(
   --min-future-touch-rate "$MIN_FUTURE_TOUCH_RATE"
   --min-timing-signals "$MIN_TIMING_SIGNALS"
   --selection-source "$SELECTION_SOURCE"
+  --adverse-selection-filter "$ADVERSE_SELECTION_FILTER"
+  --max-adverse-30s-rate "$MAX_ADVERSE_30S_RATE"
+  --min-adverse-filled-events "$MIN_ADVERSE_FILLED_EVENTS"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   PREPARE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")

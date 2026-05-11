@@ -126,6 +126,101 @@ def test_execution_probe_universe_selection_filters_by_future_touch_timing(
     assert selected[0]["future_touch_rate"] == 0.5
 
 
+def test_execution_probe_universe_selection_filters_candidate_adverse_market_side(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_universe_db(tmp_path, asset_count=6)
+    seed_adverse_selection_by_strategy(
+        db_path,
+        [("market-5", "BUY", 12, 12, -0.01)],
+    )
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v8",
+            limit=5,
+            min_assets=5,
+            adverse_selection_filter="market_side",
+            max_adverse_30s_rate=0.50,
+            min_adverse_filled_events=10,
+        ),
+    )
+
+    assert report["status"] == "ready"
+    assert "asset-5" not in cast(list[str], report["market_asset_ids"])
+    assert "adverse_selection_filter=market_side" in str(report["selection_reason"])
+    adverse = cast(dict[str, Any], report["adverse_selection_filter"])
+    assert adverse["enabled"] is True
+    assert adverse["filtered_count"] == 1
+    assert (
+        tmp_path
+        / "universe"
+        / "execution_probe_universe_adverse_exclusions.parquet"
+    ).exists()
+
+
+def test_execution_probe_universe_selection_filters_fillability_and_fallbacks(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_fillability_universe_db(tmp_path)
+    seed_adverse_selection_by_strategy(
+        db_path,
+        [
+            ("market-touch", "BUY", 20, 20, -0.01),
+            ("market-fallback-0", "BUY", 20, 20, -0.01),
+        ],
+    )
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v8",
+            limit=3,
+            min_assets=3,
+            selection_source="fillability",
+            min_future_touch_rate=0.05,
+            min_timing_signals=1,
+            min_avg_opportunity_spread=0.005,
+            adverse_selection_filter="market_side",
+        ),
+    )
+
+    asset_ids = cast(list[str], report["market_asset_ids"])
+    assert "asset-touch" not in asset_ids
+    assert "asset-fallback-0" not in asset_ids
+    assert report["status"] == "insufficient_assets"
+    adverse = cast(dict[str, Any], report["adverse_selection_filter"])
+    assert adverse["filtered_count"] == 2
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert all(row["market_id"] not in {"market-touch", "market-fallback-0"} for row in selected)
+    assert all(row["fallback_reason"] != MARKET_METADATA_FALLBACK_REASON for row in selected)
+
+
+def test_execution_probe_universe_selection_adverse_filter_missing_evidence_is_safe(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_universe_db(tmp_path, asset_count=6)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v8",
+            limit=5,
+            min_assets=5,
+            adverse_selection_filter="market_side",
+        ),
+    )
+
+    assert report["status"] == "ready"
+    adverse = cast(dict[str, Any], report["adverse_selection_filter"])
+    assert adverse["enabled"] is True
+    assert adverse["filtered_count"] == 0
+
+
 def test_execution_probe_universe_selection_supports_fillability_source(
     tmp_path: Path,
 ) -> None:
@@ -295,6 +390,15 @@ def test_execution_probe_universe_selection_rejects_invalid_selection_source() -
         raise AssertionError("expected ValueError")
 
 
+def test_execution_probe_universe_selection_rejects_invalid_adverse_filter() -> None:
+    try:
+        ExecutionProbeUniverseConfig(adverse_selection_filter="freeform")
+    except ValueError as exc:
+        assert "adverse_selection_filter must be none or market_side" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def seed_universe_db(tmp_path: Path, asset_count: int) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:
@@ -373,6 +477,45 @@ def seed_universe_db(tmp_path: Path, asset_count: int) -> Path:
             metadata,
         )
     return db_path
+
+
+def seed_adverse_selection_by_strategy(
+    db_path: Path,
+    rows: list[tuple[str, str, int, int, float]],
+) -> None:
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table adverse_selection_by_strategy (
+                strategy varchar,
+                market_id varchar,
+                side varchar,
+                filled_events bigint,
+                avg_pnl_5s double,
+                avg_pnl_30s double,
+                avg_pnl_300s double,
+                adverse_30s_count double,
+                adverse_30s_rate double
+            )
+            """
+        )
+        conn.executemany(
+            "insert into adverse_selection_by_strategy values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "probe",
+                    market_id,
+                    side,
+                    filled_events,
+                    avg_pnl_30s,
+                    avg_pnl_30s,
+                    avg_pnl_30s,
+                    adverse_30s_count,
+                    adverse_30s_count / filled_events,
+                )
+                for market_id, side, filled_events, adverse_30s_count, avg_pnl_30s in rows
+            ],
+        )
 
 
 def seed_fillability_universe_db(tmp_path: Path) -> Path:

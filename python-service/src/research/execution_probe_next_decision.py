@@ -262,6 +262,16 @@ def classify_next_step(
             ["risk_metrics_missing"],
         )
     if adverse_selection > thresholds.max_adverse_selection or drawdown > thresholds.max_drawdown:
+        if market_side_risk_filter_applied(candidate):
+            return (
+                "REJECT_MARKET_SIDE_RISK_FILTER",
+                "Do not repeat the same market/side filter; it reduced coverage without resolving adverse selection.",
+                [
+                    "market_side_filter_already_applied",
+                    f"adverse_selection={adverse_selection}",
+                    f"drawdown={drawdown}",
+                ],
+            )
         return (
             "ADD_MARKET_SIDE_RISK_FILTERS",
             f"Keep the {profile} quote policy but add market/side filters before repeating.",
@@ -310,6 +320,14 @@ def observation_summary(observation: dict[str, Any]) -> dict[str, object]:
         "no_fill_future_touch_rate": quote_policy.get("no_fill_future_touch_rate"),
         "avg_required_quote_move": quote_policy.get("avg_required_quote_move"),
     }
+
+
+def market_side_risk_filter_applied(observation: dict[str, Any]) -> bool:
+    selection = typed_dict(observation.get("market_timing_selection"))
+    if selection.get("adverse_selection_filter") == "market_side":
+        return True
+    selection_reason = str(selection.get("selection_reason") or "")
+    return "adverse_selection_filter=market_side" in selection_reason
 
 
 def decide_market_timing_filter(
@@ -697,6 +715,10 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
     if recommendation == "ADD_MARKET_SIDE_RISK_FILTERS":
         return [
             "Generate a research-only market/side filter candidate and repeat execution_probe_v6 before changing quote policy."
+        ]
+    if recommendation == "REJECT_MARKET_SIDE_RISK_FILTER":
+        return [
+            "Design different adverse-selection features or stricter market evidence; do not repeat the same market/side filter."
         ]
     return []
 

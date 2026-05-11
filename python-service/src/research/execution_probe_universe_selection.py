@@ -38,6 +38,7 @@ DEFAULT_RECOMMENDATIONS = (
 )
 MARKET_TIMING_FILTERS = ("none", "future_touch")
 SELECTION_SOURCES = ("candidate_market_ranking", "fillability")
+ADVERSE_SELECTION_FILTERS = ("none", "market_side")
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,9 @@ class ExecutionProbeUniverseConfig:
     min_avg_opportunity_spread: float | None = None
     max_avg_opportunity_spread: float | None = None
     selection_source: str = "candidate_market_ranking"
+    adverse_selection_filter: str = "none"
+    max_adverse_30s_rate: float = 0.50
+    min_adverse_filled_events: int = 10
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -77,10 +81,16 @@ class ExecutionProbeUniverseConfig:
             raise ValueError(
                 "selection_source must be candidate_market_ranking or fillability"
             )
+        if self.adverse_selection_filter not in ADVERSE_SELECTION_FILTERS:
+            raise ValueError("adverse_selection_filter must be none or market_side")
         if not 0 <= self.min_future_touch_rate <= 1:
             raise ValueError("min_future_touch_rate must be between 0 and 1")
+        if not 0 <= self.max_adverse_30s_rate <= 1:
+            raise ValueError("max_adverse_30s_rate must be between 0 and 1")
         if self.min_timing_signals <= 0:
             raise ValueError("min_timing_signals must be positive")
+        if self.min_adverse_filled_events <= 0:
+            raise ValueError("min_adverse_filled_events must be positive")
         if (
             self.min_avg_opportunity_spread is not None
             and self.min_avg_opportunity_spread < 0
@@ -122,6 +132,7 @@ def create_execution_probe_universe_selection(
     output_dir.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(db_path)) as conn:
         has_quote_execution_by_asset = relation_exists(conn, "quote_execution_by_market_asset")
+        adverse_exclusions = create_adverse_selection_filter_view(conn, config)
         if (
             config.market_timing_filter == "future_touch"
             and not has_quote_execution_by_asset
@@ -149,7 +160,10 @@ def create_execution_probe_universe_selection(
     status = "ready" if len(asset_ids) >= config.min_assets else "insufficient_assets"
     fallback = fillability_fallback_summary(selected, config)
     output_parquet = output_dir / "execution_probe_universe_selection.parquet"
+    adverse_exclusions_parquet = output_dir / "execution_probe_universe_adverse_exclusions.parquet"
     pd.DataFrame(selected).to_parquet(output_parquet, index=False)
+    adverse_exclusions.to_parquet(adverse_exclusions_parquet, index=False)
+    adverse_payload = adverse_selection_filter_payload(adverse_exclusions, config)
     payload: dict[str, object] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -162,6 +176,7 @@ def create_execution_probe_universe_selection(
         "status": status,
         "selection_reason": selection_reason(status, asset_ids, config, fallback),
         "fallback": fallback,
+        "adverse_selection_filter": adverse_payload,
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -172,6 +187,7 @@ def create_execution_probe_universe_selection(
         "outputs": [
             "execution_probe_universe_selection.parquet",
             "execution_probe_universe_selection.json",
+            "execution_probe_universe_adverse_exclusions.parquet",
         ],
     }
     (output_dir / "execution_probe_universe_selection.json").write_text(
@@ -191,6 +207,95 @@ def build_candidate_spread_filters(config: ExecutionProbeUniverseConfig) -> list
             f"coalesce(candidate.avg_opportunity_spread, candidate.avg_spread) <= {config.max_avg_opportunity_spread}"
         )
     return filters
+
+
+def create_adverse_selection_filter_view(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    if config.adverse_selection_filter == "none" or not relation_exists(
+        conn, "adverse_selection_by_strategy"
+    ):
+        conn.execute(
+            """
+            create or replace temp table execution_probe_adverse_market_side_exclusions (
+                market_id varchar,
+                side varchar,
+                adverse_filled_events bigint,
+                adverse_30s_rate double,
+                avg_pnl_30s double,
+                reason varchar
+            )
+            """
+        )
+        return conn.execute(
+            "select * from execution_probe_adverse_market_side_exclusions"
+        ).fetch_df()
+    conn.execute(
+        f"""
+        create or replace temp table execution_probe_adverse_market_side_exclusions as
+        with adverse as (
+            select
+                market_id,
+                coalesce(nullif(side, ''), 'BUY') as side,
+                sum(coalesce(filled_events, 0)) as adverse_filled_events,
+                case
+                    when sum(coalesce(filled_events, 0)) > 0
+                    then sum(coalesce(adverse_30s_count, 0))::double
+                       / sum(coalesce(filled_events, 0))
+                    else null
+                end as adverse_30s_rate,
+                case
+                    when sum(coalesce(filled_events, 0)) > 0
+                    then sum(coalesce(avg_pnl_30s, 0) * coalesce(filled_events, 0))::double
+                       / sum(coalesce(filled_events, 0))
+                    else null
+                end as avg_pnl_30s
+            from adverse_selection_by_strategy
+            group by market_id, coalesce(nullif(side, ''), 'BUY')
+        )
+        select
+            market_id,
+            side,
+            adverse_filled_events,
+            adverse_30s_rate,
+            avg_pnl_30s,
+            'market_side_adverse_selection_above_threshold' as reason
+        from adverse
+        where adverse_filled_events >= {config.min_adverse_filled_events}
+          and adverse_30s_rate > {config.max_adverse_30s_rate}
+        """
+    )
+    return conn.execute(
+        "select * from execution_probe_adverse_market_side_exclusions"
+    ).fetch_df()
+
+
+def adverse_join_sql(alias: str, side_expression: str = "'BUY'") -> str:
+    return f"""
+        left join execution_probe_adverse_market_side_exclusions adverse
+          on adverse.market_id = {alias}.market_id
+         and adverse.side = coalesce(nullif({side_expression}, ''), 'BUY')
+    """
+
+
+def adverse_filter_sql() -> str:
+    return "and adverse.market_id is null"
+
+
+def adverse_selection_filter_payload(
+    exclusions: pd.DataFrame,
+    config: ExecutionProbeUniverseConfig,
+) -> dict[str, object]:
+    return {
+        "enabled": config.adverse_selection_filter != "none",
+        "mode": config.adverse_selection_filter,
+        "source_relation": "adverse_selection_by_strategy",
+        "max_adverse_30s_rate": config.max_adverse_30s_rate,
+        "min_adverse_filled_events": config.min_adverse_filled_events,
+        "filtered_count": int(len(exclusions)),
+        "excluded": normalize_records(exclusions.to_dict(orient="records")),
+    }
 
 
 def select_candidate_universe(
@@ -244,7 +349,9 @@ def select_candidate_universe(
             select {select_columns_sql}
             from candidate_market_ranking candidate
             {timing_join_sql}
+            {adverse_join_sql("candidate")}
             where candidate.recommendation in ({recommendation_list})
+              {adverse_filter_sql()}
               {spread_filter_sql}
               {timing_filter_sql}
             order by
@@ -292,7 +399,9 @@ def select_fillability_universe(
             'primary' as selection_tier,
             null::varchar as fallback_reason
         from fillability_market_ranking fillability
+        {adverse_join_sql("fillability", "fillability.side")}
         where fillability.recommendation = 'PROMOTE_TO_OBSERVATION'
+          {adverse_filter_sql()}
           and fillability.signals >= {config.min_timing_signals}
           and coalesce(fillability.future_touch_rate, 0) >= {config.min_future_touch_rate}
           {spread_filter_sql}
@@ -319,7 +428,9 @@ def select_fillability_universe(
             'fallback' as selection_tier,
             '{FILLABILITY_FALLBACK_REASON}' as fallback_reason
         from fillability_market_ranking fillability
+        {adverse_join_sql("fillability", "fillability.side")}
         where fillability.recommendation = 'KEEP_DIAGNOSTIC'
+          {adverse_filter_sql()}
           and fillability.signals >= {config.min_timing_signals}
           {selected_filter_sql}
           {spread_filter_sql}
@@ -349,6 +460,8 @@ def select_fillability_universe(
         opportunity = pd.DataFrame()
     selected = pd.concat([selected, opportunity], ignore_index=True)
     if len(selected) >= config.min_assets:
+        return selected.head(config.limit)
+    if config.adverse_selection_filter != "none":
         return selected.head(config.limit)
     selected_assets = asset_ids_from_frame(selected)
     missing_assets = min(config.min_assets - len(selected), config.limit - len(selected))
@@ -415,7 +528,9 @@ def select_market_opportunity_fallback(
             'market_opportunity_fallback' as selection_tier,
             '{MARKET_OPPORTUNITY_FALLBACK_REASON}' as fallback_reason
         from market_opportunity_ranking opportunity
+        {adverse_join_sql("opportunity")}
         where true
+          {adverse_filter_sql()}
           {excluded_assets_sql(selected_assets, "opportunity")}
           {spread_filter_sql}
         order by
@@ -452,10 +567,12 @@ def select_market_metadata_fallback(
         )
         select
             row_number() over (
-                order by coalesce(liquidity, 0) desc, coalesce(volume, 0) desc, asset_id
+                order by coalesce(latest_metadata.liquidity, 0) desc,
+                    coalesce(latest_metadata.volume, 0) desc,
+                    latest_metadata.asset_id
             ) as rank,
-            market_id,
-            asset_id,
+            latest_metadata.market_id,
+            latest_metadata.asset_id,
             cast(null as varchar) as side,
             cast(null as varchar) as strategy,
             cast(null as varchar) as model_version,
@@ -475,23 +592,27 @@ def select_market_metadata_fallback(
             cast(null as double) as stale_rate,
             cast(null as double) as spread_opportunity_density,
             cast(null as double) as avg_total_depth,
-            coalesce(liquidity, 0) as liquidity,
-            coalesce(volume, 0) as volume,
-            question,
-            slug,
-            outcome,
-            coalesce(liquidity, 0) / 1000 + coalesce(volume, 0) / 10000 as fillability_score,
+            coalesce(latest_metadata.liquidity, 0) as liquidity,
+            coalesce(latest_metadata.volume, 0) as volume,
+            latest_metadata.question,
+            latest_metadata.slug,
+            latest_metadata.outcome,
+            coalesce(latest_metadata.liquidity, 0) / 1000 + coalesce(latest_metadata.volume, 0) / 10000 as fillability_score,
             'MARKET_METADATA_BACKFILL' as recommendation,
             cast(null as bigint) as timing_signals,
             'market_metadata_fallback' as selection_tier,
             '{MARKET_METADATA_FALLBACK_REASON}' as fallback_reason
         from latest_metadata
-        where coalesce(active, true)
-          and not coalesce(closed, false)
-          and not coalesce(archived, false)
-          and coalesce(enable_order_book, true)
+        {adverse_join_sql("latest_metadata")}
+        where coalesce(latest_metadata.active, true)
+          {adverse_filter_sql()}
+          and not coalesce(latest_metadata.closed, false)
+          and not coalesce(latest_metadata.archived, false)
+          and coalesce(latest_metadata.enable_order_book, true)
           {excluded_assets_sql(selected_assets, "latest_metadata")}
-        order by coalesce(liquidity, 0) desc, coalesce(volume, 0) desc, asset_id
+        order by coalesce(latest_metadata.liquidity, 0) desc,
+            coalesce(latest_metadata.volume, 0) desc,
+            latest_metadata.asset_id
         limit {limit}
         """
     ).fetch_df()
@@ -572,6 +693,12 @@ def selection_reason(
         filter_note += f";min_avg_opportunity_spread={config.min_avg_opportunity_spread}"
     if config.max_avg_opportunity_spread is not None:
         filter_note += f";max_avg_opportunity_spread={config.max_avg_opportunity_spread}"
+    if config.adverse_selection_filter != "none":
+        filter_note += (
+            f";adverse_selection_filter={config.adverse_selection_filter}"
+            f";max_adverse_30s_rate={config.max_adverse_30s_rate}"
+            f";min_adverse_filled_events={config.min_adverse_filled_events}"
+        )
     if fallback.get("used"):
         reasons = fallback.get("fallback_reasons")
         if isinstance(reasons, list) and reasons:
@@ -637,6 +764,21 @@ def main() -> int:
         default=ExecutionProbeUniverseConfig.selection_source,
     )
     parser.add_argument(
+        "--adverse-selection-filter",
+        choices=ADVERSE_SELECTION_FILTERS,
+        default=ExecutionProbeUniverseConfig.adverse_selection_filter,
+    )
+    parser.add_argument(
+        "--max-adverse-30s-rate",
+        type=float,
+        default=ExecutionProbeUniverseConfig.max_adverse_30s_rate,
+    )
+    parser.add_argument(
+        "--min-adverse-filled-events",
+        type=int,
+        default=ExecutionProbeUniverseConfig.min_adverse_filled_events,
+    )
+    parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
         help="Comma-separated candidate_market_ranking recommendations to include.",
@@ -656,6 +798,9 @@ def main() -> int:
             min_avg_opportunity_spread=args.min_avg_opportunity_spread,
             max_avg_opportunity_spread=args.max_avg_opportunity_spread,
             selection_source=args.selection_source,
+            adverse_selection_filter=args.adverse_selection_filter,
+            max_adverse_30s_rate=args.max_adverse_30s_rate,
+            min_adverse_filled_events=args.min_adverse_filled_events,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

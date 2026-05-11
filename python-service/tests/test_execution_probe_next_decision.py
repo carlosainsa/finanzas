@@ -256,6 +256,28 @@ def test_next_decision_repeats_v8_when_at_touch_probe_is_clean() -> None:
     assert quote["can_execute_trades"] is False
 
 
+def test_next_decision_rejects_market_side_filter_when_adverse_selection_persists() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v8",
+            signals=182,
+            filled_signals=182,
+            observed_fill_rate=1.0,
+            synthetic_fill_rate=1.0,
+            adverse_selection=0.98,
+            drawdown=0.0,
+            market_timing_filter="future_touch",
+            selection_source="fillability",
+            market_asset_ids_count=2,
+            adverse_selection_filter="market_side",
+        )
+    )
+
+    assert report["recommendation"] == "REJECT_MARKET_SIDE_RISK_FILTER"
+    assert "same market/side filter" in str(report["next_step"])
+    assert "EXECUTION_MODE=live" not in json.dumps(report)
+
+
 def test_next_decision_waits_for_v6_candidate() -> None:
     report = decide_execution_probe_next_step(
         comparison_with_candidate(
@@ -349,6 +371,7 @@ def comparison_with_candidate(
     market_asset_ids_count: int = 3,
     min_assets: int = 3,
     limit: int = 10,
+    adverse_selection_filter: str | None = None,
 ) -> dict[str, object]:
     return {
         "report_version": "profile_observation_comparison_v1",
@@ -382,6 +405,7 @@ def comparison_with_candidate(
                 market_asset_ids_count=market_asset_ids_count,
                 min_assets=min_assets,
                 limit=limit,
+                adverse_selection_filter=adverse_selection_filter,
             ),
         ],
         "pairwise_deltas": [],
@@ -406,6 +430,7 @@ def observation(
     market_asset_ids_count: int = 3,
     min_assets: int = 3,
     limit: int = 10,
+    adverse_selection_filter: str | None = None,
 ) -> dict[str, object]:
     return {
         "run_id": run_id,
@@ -427,6 +452,13 @@ def observation(
                 "max_avg_opportunity_spread": None,
                 "market_asset_ids_count": market_asset_ids_count,
                 "market_asset_ids_sha256": "hash",
+                "adverse_selection_filter": adverse_selection_filter,
+                "selection_reason": (
+                    f"selection_source={selection_source};"
+                    f"adverse_selection_filter={adverse_selection_filter}"
+                    if adverse_selection_filter is not None
+                    else f"selection_source={selection_source}"
+                ),
             }
             if market_timing_filter is not None
             else {}

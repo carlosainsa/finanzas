@@ -355,6 +355,8 @@ def test_execution_probe_v8_cycle_print_plan_is_safe_and_pinned(
             str(baseline),
             "--duration-seconds",
             "1800",
+            "--adverse-selection-filter",
+            "market_side",
             "--print-plan",
         ],
         cwd=ROOT_DIR,
@@ -372,6 +374,9 @@ def test_execution_probe_v8_cycle_print_plan_is_safe_and_pinned(
     assert plan["universe_min_assets"] == 5
     assert plan["selection_source"] == "fillability"
     assert plan["market_timing_filter"] == "future_touch"
+    assert plan["adverse_selection_filter"] == "market_side"
+    assert plan["max_adverse_30s_rate"] == 0.5
+    assert plan["min_adverse_filled_events"] == 10
     assert plan["min_future_touch_rate"] == 0.00625
     assert plan["min_timing_signals"] == 5
     assert plan["min_avg_opportunity_spread"] == 0.000625
@@ -379,6 +384,9 @@ def test_execution_probe_v8_cycle_print_plan_is_safe_and_pinned(
     assert "src.research.asset_execution_decision" in plan["delegates_to"]
     assert "execution_probe_next_decision.json" in plan["outputs"][
         "execution_probe_next_decision"
+    ]
+    assert "execution_probe_universe_adverse_exclusions.parquet" in plan["outputs"][
+        "execution_probe_universe_adverse_exclusions"
     ]
     assert "asset_execution_decision.json" in plan["outputs"][
         "asset_execution_decision"

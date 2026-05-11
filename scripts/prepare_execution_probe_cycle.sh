@@ -15,6 +15,9 @@ MIN_TIMING_SIGNALS="${EXECUTION_PROBE_MIN_TIMING_SIGNALS:-5}"
 MIN_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MIN_AVG_OPPORTUNITY_SPREAD:-}"
 MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 SELECTION_SOURCE="${EXECUTION_PROBE_UNIVERSE_SELECTION_SOURCE:-${EXECUTION_PROBE_SELECTION_SOURCE:-candidate_market_ranking}}"
+ADVERSE_SELECTION_FILTER="${EXECUTION_PROBE_ADVERSE_SELECTION_FILTER:-none}"
+MAX_ADVERSE_30S_RATE="${EXECUTION_PROBE_MAX_ADVERSE_30S_RATE:-0.50}"
+MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
 
 usage() {
   cat <<'EOF'
@@ -72,6 +75,18 @@ while [[ $# -gt 0 ]]; do
       SELECTION_SOURCE="$2"
       shift 2
       ;;
+    --adverse-selection-filter)
+      ADVERSE_SELECTION_FILTER="$2"
+      shift 2
+      ;;
+    --max-adverse-30s-rate)
+      MAX_ADVERSE_30S_RATE="$2"
+      shift 2
+      ;;
+    --min-adverse-filled-events)
+      MIN_ADVERSE_FILLED_EVENTS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -104,6 +119,10 @@ if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" !
   echo "selection source must be candidate_market_ranking or fillability" >&2
   exit 64
 fi
+if [[ "$ADVERSE_SELECTION_FILTER" != "none" && "$ADVERSE_SELECTION_FILTER" != "market_side" ]]; then
+  echo "adverse selection filter must be none or market_side" >&2
+  exit 64
+fi
 
 mkdir -p "$RUN_ROOT"
 
@@ -117,6 +136,9 @@ UNIVERSE_SELECTION_ARGS=(
   --min-future-touch-rate "$MIN_FUTURE_TOUCH_RATE"
   --min-timing-signals "$MIN_TIMING_SIGNALS"
   --selection-source "$SELECTION_SOURCE"
+  --adverse-selection-filter "$ADVERSE_SELECTION_FILTER"
+  --max-adverse-30s-rate "$MAX_ADVERSE_30S_RATE"
+  --min-adverse-filled-events "$MIN_ADVERSE_FILLED_EVENTS"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_SELECTION_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
@@ -149,6 +171,9 @@ OBSERVATION_COMMAND=(
   printf 'min_avg_opportunity_spread=%s\n' "$MIN_AVG_OPPORTUNITY_SPREAD"
   printf 'max_avg_opportunity_spread=%s\n' "$MAX_AVG_OPPORTUNITY_SPREAD"
   printf 'selection_source=%s\n' "$SELECTION_SOURCE"
+  printf 'adverse_selection_filter=%s\n' "$ADVERSE_SELECTION_FILTER"
+  printf 'max_adverse_30s_rate=%s\n' "$MAX_ADVERSE_30S_RATE"
+  printf 'min_adverse_filled_events=%s\n' "$MIN_ADVERSE_FILLED_EVENTS"
   printf 'observation_command=%q ' "${OBSERVATION_COMMAND[@]}"
   printf '\n'
   if [[ -n "$BASELINE_REPORT_ROOT" ]]; then

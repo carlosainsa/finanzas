@@ -634,6 +634,66 @@ diagnostics. Asset-level evidence did not justify blocking a specific asset from
 one run, so the next loop should add explicit market/side risk filters and
 repeat before any promotion discussion.
 
+## 2026-05-11 - Market/Side Filtered execution_probe_v8 60m
+
+- Run id: `execution-probe-v8-market-side-filter-20260511T162000Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v8-market-side-filter-20260511T162000Z/reports/execution-probe-v8-market-side-filter-20260511T162000Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v8`
+- Quote policy: `near_touch`, at touch with `near_touch_max_spread_fraction=1.0`, `offset_ticks=0`
+- Selection source: `fillability`
+- Adverse-selection filter: `market_side`, `max_adverse_30s_rate=0.9855`, `min_adverse_filled_events=10`
+- Universe: 2 market assets
+- Universe hash: `dc3d63fc35c22d8d288bb0ac95b58390a85c9dbf2dcbcbb753c75d78f34c7ae6`
+- Duration: 60 minutes
+
+Filter exclusions:
+
+- `0x1fad72fae204143ff1c3035e99e7c0f65ea8d5cd9bd1070987bd1a3316f772be` / `BUY`: adverse 30s rate `0.986013986013986`
+- `0x50ddb9cd80d5c271664a2ebb7fcaed1d0a148d82c8e8d314d830f75a944c3dcc` / `BUY`: adverse 30s rate `0.9855072463768116`
+
+Key metrics:
+
+- Orderbook stream events: `606`
+- Signals: `182`
+- Execution reports: `364` raw rows, `182` terminal signal reports
+- Report statuses: `182 DELAYED`, `182 MATCHED`
+- Observed fill-rate: `1.0`
+- Dry-run fill-rate: `1.0`
+- Synthetic fill-rate: `1.0`
+- Synthetic-vs-observed fill-rate gap: `0.0`
+- Stale data rate: `0.04785478547854786`
+- Reconciliation divergence rate: `0.0`
+- Realized edge: `0.04846153846153857`
+- Test Brier score: `0.20250000000000032`
+- Adverse selection: `0.9807692307692307`
+- Drawdown: `0.0`
+
+Decision:
+
+- Pre-live status: `blocked`
+- Go/no-go: `NO_GO`
+- Main blockers: `has_signals`, `no_persistent_adverse_selection`, and stricter go/no-go `fresh_market_data`
+- `execution_probe_next_decision.recommendation`: `REJECT_MARKET_SIDE_RISK_FILTER`
+- Next step: do not repeat the same market/side filter; it reduced coverage without resolving adverse selection.
+- `asset_execution_decision` summary: `2 REPEAT_ASSET`, `0 RETUNE_ASSET`, `0 BLOCK_ASSET`
+
+Interpretation:
+
+The filter preserved execution quality: every signal was consumed, every order
+was created, and every terminal report was `MATCHED`. It did not solve the
+trading-quality blocker. Adverse selection improved only from
+`0.9856051166792855` to `0.9807692307692307`, while signal volume dropped from
+`450` to `182`. That is not enough to justify repeating the same filter or
+promoting the profile.
+
+The useful outcome is architectural: the platform can now apply a
+research-only market/side adverse-selection filter during universe selection,
+and it refuses to treat zero-evidence metadata backfill as a ready filtered
+universe. The next research step should design stronger adverse-selection
+features, such as post-fill mark movement buckets, side-specific microstructure
+regimes, or time-of-market filters, before another 60-90 minute v8 observation.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`
