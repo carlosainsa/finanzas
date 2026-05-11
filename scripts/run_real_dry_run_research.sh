@@ -546,6 +546,27 @@ async def main() -> None:
         "predictor_execution_probe_v8_fraction_selection_path": os.environ.get(
             "PREDICTOR_EXECUTION_PROBE_V8_FRACTION_SELECTION_PATH"
         ),
+        "predictor_execution_probe_v9_min_confidence": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_MIN_CONFIDENCE"
+        ),
+        "predictor_execution_probe_v9_min_depth": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_MIN_DEPTH"
+        ),
+        "predictor_execution_probe_v9_max_top_changes": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_MAX_TOP_CHANGES"
+        ),
+        "predictor_execution_probe_v9_near_touch_max_spread_fraction": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_NEAR_TOUCH_MAX_SPREAD_FRACTION"
+        ),
+        "predictor_execution_probe_v9_min_signal_interval_ms": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_MIN_SIGNAL_INTERVAL_MS"
+        ),
+        "predictor_execution_probe_v9_offset_ticks": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_OFFSET_TICKS"
+        ),
+        "predictor_execution_probe_v9_fraction_selection_path": os.environ.get(
+            "PREDICTOR_EXECUTION_PROBE_V9_FRACTION_SELECTION_PATH"
+        ),
         "execution_probe_universe_selection_path": os.environ.get(
             "EXECUTION_PROBE_UNIVERSE_SELECTION_PATH"
         ),

@@ -372,7 +372,7 @@ def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
         ExecutionProbeUniverseConfig(profile="live")
     except ValueError as exc:
         assert (
-            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, or execution_probe_v8"
+            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9"
             in str(exc)
         )
     else:

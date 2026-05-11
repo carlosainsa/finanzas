@@ -4,6 +4,24 @@ This document records operator-level dry-run observations that should inform the
 next execution-probe variant. These entries are research evidence only and never
 authorize live trading.
 
+## Next Variant: execution_probe_v9
+
+`execution_probe_v9` is the next research-only variant after the market/side
+filtered v8 run failed to reduce adverse selection enough. It should test a
+less aggressive toxic-fill-aware quote policy, not a new live path.
+
+Planned differences from v8:
+
+- `near_touch_max_spread_fraction=0.90` instead of at-touch `1.0`.
+- higher default confidence and depth requirements.
+- stricter top-of-book rotation filter.
+- longer per-asset signal cooldown.
+- offline `fill_toxicity_v1` report included in the research loop.
+
+Promotion remains blocked unless observed fills keep positive realized edge,
+synthetic-vs-observed gap stays low, and adverse selection falls materially
+below the v8/v8-filtered evidence.
+
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 
 - Run id: `execution-probe-v5-multimarket-60m-20260506T211421Z`

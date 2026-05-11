@@ -63,9 +63,10 @@ class ExecutionProbeUniverseConfig:
             "execution_probe_v6",
             "execution_probe_v7",
             "execution_probe_v8",
+            "execution_probe_v9",
         }:
             raise ValueError(
-                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, or execution_probe_v8"
+                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9"
             )
         if self.limit <= 0:
             raise ValueError("limit must be positive")

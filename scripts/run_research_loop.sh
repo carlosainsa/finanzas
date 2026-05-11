@@ -118,6 +118,9 @@ PYTHONPATH=python-service python3 -m src.research.backtest \
 PYTHONPATH=python-service python3 -m src.research.game_theory \
   --duckdb "$DUCKDB_PATH" \
   --output-dir "$REPORT_ROOT/game_theory" > "$REPORT_ROOT/game_theory.json"
+PYTHONPATH=python-service python3 -m src.research.fill_toxicity \
+  --duckdb "$DUCKDB_PATH" \
+  --output-dir "$REPORT_ROOT/fill_toxicity" > "$REPORT_ROOT/fill_toxicity.json"
 EXECUTION_QUALITY_ARGS=(
   -m src.research.execution_quality
   --duckdb "$DUCKDB_PATH"
@@ -399,6 +402,7 @@ signal_rejection_diagnostics = read_json("signal_rejection_diagnostics.json")
 nim_advisory = read_json("nim_advisory.json")
 nim_advisory_exit_code = int(os.environ.get("NIM_ADVISORY_EXIT_CODE", "0"))
 synthetic_fills = read_json("synthetic_fills.json")
+fill_toxicity = read_json("fill_toxicity.json")
 feature_research_decision = read_json("feature_research_decision.json")
 profile_observation_comparison = read_json("profile_observation_comparison.json")
 pre_live = backtest.get("pre_live_gate") if isinstance(backtest.get("pre_live_gate"), dict) else {}
@@ -410,6 +414,7 @@ summary = {
     "synthetic_fills": synthetic_fills,
     "backtest_exports": backtest.get("exports", {}),
     "game_theory_exports": read_json("game_theory.json"),
+    "fill_toxicity": fill_toxicity,
     "market_opportunity_selector": market_opportunity_selector,
     "execution_quality": execution_quality,
     "quote_execution_diagnostics": quote_execution_diagnostics,

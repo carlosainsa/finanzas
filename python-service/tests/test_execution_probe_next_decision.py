@@ -273,8 +273,49 @@ def test_next_decision_rejects_market_side_filter_when_adverse_selection_persist
         )
     )
 
-    assert report["recommendation"] == "REJECT_MARKET_SIDE_RISK_FILTER"
+    assert report["recommendation"] == "CREATE_V9_TOXICITY_AWARE_QUOTE"
     assert "same market/side filter" in str(report["next_step"])
+    templates = "\n".join(cast(list[str], report["next_command_templates"]))
+    assert "scripts/run_execution_probe_v9_cycle.sh" in templates
+    assert "EXECUTION_MODE=live" not in json.dumps(report)
+
+
+def test_next_decision_repeats_v9_when_toxicity_aware_probe_is_clean() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v9",
+            signals=300,
+            filled_signals=12,
+            observed_fill_rate=0.04,
+            synthetic_fill_rate=0.05,
+            adverse_selection=-0.02,
+            drawdown=0.0,
+        )
+    )
+
+    assert report["recommendation"] == "REPEAT_EXECUTION_PROBE_LONGER"
+    templates = "\n".join(cast(list[str], report["next_command_templates"]))
+    assert "scripts/run_execution_probe_v9_observation.sh" in templates
+    quote = cast(dict[str, Any], report["quote_aggressiveness_decision"])
+    assert quote["decision"] == "REPEAT_V9_LONGER"
+    assert quote["can_execute_trades"] is False
+
+
+def test_next_decision_holds_v9_when_adverse_selection_persists() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v9",
+            signals=300,
+            filled_signals=12,
+            observed_fill_rate=0.04,
+            synthetic_fill_rate=0.05,
+            adverse_selection=0.20,
+            drawdown=0.0,
+        )
+    )
+
+    assert report["recommendation"] == "HOLD_RESEARCH"
+    assert "fill toxicity features" in str(report["next_step"])
     assert "EXECUTION_MODE=live" not in json.dumps(report)
 
 

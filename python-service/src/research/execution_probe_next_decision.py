@@ -11,6 +11,7 @@ SUPPORTED_CANDIDATE_PROFILES = {
     "execution_probe_v6",
     "execution_probe_v7",
     "execution_probe_v8",
+    "execution_probe_v9",
 }
 
 
@@ -150,14 +151,14 @@ def classify_next_step(
     if not candidate:
         return (
             "WAIT_FOR_OBSERVATION",
-            "Run execution_probe_v6, execution_probe_v7, or execution_probe_v8 and generate profile_observation_comparison.json.",
+            "Run execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9 and generate profile_observation_comparison.json.",
             ["no_candidate_observation"],
         )
     profile = candidate.get("profile")
     if profile not in SUPPORTED_CANDIDATE_PROFILES:
         return (
             "WAIT_FOR_EXECUTION_PROBE_OBSERVATION",
-            "Compare a completed execution_probe_v6, execution_probe_v7, or execution_probe_v8 report before tuning.",
+            "Compare a completed execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9 report before tuning.",
             [f"candidate_profile={profile}"],
         )
 
@@ -233,7 +234,7 @@ def classify_next_step(
             ["no_observed_fills", "sample_is_large_enough"],
         )
     if fill_rate_gap > thresholds.max_synthetic_observed_gap:
-        if profile in {"execution_probe_v7", "execution_probe_v8"}:
+        if profile in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9"}:
             return (
                 "HOLD_RESEARCH",
                 "Do not add another quote profile until synthetic-only evidence is guarded or excluded.",
@@ -262,10 +263,20 @@ def classify_next_step(
             ["risk_metrics_missing"],
         )
     if adverse_selection > thresholds.max_adverse_selection or drawdown > thresholds.max_drawdown:
+        if profile == "execution_probe_v9":
+            return (
+                "HOLD_RESEARCH",
+                "Do not tune quote aggression further until fill toxicity features identify a non-toxic segment.",
+                [
+                    "v9_toxicity_aware_quote_still_failed_risk_gate",
+                    f"adverse_selection={adverse_selection}",
+                    f"drawdown={drawdown}",
+                ],
+            )
         if market_side_risk_filter_applied(candidate):
             return (
-                "REJECT_MARKET_SIDE_RISK_FILTER",
-                "Do not repeat the same market/side filter; it reduced coverage without resolving adverse selection.",
+                "CREATE_V9_TOXICITY_AWARE_QUOTE",
+                "Do not repeat the same market/side filter; create execution_probe_v9 with less aggressive toxic-fill-aware quoting.",
                 [
                     "market_side_filter_already_applied",
                     f"adverse_selection={adverse_selection}",
@@ -499,7 +510,7 @@ def decide_quote_aggressiveness(
     thresholds: ExecutionProbeDecisionThresholds,
 ) -> dict[str, object]:
     profile = str(candidate.get("profile") or "")
-    if profile not in {"execution_probe_v7", "execution_probe_v8"}:
+    if profile not in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9"}:
         return {
             "decision": "NOT_EVALUATED",
             "reason": "candidate_profile_not_quote_tuning_stage",
@@ -587,6 +598,9 @@ def decide_quote_aggressiveness(
     elif profile == "execution_probe_v8" and not failed:
         decision = "REPEAT_V8_LONGER"
         reason = "at_touch_quote_probe_has_fills_without_synthetic_or_risk_regression"
+    elif profile == "execution_probe_v9" and not failed:
+        decision = "REPEAT_V9_LONGER"
+        reason = "toxicity_aware_quote_probe_has_fills_without_synthetic_or_risk_regression"
     else:
         decision = "HOLD_QUOTE_POLICY"
         reason = f"failed_checks={len(failed)}"
@@ -645,6 +659,11 @@ def quote_aggressiveness_next_cycle(
             "script": "scripts/run_execution_probe_v8_observation.sh",
             "args": {"--duration-seconds": "5400"},
         }
+    if decision == "REPEAT_V9_LONGER":
+        return {
+            "script": "scripts/run_execution_probe_v9_observation.sh",
+            "args": {"--duration-seconds": "5400"},
+        }
     return None
 
 
@@ -654,6 +673,10 @@ def format_number(value: float) -> str:
 
 def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
     if recommendation == "REPEAT_EXECUTION_PROBE_LONGER":
+        if candidate_profile == "execution_probe_v9":
+            return [
+                "scripts/run_execution_probe_v9_observation.sh --duration-seconds 5400"
+            ]
         if candidate_profile == "execution_probe_v8":
             return [
                 "scripts/run_execution_probe_v8_observation.sh --duration-seconds 5400"
@@ -677,12 +700,16 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
         ]
     if recommendation == "CHANGE_MARKET_OR_TIMING_FILTERS":
         cycle_script = (
-            "scripts/run_execution_probe_v8_cycle.sh"
-            if candidate_profile == "execution_probe_v8"
+            "scripts/run_execution_probe_v9_cycle.sh"
+            if candidate_profile == "execution_probe_v9"
             else (
-                "scripts/run_execution_probe_v7_cycle.sh"
-                if candidate_profile == "execution_probe_v7"
-                else "scripts/run_execution_probe_v6_cycle.sh"
+                "scripts/run_execution_probe_v8_cycle.sh"
+                if candidate_profile == "execution_probe_v8"
+                else (
+                    "scripts/run_execution_probe_v7_cycle.sh"
+                    if candidate_profile == "execution_probe_v7"
+                    else "scripts/run_execution_probe_v6_cycle.sh"
+                )
             )
         )
         return [
@@ -719,6 +746,19 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
     if recommendation == "REJECT_MARKET_SIDE_RISK_FILTER":
         return [
             "Design different adverse-selection features or stricter market evidence; do not repeat the same market/side filter."
+        ]
+    if recommendation == "CREATE_V9_TOXICITY_AWARE_QUOTE":
+        return [
+            (
+                "scripts/run_execution_probe_v9_cycle.sh --universe-duckdb <RESEARCH_DUCKDB> "
+                "--baseline-report-root <BASELINE_REPORT_ROOT> "
+                "--selection-source fillability "
+                "--market-timing-filter future_touch "
+                "--min-future-touch-rate 0.00625 "
+                "--min-timing-signals 5 "
+                "--min-avg-opportunity-spread 0.000625 "
+                "--duration-seconds 5400"
+            )
         ]
     return []
 

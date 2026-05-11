@@ -129,6 +129,14 @@ class Settings(BaseSettings):
     predictor_execution_probe_v8_min_signal_interval_ms: int = 15_000
     predictor_execution_probe_v8_offset_ticks: int = 0
     predictor_execution_probe_v8_fraction_selection_path: str | None = None
+    predictor_execution_probe_v9_min_confidence: float = 0.57
+    predictor_execution_probe_v9_near_touch_max_spread_fraction: float = 0.90
+    predictor_execution_probe_v9_min_depth: float = 1.5
+    predictor_execution_probe_v9_max_top_changes: int = 2
+    predictor_execution_probe_v9_top_change_window_ms: int = 60_000
+    predictor_execution_probe_v9_min_signal_interval_ms: int = 20_000
+    predictor_execution_probe_v9_offset_ticks: int = 0
+    predictor_execution_probe_v9_fraction_selection_path: str | None = None
     predictor_blocked_segments_path: str | None = None
 
 settings = Settings()

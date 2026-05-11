@@ -64,6 +64,18 @@ def load_execution_probe_v8_fraction_selection(
     )
 
 
+def load_execution_probe_v9_fraction_selection(
+    path: str | None,
+    *,
+    default_fraction: float,
+) -> ExecutionProbeFractionSelection:
+    return load_execution_probe_fraction_selection(
+        path,
+        default_fraction=default_fraction,
+        profile="execution_probe_v9",
+    )
+
+
 def load_execution_probe_fraction_selection(
     path: str | None,
     *,
@@ -121,6 +133,12 @@ def validate_execution_probe_v8_fraction_selection(
     selection: ExecutionProbeFractionSelection,
 ) -> None:
     validate_execution_probe_fraction_selection(selection, profile="execution_probe_v8")
+
+
+def validate_execution_probe_v9_fraction_selection(
+    selection: ExecutionProbeFractionSelection,
+) -> None:
+    validate_execution_probe_fraction_selection(selection, profile="execution_probe_v9")
 
 
 def validate_execution_probe_fraction_selection(
