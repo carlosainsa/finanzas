@@ -555,6 +555,85 @@ Next probe:
 - It must be launched through `scripts/run_execution_probe_v8_cycle.sh` so the at-touch quote test is constrained by explicit market/timing filters and produces `quote_aggressiveness_decision`.
 - Passing v8 requires observed fills without synthetic optimism, adverse selection, or drawdown regression; it does not enable live execution.
 
+## 2026-05-11 - At-Touch execution_probe_v8 60m
+
+- Run id: `execution-probe-v8-at-touch-20260511T135000Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v8-at-touch-20260511T135000Z/reports/execution-probe-v8-at-touch-20260511T135000Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v8`
+- Quote policy: `near_touch`, at touch with `near_touch_max_spread_fraction=1.0`, `offset_ticks=0`
+- Selection source: fillability/timing universe from `execution_probe_universe_selection_v1`
+- Universe: 5 selected market assets, 4 assets with signals and reports
+- Duration: 60 minutes
+- Universe hash: `1f46b7e79e4da09f9b41e2ad307bbcfdc8844e50dc80f77b36b05df7e836b524`
+
+Key metrics:
+
+- Orderbook stream events: `3754`
+- Signals: `450`
+- Execution reports: `900` raw rows, `450` terminal signal reports
+- Report statuses: `450 DELAYED`, `450 MATCHED`
+- Observed fill-rate: `1.0`
+- Dry-run fill-rate: `1.0`
+- Synthetic fill-rate: `1.0`
+- Synthetic-only signals: `0`
+- Synthetic-vs-observed fill-rate gap: `0.0`
+- Stale data rate: `0.011720831113478956`
+- Reconciliation divergence rate: `0.0`
+- Realized edge: `0.12971111111111147`
+- Test Brier score: `0.1681851851851853`
+- Adverse selection: `0.9856051166792855`
+- Drawdown: `0.0`
+
+Signal-to-order conversion:
+
+- Signals analyzed: `450`
+- Signals consumed: `450`
+- Consumption rate: `1.0`
+- Signals missing execution report: `0`
+- Orders created: `450`
+- Order creation rate: `1.0`
+- Rejected consumed signals: `0`
+- Rejection rate: `0.0`
+- Dominant root cause: `order_created_filled`
+
+Decision artifacts:
+
+- `pre_live_readiness.json`
+- `pre_live_promotion.json`
+- `quote_execution_diagnostics.json`
+- `signal_to_order_conversion.json`
+- `execution_probe_next_decision.json`
+- `asset_execution_decision/asset_execution_decision.json`
+- `.tmp/operational/execution-probe-v8-at-touch-20260511T135000Z/execution_probe_v8_cycle_summary.json`
+
+Decision:
+
+- Pre-live status: `blocked`
+- Go/no-go: `NO_GO`
+- Main blocker: `no_persistent_adverse_selection`
+- `execution_probe_next_decision.recommendation`: `ADD_MARKET_SIDE_RISK_FILTERS`
+- Next step: keep the `execution_probe_v8` quote policy, add market/side filters, then repeat.
+- `quote_aggressiveness_decision.decision`: `HOLD_QUOTE_POLICY`
+- `market_timing_filter_decision.decision`: `REJECT_MARKET_TIMING_FILTER`
+- `asset_execution_decision` summary: `4 REPEAT_ASSET`, `0 RETUNE_ASSET`, `0 BLOCK_ASSET`
+
+Interpretation:
+
+`execution_probe_v8` solved the previous execution-quality blocker. At-touch
+dry-run orders were created for every signal and all terminal reports were
+`MATCHED`; the synthetic-vs-observed gap also dropped to zero. That is useful
+evidence that the pipeline can produce executable orders when quote placement is
+at touch.
+
+The run is still not live-ready. Adverse selection remains far above the
+pre-live threshold, so the correct next action is not to increase quote
+aggressiveness or loosen global risk. The next research-only run should keep the
+v8 quote policy but filter market/side segments using the segment and asset
+diagnostics. Asset-level evidence did not justify blocking a specific asset from
+one run, so the next loop should add explicit market/side risk filters and
+repeat before any promotion discussion.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`

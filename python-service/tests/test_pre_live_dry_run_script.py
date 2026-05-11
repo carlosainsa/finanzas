@@ -376,8 +376,12 @@ def test_execution_probe_v8_cycle_print_plan_is_safe_and_pinned(
     assert plan["min_timing_signals"] == 5
     assert plan["min_avg_opportunity_spread"] == 0.000625
     assert "scripts/run_execution_probe_v8_observation.sh" in plan["delegates_to"]
+    assert "src.research.asset_execution_decision" in plan["delegates_to"]
     assert "execution_probe_next_decision.json" in plan["outputs"][
         "execution_probe_next_decision"
+    ]
+    assert "asset_execution_decision.json" in plan["outputs"][
+        "asset_execution_decision"
     ]
 
 
