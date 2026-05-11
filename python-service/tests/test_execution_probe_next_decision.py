@@ -196,7 +196,7 @@ def test_next_decision_expands_fillability_universe_before_relaxing_timing() -> 
     assert args["--selection-source"] == "fillability"
     assert args["--market-timing-filter"] == "future_touch"
     assert args["--limit"] == "10"
-    assert args["--min-assets"] == "1"
+    assert args["--min-assets"] == "5"
     assert args["--min-future-touch-rate"] == "0.1"
     assert args["--min-avg-opportunity-spread"] == "0.01"
 
@@ -319,6 +319,66 @@ def test_next_decision_holds_v9_when_adverse_selection_persists() -> None:
     assert "EXECUTION_MODE=live" not in json.dumps(report)
 
 
+def test_next_decision_holds_v9_when_fill_toxicity_persists() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v9",
+            signals=300,
+            filled_signals=12,
+            observed_fill_rate=0.04,
+            synthetic_fill_rate=0.05,
+            adverse_selection=-0.02,
+            drawdown=0.0,
+            fill_toxicity={
+                "adverse_30s_rate": 0.80,
+                "rejected_segments": 2,
+                "avg_pnl_30s": -0.01,
+            },
+        )
+    )
+
+    assert report["recommendation"] == "HOLD_RESEARCH"
+    assert "fill toxicity improves" in str(report["next_step"])
+    checks = {
+        str(check["check_name"]): check
+        for check in cast(list[dict[str, object]], report["checks"])
+    }
+    assert checks["fill_toxicity_adverse_30s_rate"]["status"] == "FAIL"
+    assert checks["fill_toxicity_rejected_segments"]["status"] == "FAIL"
+    assert checks["fill_toxicity_avg_pnl_30s"]["status"] == "FAIL"
+    assert "EXECUTION_MODE=live" not in json.dumps(report)
+
+
+def test_next_decision_keeps_v9_cycle_for_v9_market_timing_retune() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v9",
+            signals=287,
+            filled_signals=0,
+            observed_fill_rate=0.0,
+            synthetic_fill_rate=0.0,
+            no_fill_future_touch_rate=0.0,
+            avg_required_quote_move=0.001,
+            market_timing_filter="future_touch",
+            selection_source="fillability",
+            market_asset_ids_count=2,
+            min_assets=2,
+            limit=10,
+        )
+    )
+
+    assert report["recommendation"] == "CHANGE_MARKET_OR_TIMING_FILTERS"
+    timing = cast(dict[str, Any], report["market_timing_filter_decision"])
+    assert timing["decision"] == "EXPAND_FILLABILITY_UNIVERSE"
+    next_cycle = cast(dict[str, Any], timing["next_cycle"])
+    assert next_cycle["script"] == "scripts/run_execution_probe_v9_cycle.sh"
+    args = cast(dict[str, str], next_cycle["args"])
+    assert args["--selection-source"] == "fillability"
+    assert args["--limit"] == "20"
+    assert args["--min-assets"] == "5"
+    assert "EXECUTION_MODE=live" not in json.dumps(report)
+
+
 def test_next_decision_waits_for_v6_candidate() -> None:
     report = decide_execution_probe_next_step(
         comparison_with_candidate(
@@ -413,6 +473,7 @@ def comparison_with_candidate(
     min_assets: int = 3,
     limit: int = 10,
     adverse_selection_filter: str | None = None,
+    fill_toxicity: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "report_version": "profile_observation_comparison_v1",
@@ -447,6 +508,7 @@ def comparison_with_candidate(
                 min_assets=min_assets,
                 limit=limit,
                 adverse_selection_filter=adverse_selection_filter,
+                fill_toxicity=fill_toxicity,
             ),
         ],
         "pairwise_deltas": [],
@@ -472,6 +534,7 @@ def observation(
     min_assets: int = 3,
     limit: int = 10,
     adverse_selection_filter: str | None = None,
+    fill_toxicity: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "run_id": run_id,
@@ -521,6 +584,7 @@ def observation(
             "no_fill_future_touch_rate": no_fill_future_touch_rate,
             "avg_required_quote_move": avg_required_quote_move,
         },
+        "fill_toxicity": fill_toxicity or {},
         "unmatched_diagnostics": {
             "no_fill_diagnostics": (
                 [

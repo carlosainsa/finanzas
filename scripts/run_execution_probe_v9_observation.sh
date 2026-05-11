@@ -87,6 +87,7 @@ export EXECUTION_MODE="dry_run"
 export DISABLE_MARKET_WS="false"
 export PREDICTOR_STRATEGY_PROFILE="execution_probe_v9"
 export PREDICTOR_QUOTE_PLACEMENT="${PREDICTOR_QUOTE_PLACEMENT:-near_touch}"
+export PREDICTOR_EXECUTION_PROBE_V9_MIN_CONFIDENCE="${PREDICTOR_EXECUTION_PROBE_V9_MIN_CONFIDENCE:-0.55}"
 export PREDICTOR_EXECUTION_PROBE_V9_NEAR_TOUCH_MAX_SPREAD_FRACTION="${PREDICTOR_EXECUTION_PROBE_V9_NEAR_TOUCH_MAX_SPREAD_FRACTION:-0.90}"
 export PREDICTOR_EXECUTION_PROBE_V9_OFFSET_TICKS="${PREDICTOR_EXECUTION_PROBE_V9_OFFSET_TICKS:-0}"
 export EXECUTION_PROBE_UNIVERSE_SELECTION_PATH="$UNIVERSE_SELECTION_PATH"
@@ -107,6 +108,7 @@ print(json.dumps({
     "execution_mode": os.environ["EXECUTION_MODE"],
     "predictor_strategy_profile": os.environ["PREDICTOR_STRATEGY_PROFILE"],
     "predictor_quote_placement": os.environ["PREDICTOR_QUOTE_PLACEMENT"],
+    "predictor_execution_probe_v9_min_confidence": float(os.environ["PREDICTOR_EXECUTION_PROBE_V9_MIN_CONFIDENCE"]),
     "predictor_execution_probe_v9_near_touch_max_spread_fraction": float(os.environ["PREDICTOR_EXECUTION_PROBE_V9_NEAR_TOUCH_MAX_SPREAD_FRACTION"]),
     "predictor_execution_probe_v9_offset_ticks": int(os.environ["PREDICTOR_EXECUTION_PROBE_V9_OFFSET_TICKS"]),
     "execution_probe_universe_selection_path": os.environ["EXECUTION_PROBE_UNIVERSE_SELECTION_PATH"],

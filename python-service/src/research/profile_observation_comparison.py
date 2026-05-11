@@ -23,6 +23,7 @@ def create_profile_observation_comparison(
         },
         "observations": observations,
         "pairwise_deltas": pairwise_deltas(observations),
+        "candidate_vs_baselines": candidate_vs_baselines(observations),
         "artifact_paths": [str(root) for root in report_roots],
     }
 
@@ -31,6 +32,7 @@ def profile_observation(report_root: Path) -> dict[str, object]:
     evidence = read_json(report_root / "real_dry_run_evidence.json")
     promotion = read_json(report_root / "pre_live_promotion.json")
     quote = read_json(report_root / "quote_execution_diagnostics.json")
+    fill_toxicity = read_json(report_root / "fill_toxicity.json")
     signal_to_order = read_json(report_root / "signal_to_order_conversion.json")
     rejection = read_json(report_root / "signal_rejection_diagnostics.json")
     go_no_go = read_json(report_root / "go_no_go.json")
@@ -56,6 +58,8 @@ def profile_observation(report_root: Path) -> dict[str, object]:
             "status": universe_selection.get("status"),
             "profile": universe_selection.get("profile"),
             "selection_source": universe_config.get("selection_source"),
+            "limit": universe_config.get("limit"),
+            "min_assets": universe_config.get("min_assets"),
             "market_timing_filter": universe_config.get("market_timing_filter"),
             "min_future_touch_rate": universe_config.get("min_future_touch_rate"),
             "min_timing_signals": universe_config.get("min_timing_signals"),
@@ -123,6 +127,7 @@ def profile_observation(report_root: Path) -> dict[str, object]:
                 "reconciliation_divergence_rate"
             ),
         },
+        "fill_toxicity": fill_toxicity_summary(fill_toxicity),
         "blockers": [item.get("check_name") for item in list_of_dicts(go_no_go.get("blockers"))],
         "signal_rejection": {
             "summary": rejection.get("summary"),
@@ -132,60 +137,109 @@ def profile_observation(report_root: Path) -> dict[str, object]:
     }
 
 
+def fill_toxicity_summary(report: dict[str, object]) -> dict[str, object]:
+    summary = typed_dict(report.get("summary"))
+    counts = typed_dict(report.get("counts"))
+    return {
+        "report_version": report.get("report_version"),
+        "segments": summary.get("segments"),
+        "signals": summary.get("signals"),
+        "filled_events": summary.get("filled_events"),
+        "fill_rate": summary.get("fill_rate"),
+        "avg_pnl_30s": summary.get("avg_pnl_30s"),
+        "adverse_30s_rate": summary.get("adverse_30s_rate"),
+        "rejected_segments": summary.get("rejected_segments"),
+        "promoted_segments": summary.get("promoted_segments"),
+        "diagnostic_segments": summary.get("diagnostic_segments"),
+        "insufficient_sample_segments": summary.get("insufficient_sample_segments"),
+        "event_rows": counts.get("fill_toxicity_events"),
+        "segment_rows": counts.get("fill_toxicity_by_asset_strategy"),
+    }
+
+
 def pairwise_deltas(observations: list[dict[str, object]]) -> list[dict[str, object]]:
     deltas: list[dict[str, object]] = []
     for previous, current in zip(observations, observations[1:], strict=False):
-        deltas.append(
-            {
-                "baseline_run_id": previous.get("run_id"),
-                "candidate_run_id": current.get("run_id"),
-                "baseline_profile": previous.get("profile"),
-                "candidate_profile": current.get("profile"),
-                "activity_deltas": metric_deltas(
-                    typed_dict(previous.get("activity")),
-                    typed_dict(current.get("activity")),
-                    ("signals", "filled_signals", "signals_without_observed_report"),
-                ),
-                "fill_deltas": metric_deltas(
-                    typed_dict(previous.get("fills")),
-                    typed_dict(current.get("fills")),
-                    (
-                        "fill_rate",
-                        "dry_run_observed_fill_rate",
-                        "observed_fill_rate",
-                        "synthetic_fill_rate",
-                        "adjusted_synthetic_fill_rate",
-                        "fill_rate_gap",
-                        "adjusted_fill_rate_gap",
-                    ),
-                ),
-                "risk_deltas": metric_deltas(
-                    typed_dict(previous.get("risk")),
-                    typed_dict(current.get("risk")),
-                    (
-                        "realized_edge",
-                        "adverse_selection",
-                        "drawdown",
-                        "stale_data_rate",
-                        "test_brier_score",
-                    ),
-                ),
-                "quote_policy_deltas": metric_deltas(
-                    typed_dict(previous.get("quote_policy")),
-                    typed_dict(current.get("quote_policy")),
-                    (
-                        "avg_no_fill_distance_to_touch",
-                        "avg_no_fill_distance_to_mid",
-                        "avg_no_fill_spread",
-                        "no_fill_future_touch_rate",
-                        "avg_required_quote_move",
-                        "near_touch_max_spread_fraction",
-                        "offset_ticks",
-                    ),
-                ),
-            }
-        )
+        deltas.append(observation_delta(previous, current))
     return deltas
+
+
+def candidate_vs_baselines(
+    observations: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    if len(observations) < 2:
+        return []
+    candidate = observations[-1]
+    return [
+        observation_delta(baseline, candidate)
+        for baseline in observations[:-1]
+    ]
+
+
+def observation_delta(
+    baseline: dict[str, object],
+    candidate: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "baseline_run_id": baseline.get("run_id"),
+        "candidate_run_id": candidate.get("run_id"),
+        "baseline_profile": baseline.get("profile"),
+        "candidate_profile": candidate.get("profile"),
+        "activity_deltas": metric_deltas(
+            typed_dict(baseline.get("activity")),
+            typed_dict(candidate.get("activity")),
+            ("signals", "filled_signals", "signals_without_observed_report"),
+        ),
+        "fill_deltas": metric_deltas(
+            typed_dict(baseline.get("fills")),
+            typed_dict(candidate.get("fills")),
+            (
+                "fill_rate",
+                "dry_run_observed_fill_rate",
+                "observed_fill_rate",
+                "synthetic_fill_rate",
+                "adjusted_synthetic_fill_rate",
+                "fill_rate_gap",
+                "adjusted_fill_rate_gap",
+            ),
+        ),
+        "risk_deltas": metric_deltas(
+            typed_dict(baseline.get("risk")),
+            typed_dict(candidate.get("risk")),
+            (
+                "realized_edge",
+                "adverse_selection",
+                "drawdown",
+                "stale_data_rate",
+                "test_brier_score",
+            ),
+        ),
+        "quote_policy_deltas": metric_deltas(
+            typed_dict(baseline.get("quote_policy")),
+            typed_dict(candidate.get("quote_policy")),
+            (
+                "avg_no_fill_distance_to_touch",
+                "avg_no_fill_distance_to_mid",
+                "avg_no_fill_spread",
+                "no_fill_future_touch_rate",
+                "avg_required_quote_move",
+                "near_touch_max_spread_fraction",
+                "offset_ticks",
+            ),
+        ),
+        "fill_toxicity_deltas": metric_deltas(
+            typed_dict(baseline.get("fill_toxicity")),
+            typed_dict(candidate.get("fill_toxicity")),
+            (
+                "filled_events",
+                "fill_rate",
+                "avg_pnl_30s",
+                "adverse_30s_rate",
+                "rejected_segments",
+                "promoted_segments",
+            ),
+        ),
+    }
 
 
 def metric_deltas(

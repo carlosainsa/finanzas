@@ -712,6 +712,81 @@ universe. The next research step should design stronger adverse-selection
 features, such as post-fill mark movement buckets, side-specific microstructure
 regimes, or time-of-market filters, before another 60-90 minute v8 observation.
 
+## 2026-05-11 - Toxicity-Aware execution_probe_v9 90m
+
+- Run id: `execution-probe-v9-cycle-20260511T181136Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v9-cycle-20260511T181136Z/reports/execution-probe-v9-cycle-20260511T181136Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v9`
+- Quote policy: `near_touch`, `near_touch_max_spread_fraction=0.90`, `offset_ticks=0`
+- Minimum confidence: `0.55`
+- Selection source: `fillability`
+- Universe: 2 market assets
+- Universe hash: `dc3d63fc35c22d8d288bb0ac95b58390a85c9dbf2dcbcbb753c75d78f34c7ae6`
+- Duration: 90 minutes
+
+Operational note:
+
+- The first v9 attempt at `2026-05-11T180800Z` failed preflight with `missing_signals_stream_progress`.
+- Root cause: `execution_probe_v9` defaulted to `min_confidence=0.57`, while the selected 1-cent spread assets produce confidence near `0.55`.
+- The observation wrapper now pins `PREDICTOR_EXECUTION_PROBE_V9_MIN_CONFIDENCE=0.55` for this research profile so the run can test quote placement instead of silently rejecting every snapshot.
+
+Key metrics:
+
+- Orderbook stream events: `1019`
+- Signals: `287`
+- Execution reports: `574` raw rows, `287` terminal signal reports
+- Report statuses: `287 DELAYED`, `287 UNMATCHED`
+- Observed fill-rate: `0.0`
+- Dry-run fill-rate: `0.0`
+- Synthetic fill-rate: `0.0`
+- Synthetic-vs-observed fill-rate gap: `0.0`
+- Signals without observed report: `0`
+- Stale data rate: `0.03042198233562316`
+- Reconciliation divergence rate: `0.0`
+- Drawdown: `0.0`
+
+Quote diagnostics:
+
+- Average no-fill distance to touch: `0.0010000000000000009`
+- Average no-fill distance to mid: `0.0040000000000000036`
+- Average required quote move: `0.0010000000000000009`
+- No-fill future-touch rate: `0.0`
+- Dominant root cause: `dry_run_created_unmatched`
+
+Fill toxicity:
+
+- Segments: `2`
+- Signals: `287`
+- Filled events: `0`
+- Fill toxicity decision: both segments are `INSUFFICIENT_SAMPLE`
+- `fill_toxicity` cannot evaluate adverse markout because there were no fills.
+
+Decision:
+
+- Pre-live status: `blocked`
+- Go/no-go: `NO_GO`
+- `execution_probe_next_decision.recommendation`: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- Next step: keep `execution_probe_v9` research-only and retune market/timing selection before quote aggression.
+- `market_timing_filter_decision.decision`: `EXPAND_FILLABILITY_UNIVERSE`
+- Next cycle: `scripts/run_execution_probe_v9_cycle.sh` with `--selection-source fillability`, `--universe-limit 20`, `--min-assets 5`, and the same timing thresholds.
+- `quote_aggressiveness_decision.decision`: `HOLD_QUOTE_POLICY`
+- `asset_execution_decision` summary: `0 REPEAT_ASSET`, `2 RETUNE_ASSET`, `0 BLOCK_ASSET`
+
+Interpretation:
+
+`execution_probe_v9` removed the adverse-selection measurement problem by
+removing fills entirely. That is not an improvement. The one-tick-behind-touch
+policy avoided synthetic optimism and preserved signal-to-order traceability,
+but it also produced no observed fills and no future touch evidence. The
+correct next step is not another quote-aggression threshold guess; it is a
+broader fillability universe so v9 can be tested on enough markets where its
+slightly-behind-touch quote can actually be touched.
+
+Live remains blocked. The run is useful as negative evidence: v9 is safer than
+v8 in the sense that it does not generate toxic fills, but it is not executable
+on this two-asset universe.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`

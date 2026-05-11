@@ -434,6 +434,7 @@ def test_execution_probe_v9_observation_print_plan_is_safe_and_pinned(
     assert plan["execution_mode"] == "dry_run"
     assert plan["predictor_strategy_profile"] == "execution_probe_v9"
     assert plan["predictor_quote_placement"] == "near_touch"
+    assert plan["predictor_execution_probe_v9_min_confidence"] == 0.55
     assert plan["predictor_execution_probe_v9_near_touch_max_spread_fraction"] == 0.9
     assert plan["predictor_execution_probe_v9_offset_ticks"] == 0
     assert plan["go_no_go_profile"] == "pre_live"
@@ -447,6 +448,8 @@ def test_execution_probe_v9_cycle_print_plan_is_safe_and_pinned(
     universe_duckdb.write_bytes(b"placeholder")
     baseline = tmp_path / "reports" / "baseline"
     baseline.mkdir(parents=True)
+    filtered = tmp_path / "reports" / "filtered"
+    filtered.mkdir(parents=True)
 
     completed = subprocess.run(
         [
@@ -456,6 +459,8 @@ def test_execution_probe_v9_cycle_print_plan_is_safe_and_pinned(
             str(universe_duckdb),
             "--baseline-report-root",
             str(baseline),
+            "--comparison-report-roots",
+            f"{baseline},{filtered}",
             "--duration-seconds",
             "1800",
             "--print-plan",
@@ -472,6 +477,7 @@ def test_execution_probe_v9_cycle_print_plan_is_safe_and_pinned(
     assert plan["execution_mode"] == "dry_run"
     assert plan["profile"] == "execution_probe_v9"
     assert plan["baseline_report_root"] == str(baseline)
+    assert plan["comparison_report_roots"] == [str(baseline), str(filtered)]
     assert plan["universe_min_assets"] == 5
     assert plan["selection_source"] == "fillability"
     assert plan["market_timing_filter"] == "future_touch"

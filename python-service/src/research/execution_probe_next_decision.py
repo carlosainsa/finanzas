@@ -27,6 +27,9 @@ class ExecutionProbeDecisionThresholds:
     min_market_timing_filter_fill_rate_lift: float = 0.005
     min_fillability_market_asset_ids: int = 5
     min_quote_move_to_create_v8: float = 0.005
+    max_fill_toxicity_adverse_30s_rate: float = 0.50
+    max_fill_toxicity_rejected_segments: int = 0
+    min_fill_toxicity_avg_pnl_30s: float = 0.0
 
 
 def decide_execution_probe_next_step(
@@ -96,6 +99,7 @@ def build_checks(
     fills = typed_dict(candidate.get("fills"))
     risk = typed_dict(candidate.get("risk"))
     quote_policy = typed_dict(candidate.get("quote_policy"))
+    fill_toxicity = typed_dict(candidate.get("fill_toxicity"))
     return [
         check_equals(
             "candidate_profile_is_supported_execution_probe",
@@ -138,6 +142,24 @@ def build_checks(
             thresholds.min_no_fill_future_touch_rate,
             required=False,
         ),
+        check_at_most(
+            "fill_toxicity_adverse_30s_rate",
+            numeric_or_none(fill_toxicity.get("adverse_30s_rate")),
+            thresholds.max_fill_toxicity_adverse_30s_rate,
+            required=False,
+        ),
+        check_at_most(
+            "fill_toxicity_rejected_segments",
+            numeric_or_none(fill_toxicity.get("rejected_segments")),
+            float(thresholds.max_fill_toxicity_rejected_segments),
+            required=False,
+        ),
+        check_at_least(
+            "fill_toxicity_avg_pnl_30s",
+            numeric_or_none(fill_toxicity.get("avg_pnl_30s")),
+            thresholds.min_fill_toxicity_avg_pnl_30s,
+            required=False,
+        ),
     ]
 
 
@@ -166,12 +188,20 @@ def classify_next_step(
     fills = typed_dict(candidate.get("fills"))
     risk = typed_dict(candidate.get("risk"))
     quote_policy = typed_dict(candidate.get("quote_policy"))
+    fill_toxicity = typed_dict(candidate.get("fill_toxicity"))
     signals = numeric_or_none(activity.get("signals")) or 0.0
     filled = numeric_or_none(activity.get("filled_signals")) or 0.0
     observed_fill_rate = numeric_or_none(fills.get("observed_fill_rate")) or 0.0
     fill_rate_gap = numeric_or_none(fills.get("fill_rate_gap")) or 0.0
     adverse_selection = numeric_or_none(risk.get("adverse_selection"))
     drawdown = numeric_or_none(risk.get("drawdown"))
+    toxicity_adverse_30s_rate = numeric_or_none(
+        fill_toxicity.get("adverse_30s_rate")
+    )
+    toxicity_rejected_segments = numeric_or_none(
+        fill_toxicity.get("rejected_segments")
+    )
+    toxicity_avg_pnl_30s = numeric_or_none(fill_toxicity.get("avg_pnl_30s"))
     no_fill_future_touch_rate = numeric_or_none(
         quote_policy.get("no_fill_future_touch_rate")
     )
@@ -262,6 +292,31 @@ def classify_next_step(
             f"Repeat {profile} until adverse selection and drawdown are measurable.",
             ["risk_metrics_missing"],
         )
+    if profile == "execution_probe_v9" and (
+        (
+            toxicity_adverse_30s_rate is not None
+            and toxicity_adverse_30s_rate > thresholds.max_fill_toxicity_adverse_30s_rate
+        )
+        or (
+            toxicity_rejected_segments is not None
+            and toxicity_rejected_segments
+            > thresholds.max_fill_toxicity_rejected_segments
+        )
+        or (
+            toxicity_avg_pnl_30s is not None
+            and toxicity_avg_pnl_30s < thresholds.min_fill_toxicity_avg_pnl_30s
+        )
+    ):
+        return (
+            "HOLD_RESEARCH",
+            "Do not tune quote aggression further until fill toxicity improves on observed segments.",
+            [
+                "v9_fill_toxicity_gate_failed",
+                f"toxicity_adverse_30s_rate={toxicity_adverse_30s_rate}",
+                f"toxicity_rejected_segments={toxicity_rejected_segments}",
+                f"toxicity_avg_pnl_30s={toxicity_avg_pnl_30s}",
+            ],
+        )
     if adverse_selection > thresholds.max_adverse_selection or drawdown > thresholds.max_drawdown:
         if profile == "execution_probe_v9":
             return (
@@ -330,6 +385,7 @@ def observation_summary(observation: dict[str, Any]) -> dict[str, object]:
         "drawdown": risk.get("drawdown"),
         "no_fill_future_touch_rate": quote_policy.get("no_fill_future_touch_rate"),
         "avg_required_quote_move": quote_policy.get("avg_required_quote_move"),
+        "fill_toxicity": observation.get("fill_toxicity"),
     }
 
 
@@ -436,7 +492,11 @@ def decide_market_timing_filter(
         "can_execute_trades": False,
         "candidate_filter": candidate_filter,
         "selection": market_timing_selection,
-        "next_cycle": market_timing_next_cycle(decision, market_timing_selection),
+        "next_cycle": market_timing_next_cycle(
+            decision,
+            market_timing_selection,
+            thresholds,
+        ),
         "baseline_observed_fill_rate": baseline_fill_rate,
         "candidate_observed_fill_rate": candidate_fill_rate,
         "fill_rate_lift": fill_rate_lift,
@@ -451,7 +511,9 @@ def decide_market_timing_filter(
 def market_timing_next_cycle(
     decision: str,
     market_timing_selection: dict[str, Any],
+    thresholds: ExecutionProbeDecisionThresholds,
 ) -> dict[str, object]:
+    profile = str(market_timing_selection.get("profile") or "")
     min_future_touch_rate = numeric_or_none(
         market_timing_selection.get("min_future_touch_rate")
     )
@@ -486,7 +548,12 @@ def market_timing_next_cycle(
         ),
     }
     if decision == "EXPAND_FILLABILITY_UNIVERSE":
-        resolved_min_assets = int(min_assets) if min_assets is not None else 5
+        resolved_min_assets = max(
+            int(min_assets)
+            if min_assets is not None
+            else thresholds.min_fillability_market_asset_ids,
+            thresholds.min_fillability_market_asset_ids,
+        )
         resolved_limit = int(limit) if limit is not None else resolved_min_assets
         args.update(
             {
@@ -499,8 +566,14 @@ def market_timing_next_cycle(
         )
     elif selection_source == "fillability":
         args["--selection-source"] = "fillability"
+    cycle_script = {
+        "execution_probe_v6": "scripts/run_execution_probe_v6_cycle.sh",
+        "execution_probe_v7": "scripts/run_execution_probe_v7_cycle.sh",
+        "execution_probe_v8": "scripts/run_execution_probe_v8_cycle.sh",
+        "execution_probe_v9": "scripts/run_execution_probe_v9_cycle.sh",
+    }.get(profile, "scripts/run_execution_probe_v7_cycle.sh")
     return {
-        "script": "scripts/run_execution_probe_v7_cycle.sh",
+        "script": cycle_script,
         "args": args,
     }
 

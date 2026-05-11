@@ -11,6 +11,7 @@ MANIFEST_ROOT="${RESEARCH_MANIFEST_ROOT:-${DATA_LAKE_ROOT}/research_runs}"
 DURATION_SECONDS="${REAL_DRY_RUN_SECONDS:-5400}"
 UNIVERSE_DUCKDB=""
 BASELINE_REPORT_ROOT="${BASELINE_REPORT_ROOT:-}"
+COMPARISON_REPORT_ROOTS="${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}"
 PRINT_PLAN=0
 UNIVERSE_LIMIT="${EXECUTION_PROBE_UNIVERSE_LIMIT:-10}"
 UNIVERSE_MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-5}"
@@ -26,7 +27,7 @@ MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_execution_probe_v9_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch] [--print-plan]
+Usage: scripts/run_execution_probe_v9_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--comparison-report-roots CSV] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch] [--print-plan]
 
 Runs the full execution_probe_v9 research cycle:
 universe selection -> toxic-fill-aware dry-run observation -> profile comparison -> next decision.
@@ -42,6 +43,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --baseline-report-root)
       BASELINE_REPORT_ROOT="$2"
+      shift 2
+      ;;
+    --comparison-report-roots)
+      COMPARISON_REPORT_ROOTS="$2"
       shift 2
       ;;
     --duration-seconds)
@@ -120,6 +125,15 @@ if [[ -n "$BASELINE_REPORT_ROOT" && "$PRINT_PLAN" != "1" && ! -d "$BASELINE_REPO
   echo "--baseline-report-root must point to an existing directory" >&2
   exit 64
 fi
+if [[ -n "$COMPARISON_REPORT_ROOTS" && "$PRINT_PLAN" != "1" ]]; then
+  IFS=',' read -r -a COMPARISON_ROOTS_TO_VALIDATE <<< "$COMPARISON_REPORT_ROOTS"
+  for comparison_root in "${COMPARISON_ROOTS_TO_VALIDATE[@]}"; do
+    if [[ -n "$comparison_root" && ! -d "$comparison_root" ]]; then
+      echo "--comparison-report-roots contains a missing directory: $comparison_root" >&2
+      exit 64
+    fi
+  done
+fi
 if ! [[ "$DURATION_SECONDS" =~ ^[0-9]+$ ]] || (( DURATION_SECONDS < 1800 || DURATION_SECONDS > 5400 )); then
   echo "duration must be an integer between 1800 and 5400 seconds" >&2
   exit 64
@@ -145,13 +159,14 @@ OBSERVATION_COMMAND=(
 )
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" <<'PY'
+  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$COMPARISON_REPORT_ROOTS" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" <<'PY'
 import json
 import sys
 
 (
     universe_duckdb,
     baseline_report_root,
+    comparison_report_roots,
     run_root,
     report_timestamp,
     data_lake_root,
@@ -171,6 +186,13 @@ import sys
     max_adverse_30s_rate,
     min_adverse_filled_events,
 ) = sys.argv[1:]
+comparison_roots = [
+    item.strip()
+    for item in comparison_report_roots.split(",")
+    if item.strip()
+]
+if baseline_report_root and baseline_report_root not in comparison_roots:
+    comparison_roots.insert(0, baseline_report_root)
 
 print(json.dumps({
     "script": "scripts/run_execution_probe_v9_cycle.sh",
@@ -179,6 +201,7 @@ print(json.dumps({
     "profile": "execution_probe_v9",
     "universe_duckdb": universe_duckdb,
     "baseline_report_root": baseline_report_root or None,
+    "comparison_report_roots": comparison_roots,
     "run_root": run_root,
     "report_timestamp": report_timestamp,
     "data_lake_root": data_lake_root,
@@ -254,7 +277,32 @@ export RESEARCH_REPORT_ROOT="$REPORT_ROOT"
 export RESEARCH_MANIFEST_ROOT="$MANIFEST_ROOT"
 export EXECUTION_MODE="dry_run"
 export DISABLE_MARKET_WS="false"
-export PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS="$BASELINE_REPORT_ROOT"
+PROFILE_COMPARISON_ROOTS=()
+if [[ -n "$COMPARISON_REPORT_ROOTS" ]]; then
+  IFS=',' read -r -a EXTRA_COMPARISON_ROOTS <<< "$COMPARISON_REPORT_ROOTS"
+  for comparison_root in "${EXTRA_COMPARISON_ROOTS[@]}"; do
+    if [[ -n "$comparison_root" ]]; then
+      PROFILE_COMPARISON_ROOTS+=("$comparison_root")
+    fi
+  done
+fi
+if [[ -n "$BASELINE_REPORT_ROOT" ]]; then
+  PROFILE_COMPARISON_ROOTS+=("$BASELINE_REPORT_ROOT")
+fi
+PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS="$(
+  python3 - "${PROFILE_COMPARISON_ROOTS[@]}" <<'PY'
+import sys
+
+seen = set()
+roots = []
+for root in sys.argv[1:]:
+    if root and root not in seen:
+        roots.append(root)
+        seen.add(root)
+print(",".join(roots))
+PY
+)"
+export PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS
 
 set +e
 "${OBSERVATION_COMMAND[@]}"
@@ -267,8 +315,13 @@ if [[ "$observation_status" != "0" && "$observation_status" != "20" ]]; then
 fi
 
 PROFILE_ARGS=()
-if [[ -n "$BASELINE_REPORT_ROOT" ]]; then
-  PROFILE_ARGS+=(--report-root "$BASELINE_REPORT_ROOT")
+if [[ -n "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" ]]; then
+  IFS=',' read -r -a PROFILE_ROOTS <<< "$PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS"
+  for profile_root in "${PROFILE_ROOTS[@]}"; do
+    if [[ -n "$profile_root" ]]; then
+      PROFILE_ARGS+=(--report-root "$profile_root")
+    fi
+  done
 fi
 PROFILE_ARGS+=(--report-root "$REPORT_ROOT")
 
@@ -291,7 +344,7 @@ PYTHONPATH=python-service python3 -m src.research.asset_execution_decision \
   --json \
   > "$REPORT_ROOT/asset_execution_decision.stdout.json"
 
-python3 - "$RUN_ROOT" "$REPORT_ROOT" "$DATA_LAKE_ROOT" "$MANIFEST_ROOT" "$observation_status" <<'PY'
+python3 - "$RUN_ROOT" "$REPORT_ROOT" "$DATA_LAKE_ROOT" "$MANIFEST_ROOT" "$observation_status" "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -301,6 +354,7 @@ report_root = Path(sys.argv[2])
 data_lake_root = Path(sys.argv[3])
 manifest_root = Path(sys.argv[4])
 observation_status = int(sys.argv[5])
+comparison_report_roots = [item for item in sys.argv[6].split(",") if item]
 decision_path = report_root / "execution_probe_next_decision.json"
 asset_decision_path = report_root / "asset_execution_decision" / "asset_execution_decision.json"
 decision = json.loads(decision_path.read_text(encoding="utf-8"))
@@ -313,6 +367,7 @@ summary = {
     "report_root": str(report_root),
     "data_lake_root": str(data_lake_root),
     "manifest_root": str(manifest_root),
+    "comparison_report_roots": comparison_report_roots,
     "fill_toxicity_path": str(report_root / "fill_toxicity" / "fill_toxicity.json"),
     "profile_observation_comparison_path": str(report_root / "profile_observation_comparison.json"),
     "execution_probe_next_decision_path": str(decision_path),
