@@ -35,6 +35,10 @@ def test_asset_execution_decision_classifies_repeat_retune_and_block(
         str(item["asset_id"]): item for item in cast(list[dict[str, Any]], report["assets"])
     }
     assert decisions["repeat"]["decision"] == "REPEAT_ASSET"
+    repeat_metrics = cast(dict[str, Any], decisions["repeat"]["metrics"])
+    assert repeat_metrics["signals"] == 20.0
+    assert repeat_metrics["filled_signals"] == 2.0
+    assert repeat_metrics["observed_fill_rate"] == 0.1
     assert decisions["retune"]["decision"] == "RETUNE_ASSET"
     assert (
         decisions["retune"]["primary_reason"]
@@ -59,6 +63,15 @@ def test_asset_execution_decision_classifies_repeat_retune_and_block(
     assert (
         report_root / "asset_execution_decision" / "asset_execution_evidence.parquet"
     ).exists()
+    evidence = pd.read_parquet(
+        report_root / "asset_execution_decision" / "asset_execution_evidence.parquet"
+    )
+    assert "filled_signals_order" in evidence.columns
+    assert "filled_signals_promotion" in evidence.columns
+    assert all(
+        not column.endswith("_x") and not column.endswith("_y")
+        for column in evidence.columns
+    )
 
 
 def test_asset_execution_decision_cli_writes_output(tmp_path: Path) -> None:

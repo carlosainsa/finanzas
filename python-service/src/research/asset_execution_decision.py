@@ -150,13 +150,18 @@ def classify_asset(
     promotion_signals = numeric_or_none(row.get("signals_promotion"))
     resolved_signals = first_number(signals, quote_signals, order_signals, promotion_signals, 0.0)
     filled = first_number(
+        numeric_or_none(row.get("dry_run_filled_signals_quote")),
+        numeric_or_none(row.get("dry_run_filled_signals_promotion")),
         numeric_or_none(row.get("dry_run_filled_signals")),
+        numeric_or_none(row.get("filled_signals_quote")),
         numeric_or_none(row.get("filled_signals_order")),
         numeric_or_none(row.get("filled_signals_promotion")),
         0.0,
     )
     observed_fill_rate = first_number(
         numeric_or_none(row.get("dry_run_observed_fill_rate")),
+        numeric_or_none(row.get("fill_rate_order")),
+        numeric_or_none(row.get("fill_rate_promotion")),
         numeric_or_none(row.get("fill_rate")),
         safe_rate(filled, resolved_signals),
         0.0,
@@ -348,19 +353,32 @@ def normalize_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return empty_evidence_frame()
     normalized = frame.copy()
-    normalized = normalized.rename(
-        columns={
-            "signals": (
-                "signals_quote"
-                if "dry_run_signal_lifecycles" in normalized.columns
-                else "signals"
-            ),
-            "filled_signals": "filled_signals_promotion",
-            "fill_rate": "fill_rate_promotion",
-        }
-    )
-    if "reports" in normalized.columns:
-        normalized = normalized.rename(columns={"signals": "signals_order"})
+    rename_map: dict[str, str] = {}
+    if "dry_run_signal_lifecycles" in normalized.columns:
+        rename_map.update(
+            {
+                "signals": "signals_quote",
+                "dry_run_filled_signals": "dry_run_filled_signals_quote",
+            }
+        )
+    elif "reports" in normalized.columns:
+        rename_map.update(
+            {
+                "signals": "signals_order",
+                "filled_signals": "filled_signals_order",
+                "fill_rate": "fill_rate_order",
+            }
+        )
+    else:
+        rename_map.update(
+            {
+                "signals": "signals_promotion",
+                "filled_signals": "filled_signals_promotion",
+                "fill_rate": "fill_rate_promotion",
+                "dry_run_filled_signals": "dry_run_filled_signals_promotion",
+            }
+        )
+    normalized = normalized.rename(columns=rename_map)
     for key in SEGMENT_KEYS:
         if key not in normalized.columns:
             normalized[key] = ""
