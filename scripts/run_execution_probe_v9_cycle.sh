@@ -24,10 +24,12 @@ SELECTION_SOURCE="${EXECUTION_PROBE_UNIVERSE_SELECTION_SOURCE:-${EXECUTION_PROBE
 ADVERSE_SELECTION_FILTER="${EXECUTION_PROBE_ADVERSE_SELECTION_FILTER:-none}"
 MAX_ADVERSE_30S_RATE="${EXECUTION_PROBE_MAX_ADVERSE_30S_RATE:-0.50}"
 MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
+TOXICITY_FILTER="${EXECUTION_PROBE_TOXICITY_FILTER:-segment}"
+MIN_TOXICITY_FILLED_EVENTS="${EXECUTION_PROBE_MIN_TOXICITY_FILLED_EVENTS:-3}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_execution_probe_v9_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--comparison-report-roots CSV] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch] [--print-plan]
+Usage: scripts/run_execution_probe_v9_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--comparison-report-roots CSV] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment] [--print-plan]
 
 Runs the full execution_probe_v9 research cycle:
 universe selection -> toxic-fill-aware dry-run observation -> profile comparison -> next decision.
@@ -97,6 +99,14 @@ while [[ $# -gt 0 ]]; do
       MIN_ADVERSE_FILLED_EVENTS="$2"
       shift 2
       ;;
+    --toxicity-filter)
+      TOXICITY_FILTER="$2"
+      shift 2
+      ;;
+    --min-toxicity-filled-events)
+      MIN_TOXICITY_FILLED_EVENTS="$2"
+      shift 2
+      ;;
     --print-plan)
       PRINT_PLAN=1
       shift
@@ -150,6 +160,10 @@ if [[ "$ADVERSE_SELECTION_FILTER" != "none" && "$ADVERSE_SELECTION_FILTER" != "m
   echo "adverse selection filter must be none or market_side" >&2
   exit 64
 fi
+if [[ "$TOXICITY_FILTER" != "none" && "$TOXICITY_FILTER" != "segment" ]]; then
+  echo "toxicity filter must be none or segment" >&2
+  exit 64
+fi
 
 UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json"
 OBSERVATION_COMMAND=(
@@ -159,7 +173,7 @@ OBSERVATION_COMMAND=(
 )
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$COMPARISON_REPORT_ROOTS" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" <<'PY'
+  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$COMPARISON_REPORT_ROOTS" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" "$TOXICITY_FILTER" "$MIN_TOXICITY_FILLED_EVENTS" <<'PY'
 import json
 import sys
 
@@ -185,6 +199,8 @@ import sys
     adverse_selection_filter,
     max_adverse_30s_rate,
     min_adverse_filled_events,
+    toxicity_filter,
+    min_toxicity_filled_events,
 ) = sys.argv[1:]
 comparison_roots = [
     item.strip()
@@ -219,6 +235,8 @@ print(json.dumps({
     "adverse_selection_filter": adverse_selection_filter,
     "max_adverse_30s_rate": float(max_adverse_30s_rate),
     "min_adverse_filled_events": int(min_adverse_filled_events),
+    "toxicity_filter": toxicity_filter,
+    "min_toxicity_filled_events": int(min_toxicity_filled_events),
     "universe_selection_path": universe_selection_path,
     "delegates_to": [
         "scripts/prepare_execution_probe_cycle.sh",
@@ -255,6 +273,8 @@ PREPARE_ARGS=(
   --adverse-selection-filter "$ADVERSE_SELECTION_FILTER"
   --max-adverse-30s-rate "$MAX_ADVERSE_30S_RATE"
   --min-adverse-filled-events "$MIN_ADVERSE_FILLED_EVENTS"
+  --toxicity-filter "$TOXICITY_FILTER"
+  --min-toxicity-filled-events "$MIN_TOXICITY_FILLED_EVENTS"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   PREPARE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")

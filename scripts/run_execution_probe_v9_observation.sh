@@ -67,13 +67,23 @@ import json
 import sys
 from pathlib import Path
 
-universe = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+universe_path = Path(sys.argv[1])
+universe = json.loads(universe_path.read_text(encoding="utf-8"))
 if universe.get("can_execute_trades") is not False:
     raise SystemExit("universe selection must be research-only")
 if universe.get("status") != "ready":
     raise SystemExit(f"universe selection is not ready: {universe.get('status')}")
 if universe.get("profile") != "execution_probe_v9":
     raise SystemExit("universe selection must target execution_probe_v9")
+toxicity_filter = universe.get("toxicity_filter")
+if isinstance(toxicity_filter, dict) and toxicity_filter.get("enabled"):
+    blocklist_path = toxicity_filter.get("blocked_segments_path")
+    if blocklist_path:
+        blocklist = Path(str(blocklist_path))
+        if not blocklist.is_absolute():
+            blocklist = universe_path.parent / blocklist
+        if not blocklist.exists():
+            raise SystemExit(f"toxicity blocklist does not exist: {blocklist}")
 fraction_path = sys.argv[2]
 if fraction_path:
     fraction = json.loads(Path(fraction_path).read_text(encoding="utf-8"))
@@ -96,6 +106,27 @@ if [[ -n "$FRACTION_SELECTION_PATH" ]]; then
 fi
 export GO_NO_GO_PROFILE="pre_live"
 export REAL_DRY_RUN_SECONDS="$DURATION_SECONDS"
+toxicity_blocklist_path="$(
+  python3 - "$UNIVERSE_SELECTION_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+universe_path = Path(sys.argv[1])
+payload = json.loads(universe_path.read_text(encoding="utf-8"))
+toxicity_filter = payload.get("toxicity_filter")
+if isinstance(toxicity_filter, dict) and toxicity_filter.get("enabled"):
+    blocklist_path = toxicity_filter.get("blocked_segments_path")
+    if blocklist_path:
+        blocklist = Path(str(blocklist_path))
+        if not blocklist.is_absolute():
+            blocklist = universe_path.parent / blocklist
+        print(blocklist)
+PY
+)"
+if [[ -n "$toxicity_blocklist_path" ]]; then
+  export PREDICTOR_BLOCKED_SEGMENTS_PATH="$toxicity_blocklist_path"
+fi
 if [[ -z "${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-}" ]]; then
   effective_min_capture_seconds=$((DURATION_SECONDS - 60))
   if (( effective_min_capture_seconds < 60 )); then
@@ -120,6 +151,7 @@ print(json.dumps({
     "predictor_execution_probe_v9_offset_ticks": int(os.environ["PREDICTOR_EXECUTION_PROBE_V9_OFFSET_TICKS"]),
     "execution_probe_universe_selection_path": os.environ["EXECUTION_PROBE_UNIVERSE_SELECTION_PATH"],
     "predictor_execution_probe_v9_fraction_selection_path": os.environ.get("PREDICTOR_EXECUTION_PROBE_V9_FRACTION_SELECTION_PATH"),
+    "predictor_blocked_segments_path": os.environ.get("PREDICTOR_BLOCKED_SEGMENTS_PATH"),
     "real_dry_run_seconds": int(os.environ["REAL_DRY_RUN_SECONDS"]),
     "pre_live_min_capture_duration_ms": int(os.environ["PRE_LIVE_MIN_CAPTURE_DURATION_MS"]),
     "go_no_go_profile": os.environ["GO_NO_GO_PROFILE"],

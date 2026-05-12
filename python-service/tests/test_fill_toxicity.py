@@ -23,6 +23,7 @@ def test_fill_toxicity_rejects_adverse_asset_strategy(tmp_path: Path) -> None:
     assert report["can_execute_trades"] is False
     assert report["counts"] == {
         "fill_toxicity_by_asset_strategy": 1,
+        "fill_toxicity_by_segment": 1,
         "fill_toxicity_events": 1,
         "fill_toxicity_summary": 1,
     }
@@ -36,6 +37,8 @@ def test_fill_toxicity_rejects_adverse_asset_strategy(tmp_path: Path) -> None:
 
     assert row == (1, pytest.approx(1.0), pytest.approx(-0.04), "REJECT_TOXICITY")
     assert (output_dir / "fill_toxicity_by_asset_strategy.parquet").exists()
+    assert (output_dir / "fill_toxicity_by_segment.parquet").exists()
+    assert (output_dir / "blocked_segments.json").exists()
     assert (output_dir / "fill_toxicity.json").exists()
 
 

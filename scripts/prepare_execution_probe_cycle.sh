@@ -18,6 +18,8 @@ SELECTION_SOURCE="${EXECUTION_PROBE_UNIVERSE_SELECTION_SOURCE:-${EXECUTION_PROBE
 ADVERSE_SELECTION_FILTER="${EXECUTION_PROBE_ADVERSE_SELECTION_FILTER:-none}"
 MAX_ADVERSE_30S_RATE="${EXECUTION_PROBE_MAX_ADVERSE_30S_RATE:-0.50}"
 MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
+TOXICITY_FILTER="${EXECUTION_PROBE_TOXICITY_FILTER:-none}"
+MIN_TOXICITY_FILLED_EVENTS="${EXECUTION_PROBE_MIN_TOXICITY_FILLED_EVENTS:-3}"
 
 usage() {
   cat <<'EOF'
@@ -123,6 +125,10 @@ if [[ "$ADVERSE_SELECTION_FILTER" != "none" && "$ADVERSE_SELECTION_FILTER" != "m
   echo "adverse selection filter must be none or market_side" >&2
   exit 64
 fi
+if [[ "$TOXICITY_FILTER" != "none" && "$TOXICITY_FILTER" != "segment" ]]; then
+  echo "toxicity filter must be none or segment" >&2
+  exit 64
+fi
 
 mkdir -p "$RUN_ROOT"
 
@@ -139,6 +145,8 @@ UNIVERSE_SELECTION_ARGS=(
   --adverse-selection-filter "$ADVERSE_SELECTION_FILTER"
   --max-adverse-30s-rate "$MAX_ADVERSE_30S_RATE"
   --min-adverse-filled-events "$MIN_ADVERSE_FILLED_EVENTS"
+  --toxicity-filter "$TOXICITY_FILTER"
+  --min-toxicity-filled-events "$MIN_TOXICITY_FILLED_EVENTS"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_SELECTION_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
@@ -174,6 +182,8 @@ OBSERVATION_COMMAND=(
   printf 'adverse_selection_filter=%s\n' "$ADVERSE_SELECTION_FILTER"
   printf 'max_adverse_30s_rate=%s\n' "$MAX_ADVERSE_30S_RATE"
   printf 'min_adverse_filled_events=%s\n' "$MIN_ADVERSE_FILLED_EVENTS"
+  printf 'toxicity_filter=%s\n' "$TOXICITY_FILTER"
+  printf 'min_toxicity_filled_events=%s\n' "$MIN_TOXICITY_FILLED_EVENTS"
   printf 'observation_command=%q ' "${OBSERVATION_COMMAND[@]}"
   printf '\n'
   if [[ -n "$BASELINE_REPORT_ROOT" ]]; then

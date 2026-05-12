@@ -85,6 +85,7 @@ def create_game_theory_views(db_path: Path) -> None:
                 s.feature_version::varchar as feature_version,
                 s.signal_timestamp_ms,
                 s.signal_mid_price,
+                s.signal_spread,
                 abs(s.price - s.signal_mid_price) as distance_to_mid,
                 er.order_id,
                 er.status,

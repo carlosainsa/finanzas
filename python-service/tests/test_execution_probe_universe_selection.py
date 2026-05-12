@@ -252,6 +252,39 @@ def test_execution_probe_universe_selection_supports_fillability_source(
     assert fallback["assets_added"] == 0
 
 
+def test_execution_probe_universe_selection_scores_toxicity_segments(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_fillability_universe_db(tmp_path)
+    seed_fillability_toxic_fill(db_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v9",
+            limit=1,
+            min_assets=1,
+            selection_source="fillability",
+            min_future_touch_rate=0.05,
+            min_timing_signals=1,
+            min_avg_opportunity_spread=0.005,
+            toxicity_filter="segment",
+            min_toxicity_filled_events=1,
+        ),
+    )
+
+    toxicity = cast(dict[str, Any], report["toxicity_filter"])
+    assert toxicity["enabled"] is True
+    assert toxicity["filtered_count"] == 1
+    assert Path(str(toxicity["blocked_segments_path"])).exists()
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert selected[0]["asset_id"] == "asset-touch"
+    assert selected[0]["rejected_toxicity_segments"] == 1
+    assert selected[0]["quality_penalty"] > 0
+    assert selected[0]["execution_quality_score"] < selected[0]["fillability_score"]
+
+
 def test_execution_probe_universe_selection_backfills_fillability_min_assets(
     tmp_path: Path,
 ) -> None:
@@ -816,4 +849,20 @@ def seed_quote_execution_by_asset(db_path: Path) -> None:
         conn.executemany(
             "insert into quote_execution_by_market_asset values (?, ?, ?, ?, ?)",
             rows,
+        )
+
+
+def seed_fillability_toxic_fill(db_path: Path) -> None:
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            insert into execution_reports values
+            ('signal-touch', 'order-touch', 'MATCHED', 0.50, 1.0, 1.0, 0.0, null, 1100)
+            """
+        )
+        conn.execute(
+            """
+            insert into orderbook_snapshots values
+            ('market-touch', 'asset-touch', 32000, 0.43, 0.45, 0.02, 10.0, 10.0)
+            """
         )

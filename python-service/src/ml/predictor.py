@@ -12,6 +12,8 @@ from src.ml.execution_probe_selection import (
     load_execution_probe_v9_fraction_selection,
 )
 from src.ml.segment_blocklist import SegmentBlocklist
+from src.ml.segment_blocklist import spread_bucket_for_value
+from src.ml.segment_blocklist import timing_bucket_for_top_change_count
 from src.schemas import OrderBook, TradeSignal
 
 MODEL_VERSION = "passive_spread_capture_v1"
@@ -231,6 +233,11 @@ class Predictor:
             orderbook.asset_id,
             "BUY",
             model_version,
+            strategy=model_version,
+            spread_bucket=spread_bucket_for_value(spread),
+            timing_bucket=timing_bucket_for_top_change_count(
+                top_change_count if top_change_count is not None else 0
+            ),
         ):
             return PredictionDecision(
                 signal=None,

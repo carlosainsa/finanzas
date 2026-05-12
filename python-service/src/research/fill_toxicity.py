@@ -47,6 +47,7 @@ def create_fill_toxicity_report(
             (
                 "fill_toxicity_events",
                 "fill_toxicity_by_asset_strategy",
+                "fill_toxicity_by_segment",
                 "fill_toxicity_summary",
             ),
         )
@@ -59,7 +60,7 @@ def create_fill_toxicity_report(
             conn.execute(
                 """
                 select *
-                from fill_toxicity_by_asset_strategy
+                from fill_toxicity_by_segment
                 order by
                     case decision
                         when 'REJECT_TOXICITY' then 1
@@ -76,6 +77,49 @@ def create_fill_toxicity_report(
             .fetch_df()
             .to_dict(orient="records")
         )
+        blocked_segments = normalize_records(
+            conn.execute(
+                """
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    spread_bucket,
+                    timing_bucket,
+                    'fill_toxicity' as reason,
+                    filled_events,
+                    signals,
+                    fill_rate,
+                    adverse_30s_rate,
+                    avg_pnl_30s,
+                    toxicity_score
+                from fill_toxicity_by_segment
+                where decision = 'REJECT_TOXICITY'
+                order by
+                    toxicity_score desc nulls last,
+                    adverse_30s_rate desc nulls last,
+                    avg_pnl_30s asc nulls last,
+                    filled_events desc,
+                    asset_id
+                """
+            )
+            .fetch_df()
+            .to_dict(orient="records")
+        )
+    blocked_payload: dict[str, object] = {
+        "version": "blocked_segments_v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "can_execute_trades": False,
+        "source_report_version": REPORT_VERSION,
+        "decision_policy": "offline_fill_toxicity_blocklist_candidate_only",
+        "segments": blocked_segments,
+    }
+    (output_dir / "blocked_segments.json").write_text(
+        json.dumps(blocked_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     report: dict[str, object] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -85,10 +129,13 @@ def create_fill_toxicity_report(
         "counts": counts,
         "summary": summary[0] if summary else {},
         "top_toxic_segments": top_toxic_segments,
+        "blocked_segments_path": str(output_dir / "blocked_segments.json"),
         "outputs": [
             "fill_toxicity_events.parquet",
             "fill_toxicity_by_asset_strategy.parquet",
+            "fill_toxicity_by_segment.parquet",
             "fill_toxicity_summary.parquet",
+            "blocked_segments.json",
             "fill_toxicity.json",
         ],
     }
@@ -130,6 +177,45 @@ def create_fill_toxicity_views(
         )
         conn.execute(
             f"""
+            create or replace view fill_toxicity_signal_context as
+            select
+                s.*,
+                case
+                    when s.signal_spread is null then 'unknown'
+                    when s.signal_spread <= 0.005 then '000_050bps'
+                    when s.signal_spread <= 0.010 then '050_100bps'
+                    when s.signal_spread <= 0.025 then '100_250bps'
+                    when s.signal_spread <= 0.050 then '250_500bps'
+                    else '500bps_plus'
+                end as spread_bucket,
+                pre_signal.pre_signal_snapshots,
+                pre_signal.pre_signal_quote_changes,
+                pre_signal.pre_signal_quote_change_rate,
+                case
+                    when pre_signal.pre_signal_snapshots is null
+                      or pre_signal.pre_signal_snapshots = 0 then 'unknown'
+                    when coalesce(pre_signal.pre_signal_quote_change_rate, 0) <= 0.10
+                      then 'stable'
+                    when coalesce(pre_signal.pre_signal_quote_change_rate, 0) <= 0.50
+                      then 'rotating'
+                    else 'volatile'
+                end as timing_bucket
+            from signal_market_context s
+            left join lateral (
+                select
+                    count(*) as pre_signal_snapshots,
+                    sum(quote_changed) as pre_signal_quote_changes,
+                    avg(quote_changed) as pre_signal_quote_change_rate
+                from fill_toxicity_market_mark_changes marks
+                where marks.market_id = s.market_id
+                  and marks.asset_id = s.asset_id
+                  and marks.event_timestamp_ms >= s.signal_timestamp_ms - {config.pre_fill_window_ms}
+                  and marks.event_timestamp_ms <= s.signal_timestamp_ms
+            ) pre_signal on true
+            """
+        )
+        conn.execute(
+            f"""
             create or replace view fill_toxicity_events as
             select
                 f.signal_id,
@@ -152,7 +238,10 @@ def create_fill_toxicity_views(
                 f.filled_price,
                 f.filled_size,
                 f.signal_mid_price,
+                signal_ctx.signal_spread,
                 f.distance_to_mid,
+                signal_ctx.spread_bucket,
+                signal_ctx.timing_bucket,
                 f.pnl_5s,
                 f.pnl_30s,
                 f.pnl_300s,
@@ -169,6 +258,8 @@ def create_fill_toxicity_views(
                 pre_fill.avg_pre_fill_depth,
                 pre_fill.avg_pre_fill_depth_imbalance
             from post_fill_pnl_horizons f
+            left join fill_toxicity_signal_context signal_ctx
+              on signal_ctx.signal_id = f.signal_id
             left join lateral (
                 select
                     count(*) as pre_fill_snapshots,
@@ -267,6 +358,118 @@ def create_fill_toxicity_views(
             """
         )
         conn.execute(
+            f"""
+            create or replace view fill_toxicity_by_segment as
+            with signal_counts as (
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    coalesce(model_version, 'unknown') as model_version,
+                    spread_bucket,
+                    timing_bucket,
+                    count(*) as signals
+                from fill_toxicity_signal_context
+                group by
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    coalesce(model_version, 'unknown'),
+                    spread_bucket,
+                    timing_bucket
+            ),
+            toxicity as (
+                select
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    spread_bucket,
+                    timing_bucket,
+                    count(*) as filled_events,
+                    avg(pnl_5s) as avg_pnl_5s,
+                    avg(pnl_30s) as avg_pnl_30s,
+                    avg(pnl_300s) as avg_pnl_300s,
+                    avg(adverse_30s) as adverse_30s_rate,
+                    avg(adverse_magnitude_30s) as avg_adverse_magnitude_30s,
+                    avg(markout_30s_bps) as avg_markout_30s_bps,
+                    avg(time_to_fill_ms) as avg_time_to_fill_ms,
+                    avg(distance_to_mid) as avg_distance_to_mid,
+                    avg(pre_fill_quote_change_rate) as avg_pre_fill_quote_change_rate,
+                    avg(avg_pre_fill_spread) as avg_pre_fill_spread,
+                    avg(avg_pre_fill_depth) as avg_pre_fill_depth,
+                    avg(avg_pre_fill_depth_imbalance) as avg_pre_fill_depth_imbalance
+                from fill_toxicity_events
+                group by
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    spread_bucket,
+                    timing_bucket
+            )
+            select
+                signals.market_id,
+                signals.asset_id,
+                signals.side,
+                signals.strategy,
+                signals.model_version,
+                signals.spread_bucket,
+                signals.timing_bucket,
+                signals.signals,
+                coalesce(toxicity.filled_events, 0) as filled_events,
+                case
+                    when signals.signals > 0 then coalesce(toxicity.filled_events, 0)::double / signals.signals
+                    else null
+                end as fill_rate,
+                toxicity.avg_pnl_5s,
+                toxicity.avg_pnl_30s,
+                toxicity.avg_pnl_300s,
+                toxicity.adverse_30s_rate,
+                toxicity.avg_adverse_magnitude_30s,
+                toxicity.avg_markout_30s_bps,
+                toxicity.avg_time_to_fill_ms,
+                toxicity.avg_distance_to_mid,
+                toxicity.avg_pre_fill_quote_change_rate,
+                toxicity.avg_pre_fill_spread,
+                toxicity.avg_pre_fill_depth,
+                toxicity.avg_pre_fill_depth_imbalance,
+                (
+                    coalesce(toxicity.adverse_30s_rate, 0) * 100
+                    + greatest(0, -coalesce(toxicity.avg_pnl_30s, 0)) * 10000
+                    + case
+                        when coalesce(toxicity.filled_events, 0) >= {config.min_filled_events}
+                        then 10
+                        else 0
+                      end
+                ) as toxicity_score,
+                case
+                    when coalesce(toxicity.filled_events, 0) < {config.min_filled_events}
+                    then 'INSUFFICIENT_SAMPLE'
+                    when coalesce(toxicity.adverse_30s_rate, 0) > {config.max_adverse_30s_rate}
+                      or coalesce(toxicity.avg_pnl_30s, 0) < {config.min_avg_pnl_30s}
+                    then 'REJECT_TOXICITY'
+                    when signals.signals > 0
+                      and coalesce(toxicity.filled_events, 0)::double / signals.signals < {config.min_fill_rate}
+                    then 'KEEP_DIAGNOSTIC'
+                    else 'PROMOTE_TO_OBSERVATION'
+                end as decision
+            from signal_counts signals
+            left join toxicity
+              on toxicity.market_id = signals.market_id
+             and toxicity.asset_id = signals.asset_id
+             and toxicity.side = signals.side
+             and toxicity.strategy = signals.strategy
+             and toxicity.model_version = signals.model_version
+             and toxicity.spread_bucket = signals.spread_bucket
+             and toxicity.timing_bucket = signals.timing_bucket
+            """
+        )
+        conn.execute(
             """
             create or replace view fill_toxicity_summary as
             select
@@ -279,7 +482,15 @@ def create_fill_toxicity_views(
                 sum(case when decision = 'REJECT_TOXICITY' then 1 else 0 end) as rejected_segments,
                 sum(case when decision = 'PROMOTE_TO_OBSERVATION' then 1 else 0 end) as promoted_segments,
                 sum(case when decision = 'KEEP_DIAGNOSTIC' then 1 else 0 end) as diagnostic_segments,
-                sum(case when decision = 'INSUFFICIENT_SAMPLE' then 1 else 0 end) as insufficient_sample_segments
+                sum(case when decision = 'INSUFFICIENT_SAMPLE' then 1 else 0 end) as insufficient_sample_segments,
+                (
+                    select count(*)
+                    from fill_toxicity_by_segment
+                ) as bucketed_segments,
+                (
+                    select sum(case when decision = 'REJECT_TOXICITY' then 1 else 0 end)
+                    from fill_toxicity_by_segment
+                ) as bucketed_rejected_segments
             from fill_toxicity_by_asset_strategy
             """
         )

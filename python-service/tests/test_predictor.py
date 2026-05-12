@@ -53,6 +53,25 @@ def test_predictor_skips_blocked_segment() -> None:
     assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
 
 
+def test_predictor_skips_bucketed_toxic_segment() -> None:
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                strategy="passive_spread_capture_v1",
+                model_version="passive_spread_capture_v1",
+                spread_bucket="250_500bps",
+                timing_bucket="stable",
+                reason="fill_toxicity",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is None
+
+
 def test_predictor_loads_blocked_segments_file(tmp_path: Path) -> None:
     blocklist_path = tmp_path / "blocked_segments.json"
     blocklist_path.write_text(
@@ -76,6 +95,23 @@ def test_predictor_loads_blocked_segments_file(tmp_path: Path) -> None:
     predictor = Predictor(blocklist=SegmentBlocklist.from_file(blocklist_path))
 
     assert predictor.predict(make_book(0.45, 0.50)) is None
+
+
+def test_bucketed_blocklist_does_not_block_other_spread_bucket() -> None:
+    blocklist = SegmentBlocklist(
+        [
+            BlockedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                model_version="passive_spread_capture_v1",
+                spread_bucket="500bps_plus",
+                timing_bucket="stable",
+            )
+        ]
+    )
+
+    assert Predictor(blocklist=blocklist).predict(make_book(0.45, 0.50)) is not None
 
 
 def test_blocked_segments_rejects_unknown_version(tmp_path: Path) -> None:

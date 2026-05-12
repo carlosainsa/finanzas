@@ -18,6 +18,7 @@ from src.research.fillability_baseline import (
     FillabilityBaselineConfig,
     create_fillability_baseline_views,
 )
+from src.research.fill_toxicity import FillToxicityConfig, create_fill_toxicity_report
 from src.research.game_theory import relation_exists
 
 
@@ -39,6 +40,7 @@ DEFAULT_RECOMMENDATIONS = (
 MARKET_TIMING_FILTERS = ("none", "future_touch")
 SELECTION_SOURCES = ("candidate_market_ranking", "fillability")
 ADVERSE_SELECTION_FILTERS = ("none", "market_side")
+TOXICITY_FILTERS = ("none", "segment")
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,8 @@ class ExecutionProbeUniverseConfig:
     adverse_selection_filter: str = "none"
     max_adverse_30s_rate: float = 0.50
     min_adverse_filled_events: int = 10
+    toxicity_filter: str = "none"
+    min_toxicity_filled_events: int = 3
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -84,6 +88,8 @@ class ExecutionProbeUniverseConfig:
             )
         if self.adverse_selection_filter not in ADVERSE_SELECTION_FILTERS:
             raise ValueError("adverse_selection_filter must be none or market_side")
+        if self.toxicity_filter not in TOXICITY_FILTERS:
+            raise ValueError("toxicity_filter must be none or segment")
         if not 0 <= self.min_future_touch_rate <= 1:
             raise ValueError("min_future_touch_rate must be between 0 and 1")
         if not 0 <= self.max_adverse_30s_rate <= 1:
@@ -92,6 +98,8 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("min_timing_signals must be positive")
         if self.min_adverse_filled_events <= 0:
             raise ValueError("min_adverse_filled_events must be positive")
+        if self.min_toxicity_filled_events <= 0:
+            raise ValueError("min_toxicity_filled_events must be positive")
         if (
             self.min_avg_opportunity_spread is not None
             and self.min_avg_opportunity_spread < 0
@@ -131,9 +139,11 @@ def create_execution_probe_universe_selection(
             db_path, CandidateMarketRankingConfig(limit=max(config.limit, config.min_assets))
         )
     output_dir.mkdir(parents=True, exist_ok=True)
+    toxicity_report = create_toxicity_inputs(db_path, output_dir, config)
     with duckdb.connect(str(db_path)) as conn:
         has_quote_execution_by_asset = relation_exists(conn, "quote_execution_by_market_asset")
         adverse_exclusions = create_adverse_selection_filter_view(conn, config)
+        toxicity_quality = create_toxicity_quality_view(conn, config)
         if (
             config.market_timing_filter == "future_touch"
             and not has_quote_execution_by_asset
@@ -164,7 +174,10 @@ def create_execution_probe_universe_selection(
     adverse_exclusions_parquet = output_dir / "execution_probe_universe_adverse_exclusions.parquet"
     pd.DataFrame(selected).to_parquet(output_parquet, index=False)
     adverse_exclusions.to_parquet(adverse_exclusions_parquet, index=False)
+    toxicity_quality_parquet = output_dir / "execution_probe_universe_toxicity_quality.parquet"
+    toxicity_quality.to_parquet(toxicity_quality_parquet, index=False)
     adverse_payload = adverse_selection_filter_payload(adverse_exclusions, config)
+    toxicity_payload = toxicity_filter_payload(toxicity_quality, config, toxicity_report)
     payload: dict[str, object] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -178,6 +191,7 @@ def create_execution_probe_universe_selection(
         "selection_reason": selection_reason(status, asset_ids, config, fallback),
         "fallback": fallback,
         "adverse_selection_filter": adverse_payload,
+        "toxicity_filter": toxicity_payload,
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -189,6 +203,7 @@ def create_execution_probe_universe_selection(
             "execution_probe_universe_selection.parquet",
             "execution_probe_universe_selection.json",
             "execution_probe_universe_adverse_exclusions.parquet",
+            "execution_probe_universe_toxicity_quality.parquet",
         ],
     }
     (output_dir / "execution_probe_universe_selection.json").write_text(
@@ -299,6 +314,153 @@ def adverse_selection_filter_payload(
     }
 
 
+def create_toxicity_inputs(
+    db_path: Path,
+    output_dir: Path,
+    config: ExecutionProbeUniverseConfig,
+) -> dict[str, object] | None:
+    if config.toxicity_filter == "none":
+        return None
+    return create_fill_toxicity_report(
+        db_path,
+        output_dir / "fill_toxicity",
+        FillToxicityConfig(min_filled_events=config.min_toxicity_filled_events),
+    )
+
+
+def create_toxicity_quality_view(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    if config.toxicity_filter == "none" or not relation_exists(
+        conn, "fill_toxicity_by_segment"
+    ):
+        conn.execute(
+            """
+            create or replace temp table execution_probe_toxicity_quality (
+                market_id varchar,
+                asset_id varchar,
+                side varchar,
+                toxicity_segments bigint,
+                toxicity_filled_events bigint,
+                rejected_toxicity_segments bigint,
+                adverse_30s_rate double,
+                avg_pnl_30s double,
+                max_toxicity_score double,
+                quality_penalty double
+            )
+            """
+        )
+        return conn.execute("select * from execution_probe_toxicity_quality").fetch_df()
+    conn.execute(
+        f"""
+        create or replace temp table execution_probe_toxicity_quality as
+        with segment_scores as (
+            select
+                market_id,
+                asset_id,
+                coalesce(nullif(side, ''), 'BUY') as side,
+                count(*) as toxicity_segments,
+                sum(coalesce(filled_events, 0)) as toxicity_filled_events,
+                sum(case when decision = 'REJECT_TOXICITY' then 1 else 0 end)
+                    as rejected_toxicity_segments,
+                max(coalesce(toxicity_score, 0)) as max_toxicity_score,
+                sum(coalesce(adverse_30s_rate, 0) * coalesce(filled_events, 0))
+                    as adverse_weighted_sum,
+                sum(coalesce(avg_pnl_30s, 0) * coalesce(filled_events, 0))
+                    as pnl_weighted_sum
+            from fill_toxicity_by_segment
+            group by market_id, asset_id, coalesce(nullif(side, ''), 'BUY')
+        )
+        select
+            market_id,
+            asset_id,
+            side,
+            toxicity_segments,
+            toxicity_filled_events,
+            rejected_toxicity_segments,
+            case
+                when toxicity_filled_events > 0
+                then adverse_weighted_sum::double / toxicity_filled_events
+                else null
+            end as adverse_30s_rate,
+            case
+                when toxicity_filled_events > 0
+                then pnl_weighted_sum::double / toxicity_filled_events
+                else null
+            end as avg_pnl_30s,
+            max_toxicity_score,
+            case
+                when toxicity_filled_events < {config.min_toxicity_filled_events}
+                then 0.0
+                else
+                    least(1.0, coalesce(max_toxicity_score, 0) / 100.0)
+                    + case when rejected_toxicity_segments > 0 then 0.50 else 0.0 end
+            end as quality_penalty
+        from segment_scores
+        """
+    )
+    return conn.execute("select * from execution_probe_toxicity_quality").fetch_df()
+
+
+def toxicity_join_sql(alias: str, side_expression: str = "'BUY'") -> str:
+    return f"""
+        left join execution_probe_toxicity_quality toxicity_quality
+          on toxicity_quality.market_id = {alias}.market_id
+         and toxicity_quality.asset_id = {alias}.asset_id
+         and toxicity_quality.side = coalesce(nullif({side_expression}, ''), 'BUY')
+    """
+
+
+def fillability_quality_score_sql() -> str:
+    return """
+        (
+            coalesce(fillability.fillability_score, 0)
+            + coalesce(fillability.future_touch_rate, 0)
+            + least(coalesce(fillability.liquidity, 0) / 10000.0, 1.0) * 0.10
+            - coalesce(toxicity_quality.quality_penalty, 0)
+        )
+    """
+
+
+def toxicity_select_columns_sql() -> str:
+    return """
+            toxicity_quality.toxicity_segments,
+            toxicity_quality.toxicity_filled_events,
+            toxicity_quality.rejected_toxicity_segments,
+            toxicity_quality.adverse_30s_rate as toxicity_adverse_30s_rate,
+            toxicity_quality.avg_pnl_30s as toxicity_avg_pnl_30s,
+            toxicity_quality.max_toxicity_score,
+            toxicity_quality.quality_penalty
+    """
+
+
+def toxicity_filter_payload(
+    quality: pd.DataFrame,
+    config: ExecutionProbeUniverseConfig,
+    toxicity_report: dict[str, object] | None,
+) -> dict[str, object]:
+    filtered_count = int(
+        quality.get("rejected_toxicity_segments", pd.Series(dtype=int))
+        .fillna(0)
+        .gt(0)
+        .sum()
+    )
+    return {
+        "enabled": config.toxicity_filter != "none",
+        "mode": config.toxicity_filter,
+        "source_relation": "fill_toxicity_by_segment",
+        "min_toxicity_filled_events": config.min_toxicity_filled_events,
+        "filtered_count": filtered_count,
+        "blocked_segments_path": (
+            toxicity_report.get("blocked_segments_path")
+            if isinstance(toxicity_report, dict)
+            else None
+        ),
+        "quality_rows": int(len(quality)),
+    }
+
+
 def select_candidate_universe(
     conn: duckdb.DuckDBPyConnection,
     config: ExecutionProbeUniverseConfig,
@@ -396,17 +558,21 @@ def select_fillability_universe(
         f"""
         select
             fillability.*,
+            {fillability_quality_score_sql()} as execution_quality_score,
+            {toxicity_select_columns_sql()},
             fillability.signals as timing_signals,
             'primary' as selection_tier,
             null::varchar as fallback_reason
         from fillability_market_ranking fillability
         {adverse_join_sql("fillability", "fillability.side")}
+        {toxicity_join_sql("fillability", "fillability.side")}
         where fillability.recommendation = 'PROMOTE_TO_OBSERVATION'
           {adverse_filter_sql()}
           and fillability.signals >= {config.min_timing_signals}
           and coalesce(fillability.future_touch_rate, 0) >= {config.min_future_touch_rate}
           {spread_filter_sql}
         order by
+            execution_quality_score desc,
             fillability.fillability_score desc,
             coalesce(fillability.future_touch_rate, 0) desc,
             fillability.signals desc,
@@ -425,17 +591,21 @@ def select_fillability_universe(
         f"""
         select
             fillability.*,
+            {fillability_quality_score_sql()} as execution_quality_score,
+            {toxicity_select_columns_sql()},
             fillability.signals as timing_signals,
             'fallback' as selection_tier,
             '{FILLABILITY_FALLBACK_REASON}' as fallback_reason
         from fillability_market_ranking fillability
         {adverse_join_sql("fillability", "fillability.side")}
+        {toxicity_join_sql("fillability", "fillability.side")}
         where fillability.recommendation = 'KEEP_DIAGNOSTIC'
           {adverse_filter_sql()}
           and fillability.signals >= {config.min_timing_signals}
           {selected_filter_sql}
           {spread_filter_sql}
         order by
+            execution_quality_score desc,
             coalesce(fillability.liquidity, 0) desc,
             coalesce(fillability.spread_opportunity_density, 0) desc,
             coalesce(fillability.avg_spread_at_signal, 0) desc,
@@ -700,6 +870,11 @@ def selection_reason(
             f";max_adverse_30s_rate={config.max_adverse_30s_rate}"
             f";min_adverse_filled_events={config.min_adverse_filled_events}"
         )
+    if config.toxicity_filter != "none":
+        filter_note += (
+            f";toxicity_filter={config.toxicity_filter}"
+            f";min_toxicity_filled_events={config.min_toxicity_filled_events}"
+        )
     if fallback.get("used"):
         reasons = fallback.get("fallback_reasons")
         if isinstance(reasons, list) and reasons:
@@ -780,6 +955,16 @@ def main() -> int:
         default=ExecutionProbeUniverseConfig.min_adverse_filled_events,
     )
     parser.add_argument(
+        "--toxicity-filter",
+        choices=TOXICITY_FILTERS,
+        default=ExecutionProbeUniverseConfig.toxicity_filter,
+    )
+    parser.add_argument(
+        "--min-toxicity-filled-events",
+        type=int,
+        default=ExecutionProbeUniverseConfig.min_toxicity_filled_events,
+    )
+    parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
         help="Comma-separated candidate_market_ranking recommendations to include.",
@@ -802,6 +987,8 @@ def main() -> int:
             adverse_selection_filter=args.adverse_selection_filter,
             max_adverse_30s_rate=args.max_adverse_30s_rate,
             min_adverse_filled_events=args.min_adverse_filled_events,
+            toxicity_filter=args.toxicity_filter,
+            min_toxicity_filled_events=args.min_toxicity_filled_events,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
