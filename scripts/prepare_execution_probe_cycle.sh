@@ -23,7 +23,7 @@ MIN_TOXICITY_FILLED_EVENTS="${EXECUTION_PROBE_MIN_TOXICITY_FILLED_EVENTS:-3}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch]
+Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment]
 
 Prepares a repeatable execution-probe cycle without starting services:
 market universe selection -> observation command plan -> optional baseline compare
@@ -87,6 +87,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --min-adverse-filled-events)
       MIN_ADVERSE_FILLED_EVENTS="$2"
+      shift 2
+      ;;
+    --toxicity-filter)
+      TOXICITY_FILTER="$2"
+      shift 2
+      ;;
+    --min-toxicity-filled-events)
+      MIN_TOXICITY_FILLED_EVENTS="$2"
       shift 2
       ;;
     -h|--help)
@@ -184,6 +192,9 @@ OBSERVATION_COMMAND=(
   printf 'min_adverse_filled_events=%s\n' "$MIN_ADVERSE_FILLED_EVENTS"
   printf 'toxicity_filter=%s\n' "$TOXICITY_FILTER"
   printf 'min_toxicity_filled_events=%s\n' "$MIN_TOXICITY_FILLED_EVENTS"
+  printf 'toxicity_filter_input_report_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/fill_toxicity.json"
+  printf 'toxicity_filter_input_blocklist_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/blocked_segments.json"
+  printf 'universe_toxicity_quality_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_toxicity_quality.parquet"
   printf 'observation_command=%q ' "${OBSERVATION_COMMAND[@]}"
   printf '\n'
   if [[ -n "$BASELINE_REPORT_ROOT" ]]; then

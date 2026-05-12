@@ -243,11 +243,17 @@ print(json.dumps({
         "scripts/run_execution_probe_v9_observation.sh",
         "src.research.fill_toxicity",
         "src.research.profile_observation_comparison",
+        "src.research.toxicity_filter_impact",
         "src.research.execution_probe_next_decision",
         "src.research.asset_execution_decision",
     ],
     "outputs": {
         "fill_toxicity": f"{report_root}/fill_toxicity/fill_toxicity.json",
+        "post_run_fill_toxicity": f"{report_root}/fill_toxicity.json",
+        "toxicity_filter_input_report": f"{run_root}/execution_probe_universe_selection/fill_toxicity/fill_toxicity.json",
+        "toxicity_filter_input_blocklist": f"{run_root}/execution_probe_universe_selection/fill_toxicity/blocked_segments.json",
+        "universe_toxicity_quality": f"{run_root}/execution_probe_universe_selection/execution_probe_universe_toxicity_quality.parquet",
+        "toxicity_filter_impact": f"{report_root}/toxicity_filter_impact.json",
         "execution_probe_universe_adverse_exclusions": f"{run_root}/execution_probe_universe_selection/execution_probe_universe_adverse_exclusions.parquet",
         "profile_observation_comparison": f"{report_root}/profile_observation_comparison.json",
         "execution_probe_next_decision": f"{report_root}/execution_probe_next_decision.json",
@@ -352,6 +358,18 @@ if [[ ! -f "$REPORT_ROOT/profile_observation_comparison.json" ]]; then
     > "$REPORT_ROOT/profile_observation_comparison.stdout.json"
 fi
 
+TOXICITY_IMPACT_ARGS=(
+  --report-root "$REPORT_ROOT"
+  --output "$REPORT_ROOT/toxicity_filter_impact.json"
+  --json
+)
+if [[ -n "$BASELINE_REPORT_ROOT" ]]; then
+  TOXICITY_IMPACT_ARGS+=(--baseline-report-root "$BASELINE_REPORT_ROOT")
+fi
+PYTHONPATH=python-service python3 -m src.research.toxicity_filter_impact \
+  "${TOXICITY_IMPACT_ARGS[@]}" \
+  > "$REPORT_ROOT/toxicity_filter_impact.stdout.json"
+
 PYTHONPATH=python-service python3 -m src.research.execution_probe_next_decision \
   --comparison "$REPORT_ROOT/profile_observation_comparison.json" \
   --output "$REPORT_ROOT/execution_probe_next_decision.json" \
@@ -364,7 +382,7 @@ PYTHONPATH=python-service python3 -m src.research.asset_execution_decision \
   --json \
   > "$REPORT_ROOT/asset_execution_decision.stdout.json"
 
-python3 - "$RUN_ROOT" "$REPORT_ROOT" "$DATA_LAKE_ROOT" "$MANIFEST_ROOT" "$observation_status" "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" <<'PY'
+python3 - "$RUN_ROOT" "$REPORT_ROOT" "$DATA_LAKE_ROOT" "$MANIFEST_ROOT" "$observation_status" "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" "$TOXICITY_FILTER" "$MIN_TOXICITY_FILLED_EVENTS" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -375,10 +393,18 @@ data_lake_root = Path(sys.argv[3])
 manifest_root = Path(sys.argv[4])
 observation_status = int(sys.argv[5])
 comparison_report_roots = [item for item in sys.argv[6].split(",") if item]
+toxicity_filter = sys.argv[7]
+min_toxicity_filled_events = int(sys.argv[8])
 decision_path = report_root / "execution_probe_next_decision.json"
 asset_decision_path = report_root / "asset_execution_decision" / "asset_execution_decision.json"
 decision = json.loads(decision_path.read_text(encoding="utf-8"))
 asset_decision = json.loads(asset_decision_path.read_text(encoding="utf-8"))
+toxicity_impact_path = report_root / "toxicity_filter_impact.json"
+toxicity_impact = (
+    json.loads(toxicity_impact_path.read_text(encoding="utf-8"))
+    if toxicity_impact_path.exists()
+    else {}
+)
 summary = {
     "report_version": "execution_probe_v9_cycle_summary_v1",
     "can_execute_trades": False,
@@ -389,6 +415,18 @@ summary = {
     "manifest_root": str(manifest_root),
     "comparison_report_roots": comparison_report_roots,
     "fill_toxicity_path": str(report_root / "fill_toxicity" / "fill_toxicity.json"),
+    "post_run_fill_toxicity_path": str(report_root / "fill_toxicity.json"),
+    "toxicity_filter": toxicity_filter,
+    "min_toxicity_filled_events": min_toxicity_filled_events,
+    "toxicity_filter_input_report_path": str(run_root / "execution_probe_universe_selection" / "fill_toxicity" / "fill_toxicity.json"),
+    "toxicity_filter_input_blocklist_path": str(run_root / "execution_probe_universe_selection" / "fill_toxicity" / "blocked_segments.json"),
+    "universe_toxicity_quality_path": str(run_root / "execution_probe_universe_selection" / "execution_probe_universe_toxicity_quality.parquet"),
+    "toxicity_filter_impact_path": str(toxicity_impact_path),
+    "toxicity_filter_impact_summary": {
+        "filter": toxicity_impact.get("filter"),
+        "runtime_rejection_impact": toxicity_impact.get("runtime_rejection_impact"),
+        "decision": toxicity_impact.get("decision"),
+    },
     "profile_observation_comparison_path": str(report_root / "profile_observation_comparison.json"),
     "execution_probe_next_decision_path": str(decision_path),
     "asset_execution_decision_path": str(asset_decision_path),

@@ -437,6 +437,7 @@ def test_execution_probe_v9_observation_print_plan_is_safe_and_pinned(
     assert plan["predictor_execution_probe_v9_min_confidence"] == 0.55
     assert plan["predictor_execution_probe_v9_near_touch_max_spread_fraction"] == 0.9
     assert plan["predictor_execution_probe_v9_offset_ticks"] == 0
+    assert plan["signal_rejection_profiles"] == "execution_probe_v9"
     assert plan["go_no_go_profile"] == "pre_live"
     assert plan["real_dry_run_seconds"] == 1800
     assert plan["pre_live_min_capture_duration_ms"] == 1_740_000
@@ -485,9 +486,17 @@ def test_execution_probe_v9_cycle_print_plan_is_safe_and_pinned(
     assert plan["min_future_touch_rate"] == 0.00625
     assert plan["min_timing_signals"] == 5
     assert plan["min_avg_opportunity_spread"] == 0.000625
+    assert plan["toxicity_filter"] == "segment"
+    assert plan["min_toxicity_filled_events"] == 3
     assert "scripts/run_execution_probe_v9_observation.sh" in plan["delegates_to"]
     assert "src.research.fill_toxicity" in plan["delegates_to"]
+    assert "src.research.toxicity_filter_impact" in plan["delegates_to"]
     assert "fill_toxicity.json" in plan["outputs"]["fill_toxicity"]
+    assert "toxicity_filter_impact.json" in plan["outputs"]["toxicity_filter_impact"]
+    assert "blocked_segments.json" in plan["outputs"]["toxicity_filter_input_blocklist"]
+    assert "execution_probe_universe_toxicity_quality.parquet" in plan["outputs"][
+        "universe_toxicity_quality"
+    ]
     assert "execution_probe_next_decision.json" in plan["outputs"][
         "execution_probe_next_decision"
     ]
