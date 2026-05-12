@@ -97,6 +97,36 @@ def test_predictor_loads_blocked_segments_file(tmp_path: Path) -> None:
     assert predictor.predict(make_book(0.45, 0.50)) is None
 
 
+def test_predictor_loads_source_scoped_toxicity_blocklist(tmp_path: Path) -> None:
+    blocklist_path = tmp_path / "blocked_segments.json"
+    blocklist_path.write_text(
+        """
+        {
+          "version": "blocked_segments_v1",
+          "segments": [
+            {
+              "market_id": "0xabc",
+              "asset_id": "123",
+              "side": "BUY",
+              "strategy": null,
+              "model_version": null,
+              "source_strategy": "passive_spread_capture_execution_probe_near_touch_v1",
+              "source_model_version": "passive_spread_capture_execution_probe_near_touch_v1",
+              "spread_bucket": "250_500bps",
+              "timing_bucket": "stable",
+              "reason": "fill_toxicity"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    predictor = Predictor(blocklist=SegmentBlocklist.from_file(blocklist_path))
+
+    assert predictor.predict(make_book(0.45, 0.50)) is None
+
+
 def test_bucketed_blocklist_does_not_block_other_spread_bucket() -> None:
     blocklist = SegmentBlocklist(
         [

@@ -177,6 +177,10 @@ def impact_decision(
             "next_step": "Compare this run against the expanded unfiltered v9 baseline before keeping or relaxing the filter.",
         }
     candidate_signals = numeric_or_none(candidate_metrics.get("signals")) or 0.0
+    filtered_count = numeric_or_none(toxicity_filter.get("filtered_count")) or 0.0
+    snapshots = numeric_or_none(rejection.get("snapshots")) or 0.0
+    accepted = numeric_or_none(rejection.get("accepted")) or 0.0
+    blocked_rejections = numeric_or_none(rejection.get("blocked_segment_rejections")) or 0.0
     blocked_rate = numeric_or_none(rejection.get("blocked_segment_rate")) or 0.0
     baseline_fill = numeric_or_none(baseline_metrics.get("observed_fill_rate"))
     candidate_fill = numeric_or_none(candidate_metrics.get("observed_fill_rate"))
@@ -192,6 +196,18 @@ def impact_decision(
         if candidate_adverse is not None and baseline_adverse is not None
         else None
     )
+    if (
+        filtered_count > 0
+        and snapshots > 0
+        and accepted > 0
+        and candidate_signals > 0
+        and blocked_rejections <= 0
+    ):
+        return {
+            "recommendation": "REPAIR_FILTER_CONTRACT",
+            "reason": "blocked_segments_never_matched_runtime",
+            "next_step": "Fix the blocklist matching scope, regenerate the toxicity filter, and rerun a fixed-universe observation before extending runtime.",
+        }
     if candidate_signals <= 0 or blocked_rate >= 0.95:
         return {
             "recommendation": "RELAX_FILTER",

@@ -76,6 +76,40 @@ def test_toxicity_filter_impact_relaxes_activity_killing_filter(tmp_path: Path) 
     assert cast(dict[str, Any], report["decision"])["recommendation"] == "RELAX_FILTER"
 
 
+def test_toxicity_filter_impact_flags_runtime_contract_mismatch(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report(
+        tmp_path / "baseline",
+        signals=100,
+        filled_signals=5,
+        observed_fill_rate=0.05,
+        synthetic_fill_rate=0.05,
+        adverse_selection=0.50,
+        toxicity_enabled=False,
+    )
+    candidate = seed_report(
+        tmp_path / "candidate",
+        signals=90,
+        filled_signals=2,
+        observed_fill_rate=0.02,
+        synthetic_fill_rate=0.03,
+        adverse_selection=0.45,
+        toxicity_enabled=True,
+        blocked_segment_rejections=0,
+        diagnostic_snapshots=1000,
+    )
+
+    report = create_toxicity_filter_impact_report(
+        candidate,
+        baseline_report_root=baseline,
+    )
+
+    decision = cast(dict[str, Any], report["decision"])
+    assert decision["recommendation"] == "REPAIR_FILTER_CONTRACT"
+    assert decision["reason"] == "blocked_segments_never_matched_runtime"
+
+
 def test_toxicity_filter_impact_requires_baseline_for_enabled_filter(
     tmp_path: Path,
 ) -> None:

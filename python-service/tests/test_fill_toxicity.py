@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,6 +41,12 @@ def test_fill_toxicity_rejects_adverse_asset_strategy(tmp_path: Path) -> None:
     assert (output_dir / "fill_toxicity_by_segment.parquet").exists()
     assert (output_dir / "blocked_segments.json").exists()
     assert (output_dir / "fill_toxicity.json").exists()
+    blocked_payload = json.loads((output_dir / "blocked_segments.json").read_text())
+    blocked_segment = blocked_payload["segments"][0]
+    assert blocked_segment["strategy"] is None
+    assert blocked_segment["model_version"] is None
+    assert blocked_segment["source_strategy"] == "execution_probe_v9_test"
+    assert blocked_segment["source_model_version"] == "model-v9"
 
 
 def test_fill_toxicity_handles_empty_database(tmp_path: Path) -> None:

@@ -856,6 +856,59 @@ or isolate the rejected toxic segment, require more fill evidence before trustin
 insufficient-sample segments, and rerun only after the decision policy can
 exclude toxic fills deterministically. Live remains blocked.
 
+## 2026-05-12 - Toxicity-Filtered execution_probe_v9 60m
+
+- Run id: `execution-probe-v9-cycle-20260512T143600Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v9-cycle-20260512T143600Z/reports/execution-probe-v9-cycle-20260512T143600Z`
+- Baseline: `execution-probe-v9-cycle-20260512T003801Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v9`
+- Selection source: `fillability`
+- Toxicity filter: `segment`
+- Universe: 20 primary market assets
+- Universe hash: `2d7aefafa43b7084c0b34c87cbd8818056e2372335421a65d97f2eb5454b97f0`
+- Duration: 60 minutes
+
+Key metrics:
+
+- Signals: `1097`
+- Stream signals: `1095`
+- Report statuses: `1095 DELAYED`, `1091 UNMATCHED`, `1 MATCHED`
+- Observed fill-rate: `0.0009115770282588879`
+- Synthetic fill-rate: `0.028258887876025523`
+- Synthetic-vs-observed fill-rate gap: `0.027347310847766634`
+- Adverse selection: `0.9761904761904763`
+- Realized edge: `0.1700000000000001`
+- Drawdown: `0.0`
+- Fill toxicity filled events: `1`
+- Fill toxicity rejected segments after the run: `0`
+- Insufficient-sample segments: `14`
+
+Toxicity filter impact:
+
+- Candidate blocklist segments: `32`
+- Runtime snapshots: `12722`
+- Accepted snapshots: `1096`
+- Runtime `blocked_segment` rejections: `0`
+- Corrected impact decision: `REPAIR_FILTER_CONTRACT`
+- Reason: `blocked_segments_never_matched_runtime`
+
+Interpretation:
+
+This run is not valid evidence that the toxicity filter worked. The filter was
+enabled and the pre-run blocklist contained 32 blocked segments, but none of
+those segments matched runtime decisions. The root cause was an over-specific
+blocklist contract: fill-toxicity segments learned from an earlier near-touch
+model version were exported with that source `strategy/model_version`, while
+the runtime v9 predictor matched blocklists exactly by current
+`strategy/model_version`.
+
+The implementation now keeps source strategy/model as evidence fields while
+making fill-toxicity blocklists match by market, asset, side, spread bucket, and
+timing bucket. Do not repeat a 90-120 minute toxicity-filtered observation until
+the regenerated filter shows nonzero runtime `blocked_segment` rejections on a
+fixed universe. Live remains blocked.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`
