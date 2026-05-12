@@ -23,7 +23,7 @@ MIN_TOXICITY_FILLED_EVENTS="${EXECUTION_PROBE_MIN_TOXICITY_FILLED_EVENTS:-3}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment]
+Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability|executable_segments] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment]
 
 Prepares a repeatable execution-probe cycle without starting services:
 market universe selection -> observation command plan -> optional baseline compare
@@ -109,8 +109,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" && "$PROFILE" != "execution_probe_v8" && "$PROFILE" != "execution_probe_v9" ]]; then
-  echo "Only PROFILE=execution_probe_v6, PROFILE=execution_probe_v7, PROFILE=execution_probe_v8, or PROFILE=execution_probe_v9 is supported by this cycle preparer." >&2
+if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" && "$PROFILE" != "execution_probe_v8" && "$PROFILE" != "execution_probe_v9" && "$PROFILE" != "execution_probe_v10" ]]; then
+  echo "Only PROFILE=execution_probe_v6, PROFILE=execution_probe_v7, PROFILE=execution_probe_v8, PROFILE=execution_probe_v9, or PROFILE=execution_probe_v10 is supported by this cycle preparer." >&2
   exit 64
 fi
 if [[ -z "$UNIVERSE_DUCKDB" || ! -f "$UNIVERSE_DUCKDB" ]]; then
@@ -125,8 +125,8 @@ if [[ "$MARKET_TIMING_FILTER" != "none" && "$MARKET_TIMING_FILTER" != "future_to
   echo "market timing filter must be none or future_touch" >&2
   exit 64
 fi
-if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" != "fillability" ]]; then
-  echo "selection source must be candidate_market_ranking or fillability" >&2
+if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" != "fillability" && "$SELECTION_SOURCE" != "executable_segments" ]]; then
+  echo "selection source must be candidate_market_ranking, fillability, or executable_segments" >&2
   exit 64
 fi
 if [[ "$ADVERSE_SELECTION_FILTER" != "none" && "$ADVERSE_SELECTION_FILTER" != "market_side" ]]; then
@@ -195,6 +195,8 @@ OBSERVATION_COMMAND=(
   printf 'toxicity_filter_input_report_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/fill_toxicity.json"
   printf 'toxicity_filter_input_blocklist_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/blocked_segments.json"
   printf 'universe_toxicity_quality_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_toxicity_quality.parquet"
+  printf 'segment_opportunity_ranking_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/segment_opportunity_ranking/segment_opportunity_ranking.json"
+  printf 'allowed_segments_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/segment_opportunity_ranking/allowed_segments.json"
   printf 'observation_command=%q ' "${OBSERVATION_COMMAND[@]}"
   printf '\n'
   if [[ -n "$BASELINE_REPORT_ROOT" ]]; then

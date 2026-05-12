@@ -4,6 +4,7 @@ from pathlib import Path
 
 from src.config import settings
 from src.ml.predictor import Predictor
+from src.ml.segment_allowlist import AllowedSegment, SegmentAllowlist
 from src.ml.segment_blocklist import BlockedSegment, SegmentBlocklist
 from src.schemas import OrderBook
 
@@ -153,6 +154,69 @@ def test_blocked_segments_rejects_unknown_version(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsupported blocked segments version"):
         SegmentBlocklist.from_file(blocklist_path)
+
+
+def test_predictor_v10_requires_allowed_segment_when_allowlist_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v10")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v10_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v10_min_depth", 1.0)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v10_near_touch_max_spread_fraction",
+        0.90,
+    )
+    allowlist = SegmentAllowlist(
+        [
+            AllowedSegment(
+                market_id="0xabc",
+                asset_id="123",
+                side="BUY",
+                spread_bucket="250_500bps",
+                timing_bucket="stable",
+            )
+        ]
+    )
+
+    decision = Predictor(allowlist=allowlist).evaluate(make_book(0.45, 0.50))
+
+    assert decision.accepted
+    assert decision.signal is not None
+    assert decision.signal.price == 0.495
+    assert (
+        decision.signal.model_version
+        == "passive_spread_capture_execution_probe_near_touch_v10"
+    )
+
+
+def test_predictor_v10_rejects_outside_allowed_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v10")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v10_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v10_min_depth", 1.0)
+    allowlist = SegmentAllowlist(
+        [
+            AllowedSegment(
+                market_id="other-market",
+                asset_id="other-asset",
+            )
+        ]
+    )
+
+    decision = Predictor(allowlist=allowlist).evaluate(make_book(0.45, 0.50))
+
+    assert decision.signal is None
+    assert decision.rejection_reason == "outside_allowed_segment"
 
 
 def test_predictor_near_touch_quote_is_dry_run_only(

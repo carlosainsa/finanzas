@@ -4,23 +4,28 @@ This document records operator-level dry-run observations that should inform the
 next execution-probe variant. These entries are research evidence only and never
 authorize live trading.
 
-## Next Variant: execution_probe_v9
+## Next Variant: execution_probe_v10
 
-`execution_probe_v9` is the next research-only variant after the market/side
-filtered v8 run failed to reduce adverse selection enough. It should test a
-less aggressive toxic-fill-aware quote policy, not a new live path.
+`execution_probe_v10` is the next research-only variant after the corrected
+v9 toxicity filter proved active but produced zero observed fills in the longer
+fixed-universe repeat. It should test an evidence-ranked executable segment
+policy, not another global quote or toxicity-filter tweak.
 
-Planned differences from v8:
+Planned differences from v9:
 
-- `near_touch_max_spread_fraction=0.90` instead of at-touch `1.0`.
-- higher default confidence and depth requirements.
-- stricter top-of-book rotation filter.
-- longer per-asset signal cooldown.
-- offline `fill_toxicity_v1` report included in the research loop.
+- offline `executable_opportunities_v1` dataset joins signal, book, fill,
+  synthetic touch, depth, spread, timing, and markout context.
+- offline `segment_opportunity_ranking_v1` promotes only segments with
+  sufficient executable opportunities, edge, depth, low synthetic optimism, and
+  acceptable adverse selection.
+- runtime v10 loads `allowed_segments_v1` and rejects snapshots outside the
+  selected market/asset/side/spread/timing buckets.
+- `scripts/run_execution_probe_v10_cycle.sh` defaults to
+  `selection_source=executable_segments` and `EXECUTION_MODE=dry_run`.
 
-Promotion remains blocked unless observed fills keep positive realized edge,
-synthetic-vs-observed gap stays low, and adverse selection falls materially
-below the v8/v8-filtered evidence.
+Promotion remains blocked unless v10 produces observed fills, positive realized
+edge after slippage, low synthetic-vs-observed gap, stable segment evidence, and
+materially lower adverse selection.
 
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 

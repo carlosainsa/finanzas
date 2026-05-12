@@ -20,6 +20,10 @@ from src.research.fillability_baseline import (
 )
 from src.research.fill_toxicity import FillToxicityConfig, create_fill_toxicity_report
 from src.research.game_theory import relation_exists
+from src.research.segment_opportunity_ranking import (
+    SegmentOpportunityRankingConfig,
+    create_segment_opportunity_ranking_report,
+)
 
 
 REPORT_VERSION = "execution_probe_universe_selection_v1"
@@ -38,7 +42,7 @@ DEFAULT_RECOMMENDATIONS = (
     "NEEDS_EXECUTION_EVIDENCE",
 )
 MARKET_TIMING_FILTERS = ("none", "future_touch")
-SELECTION_SOURCES = ("candidate_market_ranking", "fillability")
+SELECTION_SOURCES = ("candidate_market_ranking", "fillability", "executable_segments")
 ADVERSE_SELECTION_FILTERS = ("none", "market_side")
 TOXICITY_FILTERS = ("none", "segment")
 
@@ -68,9 +72,10 @@ class ExecutionProbeUniverseConfig:
             "execution_probe_v7",
             "execution_probe_v8",
             "execution_probe_v9",
+            "execution_probe_v10",
         }:
             raise ValueError(
-                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9"
+                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, or execution_probe_v10"
             )
         if self.limit <= 0:
             raise ValueError("limit must be positive")
@@ -84,7 +89,7 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("market_timing_filter must be none or future_touch")
         if self.selection_source not in SELECTION_SOURCES:
             raise ValueError(
-                "selection_source must be candidate_market_ranking or fillability"
+                "selection_source must be candidate_market_ranking, fillability, or executable_segments"
             )
         if self.adverse_selection_filter not in ADVERSE_SELECTION_FILTERS:
             raise ValueError("adverse_selection_filter must be none or market_side")
@@ -125,7 +130,9 @@ def create_execution_probe_universe_selection(
     output_dir: Path,
     config: ExecutionProbeUniverseConfig = ExecutionProbeUniverseConfig(),
 ) -> dict[str, object]:
-    if config.selection_source == "fillability":
+    if config.selection_source == "executable_segments":
+        pass
+    elif config.selection_source == "fillability":
         create_fillability_baseline_views(
             db_path,
             FillabilityBaselineConfig(
@@ -139,6 +146,9 @@ def create_execution_probe_universe_selection(
             db_path, CandidateMarketRankingConfig(limit=max(config.limit, config.min_assets))
         )
     output_dir.mkdir(parents=True, exist_ok=True)
+    segment_opportunity_report = create_segment_opportunity_inputs(
+        db_path, output_dir, config
+    )
     toxicity_report = create_toxicity_inputs(db_path, output_dir, config)
     with duckdb.connect(str(db_path)) as conn:
         has_quote_execution_by_asset = relation_exists(conn, "quote_execution_by_market_asset")
@@ -151,7 +161,9 @@ def create_execution_probe_universe_selection(
             raise ValueError(
                 "market_timing_filter=future_touch requires quote_execution_by_market_asset"
             )
-        if config.selection_source == "fillability":
+        if config.selection_source == "executable_segments":
+            frame = select_executable_segment_universe(conn, config)
+        elif config.selection_source == "fillability":
             frame = select_fillability_universe(conn, config)
         else:
             spread_filters = build_candidate_spread_filters(config)
@@ -192,6 +204,9 @@ def create_execution_probe_universe_selection(
         "fallback": fallback,
         "adverse_selection_filter": adverse_payload,
         "toxicity_filter": toxicity_payload,
+        "segment_opportunity_filter": segment_opportunity_payload(
+            segment_opportunity_report
+        ),
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -204,6 +219,8 @@ def create_execution_probe_universe_selection(
             "execution_probe_universe_selection.json",
             "execution_probe_universe_adverse_exclusions.parquet",
             "execution_probe_universe_toxicity_quality.parquet",
+            "segment_opportunity_ranking/segment_opportunity_ranking.json",
+            "segment_opportunity_ranking/allowed_segments.json",
         ],
     }
     (output_dir / "execution_probe_universe_selection.json").write_text(
@@ -789,6 +806,57 @@ def select_market_metadata_fallback(
     ).fetch_df()
 
 
+def create_segment_opportunity_inputs(
+    db_path: Path,
+    output_dir: Path,
+    config: ExecutionProbeUniverseConfig,
+) -> dict[str, object] | None:
+    if config.selection_source != "executable_segments":
+        return None
+    return create_segment_opportunity_ranking_report(
+        db_path,
+        output_dir / "segment_opportunity_ranking",
+        SegmentOpportunityRankingConfig(limit=max(config.limit, config.min_assets)),
+    )
+
+
+def select_executable_segment_universe(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    if not relation_exists(conn, "selected_segment_opportunities"):
+        return pd.DataFrame()
+    return conn.execute(
+        f"""
+        select
+            rank,
+            market_id,
+            asset_id,
+            side,
+            strategy,
+            model_version,
+            executable_opportunities as signals,
+            observed_fill_rate,
+            synthetic_fill_rate,
+            synthetic_observed_gap,
+            avg_expected_edge,
+            avg_available_depth,
+            adverse_30s_rate,
+            avg_pnl_30s,
+            opportunity_score as execution_quality_score,
+            spread_bucket,
+            timing_bucket,
+            recommendation,
+            executable_opportunities as timing_signals,
+            'primary' as selection_tier,
+            null::varchar as fallback_reason
+        from selected_segment_opportunities
+        order by rank
+        limit {config.limit}
+        """
+    ).fetch_df()
+
+
 def asset_ids_from_frame(frame: pd.DataFrame) -> list[str]:
     return [
         str(asset_id)
@@ -805,6 +873,8 @@ def excluded_assets_sql(asset_ids: list[str], alias: str) -> str:
 
 
 def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
+    if config.selection_source == "executable_segments":
+        return "segment_opportunity_ranking_v1"
     if config.selection_source == "fillability":
         return "fillability_baseline_v1"
     return "candidate_market_ranking_v1"
@@ -844,6 +914,33 @@ def fillability_fallback_summary(
         ),
         "used": len(fallback_assets) > 0,
     }
+
+
+def segment_opportunity_payload(
+    report: dict[str, object] | None,
+) -> dict[str, object]:
+    return {
+        "enabled": report is not None,
+        "mode": "executable_segments" if report is not None else "none",
+        "source_relation": "selected_segment_opportunities",
+        "selected_segments": (
+            typed_count(report.get("counts"), "selected_segments")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "allowed_segments_path": (
+            report.get("allowed_segments_path")
+            if isinstance(report, dict)
+            else None
+        ),
+    }
+
+
+def typed_count(value: object, key: str) -> int:
+    if not isinstance(value, dict):
+        return 0
+    item = value.get(key)
+    return int(item) if isinstance(item, (int, float)) else 0
 
 
 def selection_reason(

@@ -12,6 +12,7 @@ SUPPORTED_CANDIDATE_PROFILES = {
     "execution_probe_v7",
     "execution_probe_v8",
     "execution_probe_v9",
+    "execution_probe_v10",
 }
 
 
@@ -173,14 +174,14 @@ def classify_next_step(
     if not candidate:
         return (
             "WAIT_FOR_OBSERVATION",
-            "Run execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9 and generate profile_observation_comparison.json.",
+            "Run execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, or execution_probe_v10 and generate profile_observation_comparison.json.",
             ["no_candidate_observation"],
         )
     profile = candidate.get("profile")
     if profile not in SUPPORTED_CANDIDATE_PROFILES:
         return (
             "WAIT_FOR_EXECUTION_PROBE_OBSERVATION",
-            "Compare a completed execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9 report before tuning.",
+            "Compare a completed execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, or execution_probe_v10 report before tuning.",
             [f"candidate_profile={profile}"],
         )
 
@@ -264,7 +265,7 @@ def classify_next_step(
             ["no_observed_fills", "sample_is_large_enough"],
         )
     if fill_rate_gap > thresholds.max_synthetic_observed_gap:
-        if profile in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9"}:
+        if profile in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9", "execution_probe_v10"}:
             return (
                 "HOLD_RESEARCH",
                 "Do not add another quote profile until synthetic-only evidence is guarded or excluded.",
@@ -318,6 +319,16 @@ def classify_next_step(
             ],
         )
     if adverse_selection > thresholds.max_adverse_selection or drawdown > thresholds.max_drawdown:
+        if profile == "execution_probe_v10":
+            return (
+                "HOLD_RESEARCH",
+                "Do not promote v10 until executable segment ranking finds a non-toxic, fillable segment.",
+                [
+                    "v10_executable_segment_probe_failed_risk_gate",
+                    f"adverse_selection={adverse_selection}",
+                    f"drawdown={drawdown}",
+                ],
+            )
         if profile == "execution_probe_v9":
             return (
                 "HOLD_RESEARCH",
@@ -571,6 +582,7 @@ def market_timing_next_cycle(
         "execution_probe_v7": "scripts/run_execution_probe_v7_cycle.sh",
         "execution_probe_v8": "scripts/run_execution_probe_v8_cycle.sh",
         "execution_probe_v9": "scripts/run_execution_probe_v9_cycle.sh",
+        "execution_probe_v10": "scripts/run_execution_probe_v10_cycle.sh",
     }.get(profile, "scripts/run_execution_probe_v7_cycle.sh")
     return {
         "script": cycle_script,
@@ -583,7 +595,7 @@ def decide_quote_aggressiveness(
     thresholds: ExecutionProbeDecisionThresholds,
 ) -> dict[str, object]:
     profile = str(candidate.get("profile") or "")
-    if profile not in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9"}:
+    if profile not in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9", "execution_probe_v10"}:
         return {
             "decision": "NOT_EVALUATED",
             "reason": "candidate_profile_not_quote_tuning_stage",
@@ -674,6 +686,9 @@ def decide_quote_aggressiveness(
     elif profile == "execution_probe_v9" and not failed:
         decision = "REPEAT_V9_LONGER"
         reason = "toxicity_aware_quote_probe_has_fills_without_synthetic_or_risk_regression"
+    elif profile == "execution_probe_v10" and not failed:
+        decision = "REPEAT_V10_LONGER"
+        reason = "executable_segment_probe_has_fills_without_synthetic_or_risk_regression"
     else:
         decision = "HOLD_QUOTE_POLICY"
         reason = f"failed_checks={len(failed)}"
@@ -737,6 +752,11 @@ def quote_aggressiveness_next_cycle(
             "script": "scripts/run_execution_probe_v9_observation.sh",
             "args": {"--duration-seconds": "5400"},
         }
+    if decision == "REPEAT_V10_LONGER":
+        return {
+            "script": "scripts/run_execution_probe_v10_observation.sh",
+            "args": {"--duration-seconds": "5400"},
+        }
     return None
 
 
@@ -749,6 +769,10 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
         if candidate_profile == "execution_probe_v9":
             return [
                 "scripts/run_execution_probe_v9_observation.sh --duration-seconds 5400"
+            ]
+        if candidate_profile == "execution_probe_v10":
+            return [
+                "scripts/run_execution_probe_v10_observation.sh --duration-seconds 5400"
             ]
         if candidate_profile == "execution_probe_v8":
             return [
@@ -773,15 +797,19 @@ def command_templates(recommendation: str, candidate_profile: str) -> list[str]:
         ]
     if recommendation == "CHANGE_MARKET_OR_TIMING_FILTERS":
         cycle_script = (
-            "scripts/run_execution_probe_v9_cycle.sh"
-            if candidate_profile == "execution_probe_v9"
+            "scripts/run_execution_probe_v10_cycle.sh"
+            if candidate_profile == "execution_probe_v10"
             else (
-                "scripts/run_execution_probe_v8_cycle.sh"
-                if candidate_profile == "execution_probe_v8"
+                "scripts/run_execution_probe_v9_cycle.sh"
+                if candidate_profile == "execution_probe_v9"
                 else (
-                    "scripts/run_execution_probe_v7_cycle.sh"
-                    if candidate_profile == "execution_probe_v7"
-                    else "scripts/run_execution_probe_v6_cycle.sh"
+                    "scripts/run_execution_probe_v8_cycle.sh"
+                    if candidate_profile == "execution_probe_v8"
+                    else (
+                        "scripts/run_execution_probe_v7_cycle.sh"
+                        if candidate_profile == "execution_probe_v7"
+                        else "scripts/run_execution_probe_v6_cycle.sh"
+                    )
                 )
             )
         )

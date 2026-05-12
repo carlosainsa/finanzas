@@ -10,7 +10,9 @@ from src.ml.execution_probe_selection import (
     load_execution_probe_v7_fraction_selection,
     load_execution_probe_v8_fraction_selection,
     load_execution_probe_v9_fraction_selection,
+    load_execution_probe_v10_fraction_selection,
 )
+from src.ml.segment_allowlist import SegmentAllowlist
 from src.ml.segment_blocklist import SegmentBlocklist
 from src.ml.segment_blocklist import spread_bucket_for_value
 from src.ml.segment_blocklist import timing_bucket_for_top_change_count
@@ -103,6 +105,14 @@ EXECUTION_PROBE_V9_NEAR_TOUCH_MODEL_VERSION = (
 EXECUTION_PROBE_V9_NEAR_TOUCH_FEATURE_VERSION = (
     "orderbook_top_of_book_execution_probe_near_touch_v9"
 )
+EXECUTION_PROBE_V10_MODEL_VERSION = "passive_spread_capture_execution_probe_v10"
+EXECUTION_PROBE_V10_FEATURE_VERSION = "orderbook_top_of_book_execution_probe_v10"
+EXECUTION_PROBE_V10_NEAR_TOUCH_MODEL_VERSION = (
+    "passive_spread_capture_execution_probe_near_touch_v10"
+)
+EXECUTION_PROBE_V10_NEAR_TOUCH_FEATURE_VERSION = (
+    "orderbook_top_of_book_execution_probe_near_touch_v10"
+)
 
 TOP_CHANGE_EPSILON = 1e-9
 RejectionReason = Literal[
@@ -113,6 +123,7 @@ RejectionReason = Literal[
     "top_rotation",
     "rate_limited",
     "low_confidence",
+    "outside_allowed_segment",
     "blocked_segment",
 ]
 
@@ -142,9 +153,16 @@ class Predictor:
     cambiar el contrato Redis.
     """
 
-    def __init__(self, blocklist: SegmentBlocklist | None = None) -> None:
+    def __init__(
+        self,
+        blocklist: SegmentBlocklist | None = None,
+        allowlist: SegmentAllowlist | None = None,
+    ) -> None:
         self.blocklist = blocklist or SegmentBlocklist.from_file(
             settings.predictor_blocked_segments_path
+        )
+        self.allowlist = allowlist or SegmentAllowlist.from_file(
+            settings.predictor_allowed_segments_path
         )
         self._top_of_book_history: dict[
             tuple[str, str], list[tuple[int, float, float]]
@@ -228,16 +246,37 @@ class Predictor:
             best_bid.price,
             best_ask.price,
         )
+        spread_bucket = spread_bucket_for_value(spread)
+        timing_bucket = timing_bucket_for_top_change_count(
+            top_change_count if top_change_count is not None else 0
+        )
+        if not self.allowlist.is_allowed(
+            orderbook.market_id,
+            orderbook.asset_id,
+            "BUY",
+            model_version,
+            strategy=model_version,
+            spread_bucket=spread_bucket,
+            timing_bucket=timing_bucket,
+        ):
+            return PredictionDecision(
+                signal=None,
+                rejection_reason="outside_allowed_segment",
+                strategy_profile=profile.name,
+                model_version=model_version,
+                feature_version=feature_version,
+                confidence=confidence,
+                spread=spread,
+                top_change_count=top_change_count,
+            )
         if self.blocklist.is_blocked(
             orderbook.market_id,
             orderbook.asset_id,
             "BUY",
             model_version,
             strategy=model_version,
-            spread_bucket=spread_bucket_for_value(spread),
-            timing_bucket=timing_bucket_for_top_change_count(
-                top_change_count if top_change_count is not None else 0
-            ),
+            spread_bucket=spread_bucket,
+            timing_bucket=timing_bucket,
         ):
             return PredictionDecision(
                 signal=None,
@@ -372,6 +411,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
                 EXECUTION_PROBE_V9_MODEL_VERSION,
                 EXECUTION_PROBE_V9_FEATURE_VERSION,
             )
+        if profile.name == "execution_probe_v10":
+            return (
+                best_bid,
+                EXECUTION_PROBE_V10_MODEL_VERSION,
+                EXECUTION_PROBE_V10_FEATURE_VERSION,
+            )
         return best_bid, MODEL_VERSION, FEATURE_VERSION
     if placement != "near_touch":
         raise ValueError(f"unsupported predictor quote placement: {placement}")
@@ -389,6 +434,8 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
         offset = settings.predictor_execution_probe_v8_offset_ticks * tick_size
     if profile.name == "execution_probe_v9":
         offset = settings.predictor_execution_probe_v9_offset_ticks * tick_size
+    if profile.name == "execution_probe_v10":
+        offset = settings.predictor_execution_probe_v10_offset_ticks * tick_size
     cap = best_ask - offset
     max_spread_fraction = profile.near_touch_max_spread_fraction
     fractional_price = best_bid + (spread * max_spread_fraction)
@@ -458,6 +505,12 @@ def quote_price_for_buy(best_bid: float, best_ask: float) -> tuple[float, str, s
             round(price, 6),
             EXECUTION_PROBE_V9_NEAR_TOUCH_MODEL_VERSION,
             EXECUTION_PROBE_V9_NEAR_TOUCH_FEATURE_VERSION,
+        )
+    if profile.name == "execution_probe_v10":
+        return (
+            round(price, 6),
+            EXECUTION_PROBE_V10_NEAR_TOUCH_MODEL_VERSION,
+            EXECUTION_PROBE_V10_NEAR_TOUCH_FEATURE_VERSION,
         )
     return round(price, 6), NEAR_TOUCH_MODEL_VERSION, NEAR_TOUCH_FEATURE_VERSION
 
@@ -713,6 +766,29 @@ def strategy_profile() -> StrategyProfile:
                 settings.predictor_execution_probe_v9_min_signal_interval_ms
             ),
         )
+    if profile == "execution_probe_v10":
+        validate_execution_probe_allowed()
+        selection = load_execution_probe_v10_fraction_selection(
+            settings.predictor_execution_probe_v10_fraction_selection_path,
+            default_fraction=(
+                settings.predictor_execution_probe_v10_near_touch_max_spread_fraction
+            ),
+        )
+        return StrategyProfile(
+            name=profile,
+            min_confidence=max(
+                settings.predictor_min_confidence,
+                settings.predictor_execution_probe_v10_min_confidence,
+            ),
+            near_touch_max_spread_fraction=selection.near_touch_max_spread_fraction,
+            min_depth=settings.predictor_execution_probe_v10_min_depth,
+            max_top_changes=settings.predictor_execution_probe_v10_max_top_changes,
+            top_change_window_ms=settings.predictor_execution_probe_v10_top_change_window_ms,
+            risk_filters_enabled=True,
+            min_signal_interval_ms=(
+                settings.predictor_execution_probe_v10_min_signal_interval_ms
+            ),
+        )
     if profile == "conservative_v1":
         return StrategyProfile(
             name=profile,
@@ -749,6 +825,7 @@ def near_touch_model(model_version: str) -> bool:
         EXECUTION_PROBE_V7_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_V8_NEAR_TOUCH_MODEL_VERSION,
         EXECUTION_PROBE_V9_NEAR_TOUCH_MODEL_VERSION,
+        EXECUTION_PROBE_V10_NEAR_TOUCH_MODEL_VERSION,
     }
 
 
@@ -866,3 +943,13 @@ def validate_near_touch_allowed() -> None:
         )
     if settings.predictor_execution_probe_v9_offset_ticks < 0:
         raise ValueError("predictor execution probe v9 offset ticks must be non-negative")
+    if (
+        not 0
+        <= settings.predictor_execution_probe_v10_near_touch_max_spread_fraction
+        <= 1
+    ):
+        raise ValueError(
+            "predictor execution probe v10 near-touch max spread fraction must be between 0 and 1"
+        )
+    if settings.predictor_execution_probe_v10_offset_ticks < 0:
+        raise ValueError("predictor execution probe v10 offset ticks must be non-negative")

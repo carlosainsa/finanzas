@@ -502,6 +502,108 @@ def test_execution_probe_v9_cycle_print_plan_is_safe_and_pinned(
     ]
 
 
+def test_execution_probe_v10_observation_print_plan_requires_allowed_segments(
+    tmp_path: Path,
+) -> None:
+    allowed_segments = tmp_path / "allowed_segments.json"
+    allowed_segments.write_text(
+        json.dumps(
+            {
+                "version": "allowed_segments_v1",
+                "can_execute_trades": False,
+                "segments": [
+                    {
+                        "market_id": "market-1",
+                        "asset_id": "asset-1",
+                        "side": "BUY",
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    universe = tmp_path / "execution_probe_universe_selection.json"
+    universe.write_text(
+        json.dumps(
+            {
+                "can_execute_trades": False,
+                "status": "ready",
+                "profile": "execution_probe_v10",
+                "market_asset_ids": ["asset-1"],
+                "segment_opportunity_filter": {
+                    "enabled": True,
+                    "allowed_segments_path": str(allowed_segments),
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v10_observation.sh",
+            "--universe-selection",
+            str(universe),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v10_observation.sh"
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["predictor_strategy_profile"] == "execution_probe_v10"
+    assert plan["predictor_allowed_segments_path"] == str(allowed_segments)
+    assert plan["real_dry_run_seconds"] == 1800
+
+
+def test_execution_probe_v10_cycle_print_plan_uses_executable_segments(
+    tmp_path: Path,
+) -> None:
+    universe_duckdb = tmp_path / "research.duckdb"
+    universe_duckdb.write_bytes(b"placeholder")
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v10_cycle.sh",
+            "--universe-duckdb",
+            str(universe_duckdb),
+            "--baseline-report-root",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v10_cycle.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["profile"] == "execution_probe_v10"
+    assert plan["selection_source"] == "executable_segments"
+    assert plan["toxicity_filter"] == "none"
+    assert "scripts/run_execution_probe_v10_observation.sh" in plan["delegates_to"]
+    assert "segment_opportunity_ranking.json" in plan["outputs"][
+        "segment_opportunity_ranking"
+    ]
+    assert "allowed_segments.json" in plan["outputs"]["allowed_segments"]
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"

@@ -100,6 +100,37 @@ def test_execution_probe_universe_selection_supports_v8_profile(
     assert report["status"] == "ready"
 
 
+def test_execution_probe_universe_selection_supports_v10_executable_segments(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_executable_segment_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v10",
+            selection_source="executable_segments",
+            limit=2,
+            min_assets=1,
+        ),
+    )
+
+    assert report["profile"] == "execution_probe_v10"
+    assert report["source_report_version"] == "segment_opportunity_ranking_v1"
+    assert report["status"] == "ready"
+    assert report["market_asset_ids"] == ["asset-executable"]
+    segment_filter = cast(dict[str, Any], report["segment_opportunity_filter"])
+    assert segment_filter["enabled"] is True
+    assert segment_filter["selected_segments"] == 1
+    assert (
+        tmp_path
+        / "universe"
+        / "segment_opportunity_ranking"
+        / "allowed_segments.json"
+    ).exists()
+
+
 def test_execution_probe_universe_selection_filters_by_future_touch_timing(
     tmp_path: Path,
 ) -> None:
@@ -405,7 +436,7 @@ def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
         ExecutionProbeUniverseConfig(profile="live")
     except ValueError as exc:
         assert (
-            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, or execution_probe_v9"
+            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, or execution_probe_v10"
             in str(exc)
         )
     else:
@@ -416,8 +447,9 @@ def test_execution_probe_universe_selection_rejects_invalid_selection_source() -
     try:
         ExecutionProbeUniverseConfig(selection_source="manual")
     except ValueError as exc:
-        assert "selection_source must be candidate_market_ranking or fillability" in str(
-            exc
+        assert (
+            "selection_source must be candidate_market_ranking, fillability, or executable_segments"
+            in str(exc)
         )
     else:
         raise AssertionError("expected ValueError")
@@ -850,6 +882,109 @@ def seed_quote_execution_by_asset(db_path: Path) -> None:
             "insert into quote_execution_by_market_asset values (?, ?, ?, ?, ?)",
             rows,
         )
+
+
+def seed_executable_segment_universe_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "research.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table executable_opportunities (
+                signal_id varchar,
+                market_id varchar,
+                asset_id varchar,
+                side varchar,
+                strategy varchar,
+                model_version varchar,
+                feature_version varchar,
+                signal_timestamp_ms bigint,
+                spread_bucket varchar,
+                timing_bucket varchar,
+                expected_edge double,
+                available_depth double,
+                observed_filled boolean,
+                synthetic_filled boolean,
+                observed_fill_rate double,
+                synthetic_fill_rate double,
+                pnl_30s double,
+                adverse_30s double,
+                executable_score double,
+                is_executable boolean
+            )
+            """
+        )
+        conn.executemany(
+            "insert into executable_opportunities values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "signal-1",
+                    "market-executable",
+                    "asset-executable",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    1_000,
+                    "250_500bps",
+                    "stable",
+                    0.04,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "signal-2",
+                    "market-executable",
+                    "asset-executable",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    2_000,
+                    "250_500bps",
+                    "stable",
+                    0.04,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "signal-3",
+                    "market-executable",
+                    "asset-executable",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    3_000,
+                    "250_500bps",
+                    "stable",
+                    0.04,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+            ],
+        )
+    return db_path
 
 
 def seed_fillability_toxic_fill(db_path: Path) -> None:
