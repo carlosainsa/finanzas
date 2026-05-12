@@ -439,6 +439,7 @@ def test_execution_probe_v9_observation_print_plan_is_safe_and_pinned(
     assert plan["predictor_execution_probe_v9_offset_ticks"] == 0
     assert plan["go_no_go_profile"] == "pre_live"
     assert plan["real_dry_run_seconds"] == 1800
+    assert plan["pre_live_min_capture_duration_ms"] == 1_740_000
 
 
 def test_execution_probe_v9_cycle_print_plan_is_safe_and_pinned(

@@ -195,7 +195,7 @@ def test_next_decision_expands_fillability_universe_before_relaxing_timing() -> 
     args = cast(dict[str, str], next_cycle["args"])
     assert args["--selection-source"] == "fillability"
     assert args["--market-timing-filter"] == "future_touch"
-    assert args["--limit"] == "10"
+    assert args["--universe-limit"] == "10"
     assert args["--min-assets"] == "5"
     assert args["--min-future-touch-rate"] == "0.1"
     assert args["--min-avg-opportunity-spread"] == "0.01"
@@ -374,7 +374,7 @@ def test_next_decision_keeps_v9_cycle_for_v9_market_timing_retune() -> None:
     assert next_cycle["script"] == "scripts/run_execution_probe_v9_cycle.sh"
     args = cast(dict[str, str], next_cycle["args"])
     assert args["--selection-source"] == "fillability"
-    assert args["--limit"] == "20"
+    assert args["--universe-limit"] == "20"
     assert args["--min-assets"] == "5"
     assert "EXECUTION_MODE=live" not in json.dumps(report)
 

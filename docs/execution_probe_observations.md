@@ -787,6 +787,75 @@ Live remains blocked. The run is useful as negative evidence: v9 is safer than
 v8 in the sense that it does not generate toxic fills, but it is not executable
 on this two-asset universe.
 
+## 2026-05-12 - Expanded Fillability execution_probe_v9 60m
+
+- Run id: `execution-probe-v9-cycle-20260512T003801Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v9-cycle-20260512T003801Z/reports/execution-probe-v9-cycle-20260512T003801Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v9`
+- Quote policy: `near_touch`, `near_touch_max_spread_fraction=0.90`, `offset_ticks=0`
+- Minimum confidence: `0.55`
+- Selection source: `fillability`
+- Universe: 20 primary market assets, no fallback assets
+- Universe hash: `2d7aefafa43b7084c0b34c87cbd8818056e2372335421a65d97f2eb5454b97f0`
+- Duration: 60 minutes
+- Comparison baselines: v8 at-touch, v8 market/side filtered, and narrow v9.
+
+Key metrics:
+
+- Orderbook stream events: `24180`
+- Orderbook snapshots: `24183`
+- Signals: `1285`
+- Execution reports: `2564` raw rows, `1285` terminal signal reports
+- Report statuses: `1282 DELAYED`, `1277 UNMATCHED`, `5 MATCHED`
+- Observed fill-rate: `0.0038910505836575876`
+- Synthetic fill-rate: `0.052140077821011675`
+- Synthetic-vs-observed fill-rate gap: `0.04824902723735409`
+- Adjusted synthetic fill-rate: `0.03385214007782101`
+- Signals without observed report: `0`
+- Stale data rate: `0.005747839391307944`
+- Reconciliation divergence rate: `0.0`
+- Realized edge: `0.10840000000000005`
+- Adverse selection: `1.0`
+- Drawdown: `0.09899999999999987`
+- Test Brier score: `0.2122727272727273`
+
+Fill toxicity:
+
+- Segments: `16`
+- Filled events: `5`
+- Fill toxicity fill-rate: `0.0038910505836575876`
+- Adverse 30s rate: `1.0`
+- Average PnL 30s: `-0.004111111111111096`
+- Rejected segments: `1`
+- Insufficient-sample segments: `15`
+- Promoted segments: `0`
+- Most toxic observed segment: asset `101738487887518832481587379955535423775326921556438741919099866785354159699479`, fill-rate `0.08333333333333333`, `3` fills, adverse 30s rate `1.0`, decision `REJECT_TOXICITY`.
+
+Decision:
+
+- Pre-live status: `blocked`
+- Go/no-go: `NO_GO`
+- Go/no-go blockers: `acceptable_dry_run_observed_fill_rate`, `acceptable_fill_rate`, `no_persistent_adverse_selection`
+- `execution_probe_next_decision.recommendation`: `HOLD_RESEARCH`
+- Next step: do not tune quote aggression further until fill toxicity improves on observed segments.
+- `asset_execution_decision` summary: `5 REPEAT_ASSET`, `11 RETUNE_ASSET`, `0 BLOCK_ASSET`
+- `can_execute_trades=false`
+
+Interpretation:
+
+The expanded universe fixed the prior underdetermined two-asset sample and
+proved that v9 can occasionally fill when run across broader fillability
+markets. It did not make the profile tradable. The fill-rate remains below the
+minimum dry-run threshold, synthetic fills still overstate observed execution,
+and every observed fill was adverse at the 30-second markout horizon.
+
+The next research step should stop changing global quote aggression. The useful
+path is segment-level filtering or feature work from `fill_toxicity_v1`: block
+or isolate the rejected toxic segment, require more fill evidence before trusting
+insufficient-sample segments, and rerun only after the decision policy can
+exclude toxic fills deterministically. Live remains blocked.
+
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-relaxed-timing-20260509T000000Z`

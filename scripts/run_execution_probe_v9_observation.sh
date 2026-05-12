@@ -96,6 +96,13 @@ if [[ -n "$FRACTION_SELECTION_PATH" ]]; then
 fi
 export GO_NO_GO_PROFILE="pre_live"
 export REAL_DRY_RUN_SECONDS="$DURATION_SECONDS"
+if [[ -z "${PRE_LIVE_MIN_CAPTURE_DURATION_MS:-}" ]]; then
+  effective_min_capture_seconds=$((DURATION_SECONDS - 60))
+  if (( effective_min_capture_seconds < 60 )); then
+    effective_min_capture_seconds=60
+  fi
+  export PRE_LIVE_MIN_CAPTURE_DURATION_MS="$((effective_min_capture_seconds * 1000))"
+fi
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
   python3 - <<'PY'
@@ -114,6 +121,7 @@ print(json.dumps({
     "execution_probe_universe_selection_path": os.environ["EXECUTION_PROBE_UNIVERSE_SELECTION_PATH"],
     "predictor_execution_probe_v9_fraction_selection_path": os.environ.get("PREDICTOR_EXECUTION_PROBE_V9_FRACTION_SELECTION_PATH"),
     "real_dry_run_seconds": int(os.environ["REAL_DRY_RUN_SECONDS"]),
+    "pre_live_min_capture_duration_ms": int(os.environ["PRE_LIVE_MIN_CAPTURE_DURATION_MS"]),
     "go_no_go_profile": os.environ["GO_NO_GO_PROFILE"],
 }, indent=2, sort_keys=True))
 PY

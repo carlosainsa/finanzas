@@ -558,7 +558,7 @@ def market_timing_next_cycle(
         args.update(
             {
                 "--selection-source": "fillability",
-                "--limit": format_number(
+                "--universe-limit": format_number(
                     float(max(resolved_limit * 2, resolved_min_assets * 2, 10))
                 ),
                 "--min-assets": format_number(float(resolved_min_assets)),
