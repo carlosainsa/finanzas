@@ -13,6 +13,8 @@ from src.research.profile_observation_comparison import (
 
 
 REPORT_VERSION = "toxicity_filter_impact_v1"
+MIN_PROMOTION_REVIEW_OBSERVED_FILL_RATE = 0.05
+MAX_PROMOTION_REVIEW_ADVERSE_SELECTION = 0.40
 
 
 def create_toxicity_filter_impact_report(
@@ -217,10 +219,21 @@ def impact_decision(
     if adverse_delta is not None and adverse_delta <= -0.05 and (
         fill_delta is None or fill_delta >= -0.005
     ):
+        if (
+            candidate_fill is not None
+            and candidate_fill >= MIN_PROMOTION_REVIEW_OBSERVED_FILL_RATE
+            and candidate_adverse is not None
+            and candidate_adverse <= MAX_PROMOTION_REVIEW_ADVERSE_SELECTION
+        ):
+            return {
+                "recommendation": "KEEP_FILTER_FOR_PROMOTION_REVIEW",
+                "reason": "toxicity_filter_reduced_adverse_selection_and_passed_absolute_research_thresholds",
+                "next_step": "Repeat a longer 90-120 minute fixed-universe observation before any promotion discussion.",
+            }
         return {
-            "recommendation": "KEEP_FILTER",
-            "reason": "toxicity_filter_reduced_adverse_selection_without_material_fill_loss",
-            "next_step": "Repeat a longer 90-120 minute observation before promotion discussion.",
+            "recommendation": "KEEP_FILTER_FOR_RESEARCH",
+            "reason": "toxicity_filter_improved_relative_metrics_but_failed_absolute_research_thresholds",
+            "next_step": "Repeat a longer 90-120 minute fixed-universe observation, but do not treat this as promotion evidence yet.",
         }
     if adverse_delta is not None and adverse_delta >= 0 and (
         fill_delta is None or fill_delta <= 0

@@ -943,8 +943,8 @@ Toxicity filter impact:
 - Accepted snapshots: `744`
 - Runtime `blocked_segment` rejections: `1777`
 - Runtime blocked segment rate: `0.14495472713924465`
-- Decision: `KEEP_FILTER`
-- Reason: `toxicity_filter_reduced_adverse_selection_without_material_fill_loss`
+- Decision: `KEEP_FILTER_FOR_RESEARCH`
+- Reason: `toxicity_filter_improved_relative_metrics_but_failed_absolute_research_thresholds`
 
 Baseline deltas:
 
@@ -963,7 +963,7 @@ Decision:
 - Go/no-go: `NO_GO`
 - Go/no-go blockers: `go_no_go_passed`, `acceptable_dry_run_observed_fill_rate`, `acceptable_fill_rate`, `bounded_simulator_fill_rate_delta`, `no_persistent_adverse_selection`
 - `execution_probe_next_decision.recommendation`: `HOLD_RESEARCH`
-- Next step from toxicity impact: repeat a longer 90-120 minute observation before promotion discussion.
+- Next step from toxicity impact: repeat a longer 90-120 minute observation, but keep it research-only and do not treat it as promotion evidence yet.
 - `asset_execution_decision` summary: `6 REPEAT_ASSET`, `6 RETUNE_ASSET`, `0 BLOCK_ASSET`
 - `can_execute_trades=false`
 
@@ -978,9 +978,82 @@ not kill activity.
 This is not a live-trading signal. Fill-rate is still below the pre-live gate,
 adverse selection is still high in absolute terms, and the synthetic-vs-observed
 gap remains above threshold. The correct next step is to keep the same corrected
-filter and run a longer 90-120 minute fixed-universe observation. Live remains
-blocked until that longer run passes go/no-go style evidence and adverse
-selection improves further.
+filter for research only and run a longer fixed-universe observation. Live
+remains blocked until that longer run passes go/no-go style evidence and
+adverse selection improves further.
+
+## 2026-05-12 - Long Corrected Toxicity-Filtered execution_probe_v9 90m
+
+- Run id: `execution-probe-v9-cycle-20260512T190549Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v9-cycle-20260512T190549Z/reports/execution-probe-v9-cycle-20260512T190549Z`
+- Baseline: `execution-probe-v9-cycle-20260512T003801Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v9`
+- Selection source: `fillability`
+- Toxicity filter: `segment`
+- Universe: 20 primary market assets
+- Universe hash: `2d7aefafa43b7084c0b34c87cbd8818056e2372335421a65d97f2eb5454b97f0`
+- Duration: 90 minutes
+
+Key metrics:
+
+- Signals: `1521`
+- Execution reports: `3042` raw rows, `1521` terminal signal reports
+- Report statuses: `1520 DELAYED`, `1520 UNMATCHED`, `0 MATCHED`
+- Observed fill-rate: `0.0`
+- Synthetic fill-rate: `0.024326101249178174`
+- Synthetic-vs-observed fill-rate gap: `0.024326101249178174`
+- Realized edge: `null`
+- Adverse selection: `1.0`
+- Drawdown: `0.0`
+- Stale data rate: `0.01512493193780628`
+- Signal-to-order conversion: `consumption_rate=1.0`, `order_creation_rate=1.0`, `missing_report_rate=0.0`
+
+Toxicity filter impact:
+
+- Candidate blocklist segments: `32`
+- Runtime snapshots: `16529`
+- Accepted snapshots: `1520`
+- Runtime `blocked_segment` rejections: `1199`
+- Runtime blocked segment rate: `0.07253917357371892`
+- Fill toxicity filled events: `0`
+- Fill toxicity rejected segments after the run: `0`
+- Fill toxicity insufficient-sample segments: `13`
+- Decision: `REJECT_FILTER`
+- Reason: `toxicity_filter_did_not_reduce_adverse_selection`
+
+Baseline deltas:
+
+- Observed fill-rate: `-0.0038910505836575876`
+- Adverse selection: `0.0`
+- Drawdown: `-0.09899999999999987`
+- Filled signals: `-5`
+- Signals: `+236`
+- Synthetic fill-rate: `-0.0278139765718335`
+- Runtime `blocked_segment` rejections: `+1199` versus the unfiltered baseline runtime
+
+Decision:
+
+- Pre-live status: `blocked`
+- Go/no-go: `NO_GO`
+- Go/no-go blockers: `acceptable_dry_run_observed_fill_rate`, `acceptable_fill_rate`, `has_fills`, `no_persistent_adverse_selection`, `positive_realized_edge`
+- `execution_probe_next_decision.recommendation`: `CHANGE_MARKET_OR_TIMING_FILTERS`
+- Next step from toxicity impact: move to feature/model redesign instead of repeating this filter unchanged.
+- `asset_execution_decision` summary: `3 REPEAT_ASSET`, `10 RETUNE_ASSET`, `0 BLOCK_ASSET`
+- `can_execute_trades=false`
+
+Interpretation:
+
+The 90-minute fixed-universe repeat confirms that the corrected blocklist is
+active in runtime, but it does not produce executable evidence. It generated
+more signals than the expanded v9 baseline and blocked 1,199 snapshots, yet it
+produced zero observed fills. With no fills, realized edge cannot be measured,
+adverse selection remains failed, and the strategy cannot be promoted.
+
+This invalidates repeating the same toxicity filter unchanged. The next work
+should change market/timing selection or feature/model scoring so the bot can
+find fillable quotes without returning to synthetic optimism. Live remains
+blocked.
 
 ## 2026-05-09 - Relaxed Timing execution_probe_v7 60m
 

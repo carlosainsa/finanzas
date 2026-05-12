@@ -8,7 +8,9 @@ from src.research.toxicity_filter_impact import (
 )
 
 
-def test_toxicity_filter_impact_keeps_effective_filter(tmp_path: Path) -> None:
+def test_toxicity_filter_impact_keeps_effective_filter_for_research(
+    tmp_path: Path,
+) -> None:
     baseline = seed_report(
         tmp_path / "baseline",
         signals=1000,
@@ -43,7 +45,48 @@ def test_toxicity_filter_impact_keeps_effective_filter(tmp_path: Path) -> None:
     runtime = cast(dict[str, Any], report["runtime_rejection_impact"])
     assert runtime["blocked_segment_rejections"] == 50
     assert runtime["blocked_segment_rate"] == 0.05
-    assert cast(dict[str, Any], report["decision"])["recommendation"] == "KEEP_FILTER"
+    decision = cast(dict[str, Any], report["decision"])
+    assert decision["recommendation"] == "KEEP_FILTER_FOR_RESEARCH"
+    assert (
+        decision["reason"]
+        == "toxicity_filter_improved_relative_metrics_but_failed_absolute_research_thresholds"
+    )
+
+
+def test_toxicity_filter_impact_keeps_filter_for_promotion_review(
+    tmp_path: Path,
+) -> None:
+    baseline = seed_report(
+        tmp_path / "baseline",
+        signals=1000,
+        filled_signals=20,
+        observed_fill_rate=0.06,
+        synthetic_fill_rate=0.04,
+        adverse_selection=0.65,
+        toxicity_enabled=False,
+    )
+    candidate = seed_report(
+        tmp_path / "candidate",
+        signals=980,
+        filled_signals=19,
+        observed_fill_rate=0.055,
+        synthetic_fill_rate=0.03,
+        adverse_selection=0.39,
+        toxicity_enabled=True,
+        blocked_segment_rejections=50,
+    )
+
+    report = create_toxicity_filter_impact_report(
+        candidate,
+        baseline_report_root=baseline,
+    )
+
+    decision = cast(dict[str, Any], report["decision"])
+    assert decision["recommendation"] == "KEEP_FILTER_FOR_PROMOTION_REVIEW"
+    assert (
+        decision["reason"]
+        == "toxicity_filter_reduced_adverse_selection_and_passed_absolute_research_thresholds"
+    )
 
 
 def test_toxicity_filter_impact_relaxes_activity_killing_filter(tmp_path: Path) -> None:
