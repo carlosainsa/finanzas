@@ -24,15 +24,25 @@ class SegmentOpportunityRankingConfig:
     min_executable_opportunities: int = 3
     min_avg_expected_edge: float = 0.01
     min_avg_available_depth: float = 1.0
+    min_runtime_active_minutes: int = 1
     max_adverse_30s_rate: float = 0.50
     max_synthetic_observed_gap: float = 0.05
+    runtime_activity_backfill: bool = False
+    runtime_backfill_min_opportunities: int = 3
+    runtime_backfill_min_active_minutes: int = 2
     limit: int = 25
 
     def __post_init__(self) -> None:
         if self.min_executable_opportunities <= 0:
             raise ValueError("min_executable_opportunities must be positive")
+        if self.min_runtime_active_minutes <= 0:
+            raise ValueError("min_runtime_active_minutes must be positive")
         if self.min_avg_available_depth < 0:
             raise ValueError("min_avg_available_depth must be non-negative")
+        if self.runtime_backfill_min_opportunities <= 0:
+            raise ValueError("runtime_backfill_min_opportunities must be positive")
+        if self.runtime_backfill_min_active_minutes <= 0:
+            raise ValueError("runtime_backfill_min_active_minutes must be positive")
         if not 0 <= self.max_adverse_30s_rate <= 1:
             raise ValueError("max_adverse_30s_rate must be between 0 and 1")
         if not 0 <= self.max_synthetic_observed_gap <= 1:
@@ -55,6 +65,7 @@ def create_segment_opportunity_ranking_report(
             (
                 "segment_opportunity_ranking",
                 "selected_segment_opportunities",
+                "allowed_segment_candidates",
             ),
         )
         selected = normalize_records(
@@ -72,6 +83,9 @@ def create_segment_opportunity_ranking_report(
                     executable_opportunities,
                     avg_expected_edge,
                     avg_available_depth,
+                    runtime_opportunities,
+                    runtime_active_minutes,
+                    runtime_opportunity_density,
                     observed_fill_rate,
                     synthetic_fill_rate,
                     synthetic_observed_gap,
@@ -79,6 +93,36 @@ def create_segment_opportunity_ranking_report(
                     avg_pnl_30s,
                     recommendation
                 from selected_segment_opportunities
+                order by rank
+                """
+            )
+            .fetch_df()
+            .to_dict(orient="records")
+        )
+        allowed = normalize_records(
+            conn.execute(
+                """
+                select
+                    rank,
+                    market_id,
+                    asset_id,
+                    side,
+                    strategy,
+                    model_version,
+                    spread_bucket,
+                    timing_bucket,
+                    executable_opportunities,
+                    runtime_opportunities,
+                    runtime_active_minutes,
+                    runtime_opportunity_density,
+                    observed_fill_rate,
+                    synthetic_fill_rate,
+                    synthetic_observed_gap,
+                    adverse_30s_rate,
+                    avg_pnl_30s,
+                    recommendation,
+                    allowed_reason
+                from allowed_segment_candidates
                 order by rank
                 """
             )
@@ -97,7 +141,7 @@ def create_segment_opportunity_ranking_report(
             .fetch_df()
             .to_dict(orient="records")
         )
-    allowed_payload = allowed_segments_payload(selected, output_dir)
+    allowed_payload = allowed_segments_payload(allowed, output_dir)
     allowed_path = output_dir / "allowed_segments.json"
     allowed_path.write_text(
         json.dumps(allowed_payload, indent=2, sort_keys=True) + "\n",
@@ -113,14 +157,18 @@ def create_segment_opportunity_ranking_report(
             **counts,
             "ranked_segments": counts["segment_opportunity_ranking"],
             "selected_segments": counts["selected_segment_opportunities"],
+            "allowed_segments": counts["allowed_segment_candidates"],
         },
         "selected": selected,
         "selected_segment_keys": [segment_key(row) for row in selected],
+        "allowed": allowed,
+        "allowed_segment_keys": [segment_key(row) for row in allowed],
         "top_segments": top_segments,
         "allowed_segments_path": str(allowed_path),
         "outputs": [
             "segment_opportunity_ranking.parquet",
             "selected_segment_opportunities.parquet",
+            "allowed_segment_candidates.parquet",
             "allowed_segments.json",
             "segment_opportunity_ranking.json",
         ],
@@ -144,6 +192,7 @@ def create_segment_opportunity_ranking_views(
             ExecutableOpportunitiesConfig(),
         )
     with duckdb.connect(str(db_path)) as conn:
+        timestamp_expr = executable_opportunity_timestamp_expr(conn)
         conn.execute(
             f"""
             create or replace view segment_opportunity_base as
@@ -156,11 +205,25 @@ def create_segment_opportunity_ranking_views(
                 coalesce(spread_bucket, 'unknown') as spread_bucket,
                 coalesce(timing_bucket, 'unknown') as timing_bucket,
                 count(*) as opportunities,
-                sum(case when is_executable then 1 else 0 end) as executable_opportunities,
+                count(*) as runtime_opportunities,
+                count(distinct cast(floor(({timestamp_expr}) / 60000) as bigint))
+                    as runtime_active_minutes,
+                case
+                    when count(distinct cast(floor(({timestamp_expr}) / 60000) as bigint)) > 0
+                    then count(*)::double
+                        / count(distinct cast(floor(({timestamp_expr}) / 60000) as bigint))
+                    else 0
+                end as runtime_opportunity_density,
+                min({timestamp_expr}) as first_signal_timestamp_ms,
+                max({timestamp_expr}) as last_signal_timestamp_ms,
+                cast(sum(case when is_executable then 1 else 0 end) as bigint)
+                    as executable_opportunities,
                 avg(case when is_executable then 1.0 else 0.0 end) as executable_rate,
-                sum(case when observed_filled then 1 else 0 end) as observed_fills,
+                cast(sum(case when observed_filled then 1 else 0 end) as bigint)
+                    as observed_fills,
                 avg(case when observed_filled then 1.0 else 0.0 end) as observed_fill_rate,
-                sum(case when synthetic_filled then 1 else 0 end) as synthetic_fills,
+                cast(sum(case when synthetic_filled then 1 else 0 end) as bigint)
+                    as synthetic_fills,
                 avg(case when synthetic_filled then 1.0 else 0.0 end) as synthetic_fill_rate,
                 avg(expected_edge) as avg_expected_edge,
                 avg(available_depth) as avg_available_depth,
@@ -205,12 +268,16 @@ def create_segment_opportunity_ranking_views(
                         + coalesce(executable_rate, 0) * 1.5
                         + least(greatest(coalesce(avg_expected_edge, 0), 0) * 10.0, 1.0)
                         + least(coalesce(avg_available_depth, 0) / 100.0, 1.0) * 0.25
+                        + least(coalesce(runtime_active_minutes, 0) / 10.0, 1.0) * 0.75
+                        + least(coalesce(runtime_opportunity_density, 0) / 10.0, 1.0) * 0.25
                         + coalesce(avg_pnl_30s, 0) * 5.0
                         - greatest(coalesce(synthetic_fill_rate, 0) - coalesce(observed_fill_rate, 0), 0) * 2.0
                         - coalesce(adverse_30s_rate, 0) * 2.0
                     ) as opportunity_score,
                     case
                         when executable_opportunities < {config.min_executable_opportunities}
+                        then 'KEEP_DIAGNOSTIC'
+                        when runtime_active_minutes < {config.min_runtime_active_minutes}
                         then 'KEEP_DIAGNOSTIC'
                         when coalesce(avg_available_depth, 0) < {config.min_avg_available_depth}
                         then 'KEEP_DIAGNOSTIC'
@@ -228,6 +295,22 @@ def create_segment_opportunity_ranking_views(
             )
             """
         )
+        backfill_sql = ""
+        if config.runtime_activity_backfill:
+            backfill_sql = f"""
+                union all
+                select
+                    *,
+                    'RUNTIME_ACTIVITY_BACKFILL' as allowed_reason
+                from ranked_with_key
+                where recommendation = 'KEEP_DIAGNOSTIC'
+                  and runtime_opportunities >= {config.runtime_backfill_min_opportunities}
+                  and runtime_active_minutes >= {config.runtime_backfill_min_active_minutes}
+                  and segment_key not in (
+                    select segment_key
+                    from promoted_segments
+                  )
+            """
         conn.execute(
             f"""
             create or replace view selected_segment_opportunities as
@@ -235,6 +318,43 @@ def create_segment_opportunity_ranking_views(
             from segment_opportunity_ranking
             where recommendation = 'PROMOTE_TO_OBSERVATION'
             order by rank
+            limit {config.limit}
+            """
+        )
+        conn.execute(
+            f"""
+            create or replace view allowed_segment_candidates as
+            with ranked_with_key as (
+                select
+                    *,
+                    market_id || '|' || asset_id || '|' || side || '|' || strategy || '|' || model_version
+                        as segment_key
+                from segment_opportunity_ranking
+            ),
+            promoted_segments as (
+                select
+                    *,
+                    'PROMOTE_TO_OBSERVATION' as allowed_reason
+                from ranked_with_key
+                where recommendation = 'PROMOTE_TO_OBSERVATION'
+            ),
+            candidate_segments as (
+                select *
+                from promoted_segments
+                {backfill_sql}
+            )
+            select *
+            from candidate_segments
+            order by
+                case allowed_reason
+                    when 'PROMOTE_TO_OBSERVATION' then 1
+                    when 'RUNTIME_ACTIVITY_BACKFILL' then 2
+                    else 3
+                end,
+                opportunity_score desc,
+                runtime_active_minutes desc,
+                runtime_opportunities desc,
+                rank
             limit {config.limit}
             """
         )
@@ -255,7 +375,7 @@ def allowed_segments_payload(
                 "model_version": None,
                 "spread_bucket": row.get("spread_bucket"),
                 "timing_bucket": row.get("timing_bucket"),
-                "reason": "executable_opportunity_segment",
+                "reason": row.get("allowed_reason") or "executable_opportunity_segment",
             }
         )
     return {
@@ -274,6 +394,18 @@ def segment_key(row: dict[str, object]) -> str:
         str(row.get(key) or "")
         for key in ("market_id", "asset_id", "side", "strategy", "model_version")
     )
+
+
+def executable_opportunity_timestamp_expr(conn: duckdb.DuckDBPyConnection) -> str:
+    columns = {
+        str(row[1])
+        for row in conn.execute("pragma table_info('executable_opportunities')").fetchall()
+    }
+    if "signal_timestamp_ms" in columns:
+        return "signal_timestamp_ms"
+    if "event_timestamp_ms" in columns:
+        return "event_timestamp_ms"
+    return "0"
 
 
 def copy_views(
@@ -336,6 +468,25 @@ def main() -> int:
         type=float,
         default=SegmentOpportunityRankingConfig.max_synthetic_observed_gap,
     )
+    parser.add_argument(
+        "--min-runtime-active-minutes",
+        type=int,
+        default=SegmentOpportunityRankingConfig.min_runtime_active_minutes,
+    )
+    parser.add_argument(
+        "--runtime-activity-backfill",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--runtime-backfill-min-opportunities",
+        type=int,
+        default=SegmentOpportunityRankingConfig.runtime_backfill_min_opportunities,
+    )
+    parser.add_argument(
+        "--runtime-backfill-min-active-minutes",
+        type=int,
+        default=SegmentOpportunityRankingConfig.runtime_backfill_min_active_minutes,
+    )
     parser.add_argument("--limit", type=int, default=SegmentOpportunityRankingConfig.limit)
     args = parser.parse_args()
     report = create_segment_opportunity_ranking_report(
@@ -345,8 +496,12 @@ def main() -> int:
             min_executable_opportunities=args.min_executable_opportunities,
             min_avg_expected_edge=args.min_avg_expected_edge,
             min_avg_available_depth=args.min_avg_available_depth,
+            min_runtime_active_minutes=args.min_runtime_active_minutes,
             max_adverse_30s_rate=args.max_adverse_30s_rate,
             max_synthetic_observed_gap=args.max_synthetic_observed_gap,
+            runtime_activity_backfill=args.runtime_activity_backfill,
+            runtime_backfill_min_opportunities=args.runtime_backfill_min_opportunities,
+            runtime_backfill_min_active_minutes=args.runtime_backfill_min_active_minutes,
             limit=args.limit,
         ),
     )

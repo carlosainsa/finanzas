@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import duckdb
+
+
 def test_segment_opportunity_ranking_prefers_executable_opportunities(
     tmp_path: Path,
 ) -> None:
@@ -32,6 +34,7 @@ def test_segment_opportunity_ranking_prefers_executable_opportunities(
     counts = cast(dict[str, Any], report["counts"])
     assert counts["ranked_segments"] == 3
     assert counts["selected_segments"] == 1
+    assert counts["allowed_segments"] == 1
 
     selected = cast(list[dict[str, Any]], report["selected"])
     assert selected == [
@@ -47,6 +50,9 @@ def test_segment_opportunity_ranking_prefers_executable_opportunities(
             "executable_opportunities": 3,
             "avg_expected_edge": 0.04,
             "avg_available_depth": 50.0,
+            "runtime_opportunities": 3,
+            "runtime_active_minutes": 1,
+            "runtime_opportunity_density": 3.0,
             "observed_fill_rate": 1.0,
             "synthetic_fill_rate": 1.0,
             "synthetic_observed_gap": 0.0,
@@ -55,13 +61,54 @@ def test_segment_opportunity_ranking_prefers_executable_opportunities(
             "recommendation": "PROMOTE_TO_OBSERVATION",
         }
     ]
+    allowed = cast(list[dict[str, Any]], report["allowed"])
+    assert allowed[0]["allowed_reason"] == "PROMOTE_TO_OBSERVATION"
     assert report["selected_segment_keys"] == [
+        "m1|asset-executable|BUY|near_touch|research-model"
+    ]
+    assert report["allowed_segment_keys"] == [
         "m1|asset-executable|BUY|near_touch|research-model"
     ]
     assert (output_dir / "segment_opportunity_ranking.parquet").exists()
     assert (output_dir / "selected_segment_opportunities.parquet").exists()
+    assert (output_dir / "allowed_segment_candidates.parquet").exists()
     assert (output_dir / "allowed_segments.json").exists()
     assert (output_dir / "segment_opportunity_ranking.json").exists()
+
+
+def test_segment_opportunity_ranking_backfills_runtime_active_segments(
+    tmp_path: Path,
+) -> None:
+    from src.research.segment_opportunity_ranking import (
+        SegmentOpportunityRankingConfig,
+        create_segment_opportunity_ranking_report,
+    )
+
+    db_path = seed_runtime_activity_backfill_db(tmp_path)
+
+    report = create_segment_opportunity_ranking_report(
+        db_path,
+        tmp_path / "segment_opportunity_ranking",
+        SegmentOpportunityRankingConfig(
+            min_executable_opportunities=2,
+            min_avg_expected_edge=0.01,
+            min_avg_available_depth=20.0,
+            min_runtime_active_minutes=2,
+            runtime_activity_backfill=True,
+            runtime_backfill_min_opportunities=3,
+            runtime_backfill_min_active_minutes=2,
+            limit=3,
+        ),
+    )
+
+    counts = cast(dict[str, Any], report["counts"])
+    assert counts["selected_segments"] == 0
+    assert counts["allowed_segments"] == 1
+    allowed = cast(list[dict[str, Any]], report["allowed"])
+    assert allowed[0]["asset_id"] == "asset-active-diagnostic"
+    assert allowed[0]["recommendation"] == "KEEP_DIAGNOSTIC"
+    assert allowed[0]["allowed_reason"] == "RUNTIME_ACTIVITY_BACKFILL"
+    assert allowed[0]["runtime_active_minutes"] == 3
 
 
 def seed_executable_opportunity_db(tmp_path: Path) -> Path:
@@ -229,5 +276,153 @@ def seed_executable_opportunity_db(tmp_path: Path) -> Path:
                     False,
                 ),
             ],
+        )
+    return db_path
+
+
+def seed_runtime_activity_backfill_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "research.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table executable_opportunities (
+                signal_id varchar,
+                market_id varchar,
+                asset_id varchar,
+                side varchar,
+                strategy varchar,
+                model_version varchar,
+                feature_version varchar,
+                event_timestamp_ms bigint,
+                spread_bucket varchar,
+                timing_bucket varchar,
+                expected_edge double,
+                available_depth double,
+                observed_filled boolean,
+                synthetic_filled boolean,
+                observed_fill_rate double,
+                synthetic_fill_rate double,
+                pnl_30s double,
+                adverse_30s double,
+                executable_score double,
+                is_executable boolean
+            )
+            """
+        )
+        rows = [
+            (
+                "strict-1",
+                "m-strict",
+                "asset-strict-sparse",
+                "BUY",
+                "near_touch",
+                "research-model",
+                "features",
+                1_000,
+                "250_500bps",
+                "stable",
+                0.05,
+                50.0,
+                True,
+                True,
+                1.0,
+                1.0,
+                0.02,
+                0.0,
+                2.0,
+                True,
+            ),
+            (
+                "strict-2",
+                "m-strict",
+                "asset-strict-sparse",
+                "BUY",
+                "near_touch",
+                "research-model",
+                "features",
+                2_000,
+                "250_500bps",
+                "stable",
+                0.05,
+                50.0,
+                True,
+                True,
+                1.0,
+                1.0,
+                0.02,
+                0.0,
+                2.0,
+                True,
+            ),
+            (
+                "active-1",
+                "m-active",
+                "asset-active-diagnostic",
+                "BUY",
+                "near_touch",
+                "research-model",
+                "features",
+                1_000,
+                "250_500bps",
+                "stable",
+                0.005,
+                50.0,
+                True,
+                True,
+                1.0,
+                1.0,
+                0.01,
+                0.0,
+                2.0,
+                True,
+            ),
+            (
+                "active-2",
+                "m-active",
+                "asset-active-diagnostic",
+                "BUY",
+                "near_touch",
+                "research-model",
+                "features",
+                61_000,
+                "250_500bps",
+                "stable",
+                0.006,
+                50.0,
+                True,
+                True,
+                1.0,
+                1.0,
+                0.01,
+                0.0,
+                2.0,
+                True,
+            ),
+            (
+                "active-3",
+                "m-active",
+                "asset-active-diagnostic",
+                "BUY",
+                "near_touch",
+                "research-model",
+                "features",
+                121_000,
+                "250_500bps",
+                "stable",
+                0.007,
+                50.0,
+                True,
+                True,
+                1.0,
+                1.0,
+                0.01,
+                0.0,
+                2.0,
+                True,
+            ),
+        ]
+        conn.executemany(
+            "insert into executable_opportunities values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
         )
     return db_path

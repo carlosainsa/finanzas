@@ -599,6 +599,10 @@ def test_execution_probe_v10_cycle_print_plan_uses_executable_segments(
     assert plan["profile"] == "execution_probe_v10"
     assert plan["selection_source"] == "executable_segments"
     assert plan["toxicity_filter"] == "none"
+    assert plan["runtime_activity_backfill"] is True
+    assert plan["min_runtime_active_minutes"] == 1
+    assert plan["runtime_backfill_min_opportunities"] == 3
+    assert plan["runtime_backfill_min_active_minutes"] == 2
     assert "scripts/run_execution_probe_v10_observation.sh" in plan["delegates_to"]
     assert "segment_opportunity_ranking.json" in plan["outputs"][
         "segment_opportunity_ranking"

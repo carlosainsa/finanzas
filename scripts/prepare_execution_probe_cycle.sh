@@ -20,10 +20,14 @@ MAX_ADVERSE_30S_RATE="${EXECUTION_PROBE_MAX_ADVERSE_30S_RATE:-0.50}"
 MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
 TOXICITY_FILTER="${EXECUTION_PROBE_TOXICITY_FILTER:-none}"
 MIN_TOXICITY_FILLED_EVENTS="${EXECUTION_PROBE_MIN_TOXICITY_FILLED_EVENTS:-3}"
+MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-1}"
+RUNTIME_ACTIVITY_BACKFILL="${EXECUTION_PROBE_RUNTIME_ACTIVITY_BACKFILL:-false}"
+RUNTIME_BACKFILL_MIN_OPPORTUNITIES="${EXECUTION_PROBE_RUNTIME_BACKFILL_MIN_OPPORTUNITIES:-3}"
+RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES="${EXECUTION_PROBE_RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES:-2}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability|executable_segments] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment]
+Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability|executable_segments] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment] [--runtime-activity-backfill]
 
 Prepares a repeatable execution-probe cycle without starting services:
 market universe selection -> observation command plan -> optional baseline compare
@@ -97,6 +101,26 @@ while [[ $# -gt 0 ]]; do
       MIN_TOXICITY_FILLED_EVENTS="$2"
       shift 2
       ;;
+    --min-runtime-active-minutes)
+      MIN_RUNTIME_ACTIVE_MINUTES="$2"
+      shift 2
+      ;;
+    --runtime-activity-backfill)
+      RUNTIME_ACTIVITY_BACKFILL="true"
+      shift
+      ;;
+    --no-runtime-activity-backfill)
+      RUNTIME_ACTIVITY_BACKFILL="false"
+      shift
+      ;;
+    --runtime-backfill-min-opportunities)
+      RUNTIME_BACKFILL_MIN_OPPORTUNITIES="$2"
+      shift 2
+      ;;
+    --runtime-backfill-min-active-minutes)
+      RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -137,6 +161,22 @@ if [[ "$TOXICITY_FILTER" != "none" && "$TOXICITY_FILTER" != "segment" ]]; then
   echo "toxicity filter must be none or segment" >&2
   exit 64
 fi
+if ! [[ "$MIN_RUNTIME_ACTIVE_MINUTES" =~ ^[0-9]+$ ]] || (( MIN_RUNTIME_ACTIVE_MINUTES <= 0 )); then
+  echo "min runtime active minutes must be a positive integer" >&2
+  exit 64
+fi
+if [[ "$RUNTIME_ACTIVITY_BACKFILL" != "true" && "$RUNTIME_ACTIVITY_BACKFILL" != "false" && "$RUNTIME_ACTIVITY_BACKFILL" != "1" && "$RUNTIME_ACTIVITY_BACKFILL" != "0" ]]; then
+  echo "runtime activity backfill must be true, false, 1, or 0" >&2
+  exit 64
+fi
+if ! [[ "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES" =~ ^[0-9]+$ ]] || (( RUNTIME_BACKFILL_MIN_OPPORTUNITIES <= 0 )); then
+  echo "runtime backfill min opportunities must be a positive integer" >&2
+  exit 64
+fi
+if ! [[ "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES" =~ ^[0-9]+$ ]] || (( RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES <= 0 )); then
+  echo "runtime backfill min active minutes must be a positive integer" >&2
+  exit 64
+fi
 
 mkdir -p "$RUN_ROOT"
 
@@ -155,7 +195,13 @@ UNIVERSE_SELECTION_ARGS=(
   --min-adverse-filled-events "$MIN_ADVERSE_FILLED_EVENTS"
   --toxicity-filter "$TOXICITY_FILTER"
   --min-toxicity-filled-events "$MIN_TOXICITY_FILLED_EVENTS"
+  --min-runtime-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES"
+  --runtime-backfill-min-opportunities "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES"
+  --runtime-backfill-min-active-minutes "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES"
 )
+if [[ "$RUNTIME_ACTIVITY_BACKFILL" == "true" || "$RUNTIME_ACTIVITY_BACKFILL" == "1" ]]; then
+  UNIVERSE_SELECTION_ARGS+=(--runtime-activity-backfill)
+fi
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_SELECTION_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
 fi
@@ -192,6 +238,10 @@ OBSERVATION_COMMAND=(
   printf 'min_adverse_filled_events=%s\n' "$MIN_ADVERSE_FILLED_EVENTS"
   printf 'toxicity_filter=%s\n' "$TOXICITY_FILTER"
   printf 'min_toxicity_filled_events=%s\n' "$MIN_TOXICITY_FILLED_EVENTS"
+  printf 'min_runtime_active_minutes=%s\n' "$MIN_RUNTIME_ACTIVE_MINUTES"
+  printf 'runtime_activity_backfill=%s\n' "$RUNTIME_ACTIVITY_BACKFILL"
+  printf 'runtime_backfill_min_opportunities=%s\n' "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES"
+  printf 'runtime_backfill_min_active_minutes=%s\n' "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES"
   printf 'toxicity_filter_input_report_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/fill_toxicity.json"
   printf 'toxicity_filter_input_blocklist_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/blocked_segments.json"
   printf 'universe_toxicity_quality_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_toxicity_quality.parquet"

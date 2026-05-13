@@ -64,6 +64,10 @@ class ExecutionProbeUniverseConfig:
     min_adverse_filled_events: int = 10
     toxicity_filter: str = "none"
     min_toxicity_filled_events: int = 3
+    min_runtime_active_minutes: int = 1
+    runtime_activity_backfill: bool = False
+    runtime_backfill_min_opportunities: int = 3
+    runtime_backfill_min_active_minutes: int = 2
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -105,6 +109,12 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("min_adverse_filled_events must be positive")
         if self.min_toxicity_filled_events <= 0:
             raise ValueError("min_toxicity_filled_events must be positive")
+        if self.min_runtime_active_minutes <= 0:
+            raise ValueError("min_runtime_active_minutes must be positive")
+        if self.runtime_backfill_min_opportunities <= 0:
+            raise ValueError("runtime_backfill_min_opportunities must be positive")
+        if self.runtime_backfill_min_active_minutes <= 0:
+            raise ValueError("runtime_backfill_min_active_minutes must be positive")
         if (
             self.min_avg_opportunity_spread is not None
             and self.min_avg_opportunity_spread < 0
@@ -816,7 +826,16 @@ def create_segment_opportunity_inputs(
     return create_segment_opportunity_ranking_report(
         db_path,
         output_dir / "segment_opportunity_ranking",
-        SegmentOpportunityRankingConfig(limit=max(config.limit, config.min_assets)),
+        SegmentOpportunityRankingConfig(
+            min_runtime_active_minutes=config.min_runtime_active_minutes,
+            runtime_activity_backfill=(
+                config.runtime_activity_backfill
+                or config.profile == "execution_probe_v10"
+            ),
+            runtime_backfill_min_opportunities=config.runtime_backfill_min_opportunities,
+            runtime_backfill_min_active_minutes=config.runtime_backfill_min_active_minutes,
+            limit=max(config.limit, config.min_assets),
+        ),
     )
 
 
@@ -824,7 +843,7 @@ def select_executable_segment_universe(
     conn: duckdb.DuckDBPyConnection,
     config: ExecutionProbeUniverseConfig,
 ) -> pd.DataFrame:
-    if not relation_exists(conn, "selected_segment_opportunities"):
+    if not relation_exists(conn, "allowed_segment_candidates"):
         return pd.DataFrame()
     return conn.execute(
         f"""
@@ -841,16 +860,20 @@ def select_executable_segment_universe(
             synthetic_observed_gap,
             avg_expected_edge,
             avg_available_depth,
+            runtime_opportunities,
+            runtime_active_minutes,
+            runtime_opportunity_density,
             adverse_30s_rate,
             avg_pnl_30s,
             opportunity_score as execution_quality_score,
             spread_bucket,
             timing_bucket,
             recommendation,
-            executable_opportunities as timing_signals,
+            allowed_reason,
+            runtime_opportunities as timing_signals,
             'primary' as selection_tier,
             null::varchar as fallback_reason
-        from selected_segment_opportunities
+        from allowed_segment_candidates
         order by rank
         limit {config.limit}
         """
@@ -922,9 +945,29 @@ def segment_opportunity_payload(
     return {
         "enabled": report is not None,
         "mode": "executable_segments" if report is not None else "none",
-        "source_relation": "selected_segment_opportunities",
+        "source_relation": "allowed_segment_candidates",
         "selected_segments": (
             typed_count(report.get("counts"), "selected_segments")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "allowed_segments": (
+            typed_count(report.get("counts"), "allowed_segments")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "runtime_activity_backfill": (
+            typed_config_bool(report.get("config"), "runtime_activity_backfill")
+            if isinstance(report, dict)
+            else False
+        ),
+        "runtime_backfill_min_opportunities": (
+            typed_config_int(report.get("config"), "runtime_backfill_min_opportunities")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "runtime_backfill_min_active_minutes": (
+            typed_config_int(report.get("config"), "runtime_backfill_min_active_minutes")
             if isinstance(report, dict)
             else 0
         ),
@@ -941,6 +984,19 @@ def typed_count(value: object, key: str) -> int:
         return 0
     item = value.get(key)
     return int(item) if isinstance(item, (int, float)) else 0
+
+
+def typed_config_int(value: object, key: str) -> int:
+    if not isinstance(value, dict):
+        return 0
+    item = value.get(key)
+    return int(item) if isinstance(item, (int, float)) else 0
+
+
+def typed_config_bool(value: object, key: str) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return value.get(key) is True
 
 
 def selection_reason(
@@ -1062,6 +1118,22 @@ def main() -> int:
         default=ExecutionProbeUniverseConfig.min_toxicity_filled_events,
     )
     parser.add_argument(
+        "--min-runtime-active-minutes",
+        type=int,
+        default=ExecutionProbeUniverseConfig.min_runtime_active_minutes,
+    )
+    parser.add_argument("--runtime-activity-backfill", action="store_true")
+    parser.add_argument(
+        "--runtime-backfill-min-opportunities",
+        type=int,
+        default=ExecutionProbeUniverseConfig.runtime_backfill_min_opportunities,
+    )
+    parser.add_argument(
+        "--runtime-backfill-min-active-minutes",
+        type=int,
+        default=ExecutionProbeUniverseConfig.runtime_backfill_min_active_minutes,
+    )
+    parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
         help="Comma-separated candidate_market_ranking recommendations to include.",
@@ -1086,6 +1158,10 @@ def main() -> int:
             min_adverse_filled_events=args.min_adverse_filled_events,
             toxicity_filter=args.toxicity_filter,
             min_toxicity_filled_events=args.min_toxicity_filled_events,
+            min_runtime_active_minutes=args.min_runtime_active_minutes,
+            runtime_activity_backfill=args.runtime_activity_backfill,
+            runtime_backfill_min_opportunities=args.runtime_backfill_min_opportunities,
+            runtime_backfill_min_active_minutes=args.runtime_backfill_min_active_minutes,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

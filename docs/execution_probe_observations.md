@@ -17,9 +17,15 @@ Planned differences from v9:
   synthetic touch, depth, spread, timing, and markout context.
 - offline `segment_opportunity_ranking_v1` promotes only segments with
   sufficient executable opportunities, edge, depth, low synthetic optimism, and
-  acceptable adverse selection.
+  acceptable adverse selection, and now scores runtime coverage with
+  `runtime_opportunities` / `runtime_active_minutes` so offline-good segments
+  that never appear at runtime do not dominate the allowlist.
 - runtime v10 loads `allowed_segments_v1` and rejects snapshots outside the
   selected market/asset/side/spread/timing buckets.
+- `allowed_segment_candidates` may include
+  `allowed_reason=RUNTIME_ACTIVITY_BACKFILL` rows when they have runtime
+  activity but were not selected by the strict offline executable ranking. These
+  are coverage candidates for dry-run observation, not live permissions.
 - `scripts/run_execution_probe_v10_cycle.sh` defaults to
   `selection_source=executable_segments` and `EXECUTION_MODE=dry_run`.
 
@@ -131,6 +137,11 @@ Decision:
   observation.
 - The next v10 improvement should add an activity-aware selector or widen the
   allowlist with explicit runtime-coverage evidence before repeating.
+- Follow-up implementation note: ranking and universe selection should use
+  `runtime_opportunities` and `runtime_active_minutes`; the selector may add
+  `RUNTIME_ACTIVITY_BACKFILL` candidates to avoid choosing universes that looked
+  executable offline but had no live market activity during the probe window.
+  Live remains blocked.
 
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 

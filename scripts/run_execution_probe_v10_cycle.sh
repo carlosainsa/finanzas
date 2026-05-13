@@ -26,10 +26,14 @@ MAX_ADVERSE_30S_RATE="${EXECUTION_PROBE_MAX_ADVERSE_30S_RATE:-0.50}"
 MIN_ADVERSE_FILLED_EVENTS="${EXECUTION_PROBE_MIN_ADVERSE_FILLED_EVENTS:-10}"
 TOXICITY_FILTER="${EXECUTION_PROBE_TOXICITY_FILTER:-none}"
 MIN_TOXICITY_FILLED_EVENTS="${EXECUTION_PROBE_MIN_TOXICITY_FILLED_EVENTS:-3}"
+MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-1}"
+RUNTIME_ACTIVITY_BACKFILL="${EXECUTION_PROBE_RUNTIME_ACTIVITY_BACKFILL:-true}"
+RUNTIME_BACKFILL_MIN_OPPORTUNITIES="${EXECUTION_PROBE_RUNTIME_BACKFILL_MIN_OPPORTUNITIES:-3}"
+RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES="${EXECUTION_PROBE_RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES:-2}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_execution_probe_v10_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--comparison-report-roots CSV] [--duration-seconds N] [--universe-selection-source executable_segments|fillability|candidate_market_ranking] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment] [--print-plan]
+Usage: scripts/run_execution_probe_v10_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--comparison-report-roots CSV] [--duration-seconds N] [--universe-selection-source executable_segments|fillability|candidate_market_ranking] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment] [--runtime-activity-backfill|--no-runtime-activity-backfill] [--print-plan]
 
 Runs the full execution_probe_v10 research cycle:
 executable segment ranking -> allowlisted dry-run observation -> profile comparison -> next decision.
@@ -107,6 +111,26 @@ while [[ $# -gt 0 ]]; do
       MIN_TOXICITY_FILLED_EVENTS="$2"
       shift 2
       ;;
+    --min-runtime-active-minutes)
+      MIN_RUNTIME_ACTIVE_MINUTES="$2"
+      shift 2
+      ;;
+    --runtime-activity-backfill)
+      RUNTIME_ACTIVITY_BACKFILL="true"
+      shift
+      ;;
+    --no-runtime-activity-backfill)
+      RUNTIME_ACTIVITY_BACKFILL="false"
+      shift
+      ;;
+    --runtime-backfill-min-opportunities)
+      RUNTIME_BACKFILL_MIN_OPPORTUNITIES="$2"
+      shift 2
+      ;;
+    --runtime-backfill-min-active-minutes)
+      RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES="$2"
+      shift 2
+      ;;
     --print-plan)
       PRINT_PLAN=1
       shift
@@ -164,6 +188,22 @@ if [[ "$TOXICITY_FILTER" != "none" && "$TOXICITY_FILTER" != "segment" ]]; then
   echo "toxicity filter must be none or segment" >&2
   exit 64
 fi
+if ! [[ "$MIN_RUNTIME_ACTIVE_MINUTES" =~ ^[0-9]+$ ]] || (( MIN_RUNTIME_ACTIVE_MINUTES <= 0 )); then
+  echo "min runtime active minutes must be a positive integer" >&2
+  exit 64
+fi
+if [[ "$RUNTIME_ACTIVITY_BACKFILL" != "true" && "$RUNTIME_ACTIVITY_BACKFILL" != "false" && "$RUNTIME_ACTIVITY_BACKFILL" != "1" && "$RUNTIME_ACTIVITY_BACKFILL" != "0" ]]; then
+  echo "runtime activity backfill must be true, false, 1, or 0" >&2
+  exit 64
+fi
+if ! [[ "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES" =~ ^[0-9]+$ ]] || (( RUNTIME_BACKFILL_MIN_OPPORTUNITIES <= 0 )); then
+  echo "runtime backfill min opportunities must be a positive integer" >&2
+  exit 64
+fi
+if ! [[ "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES" =~ ^[0-9]+$ ]] || (( RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES <= 0 )); then
+  echo "runtime backfill min active minutes must be a positive integer" >&2
+  exit 64
+fi
 
 UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json"
 OBSERVATION_COMMAND=(
@@ -173,7 +213,7 @@ OBSERVATION_COMMAND=(
 )
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$COMPARISON_REPORT_ROOTS" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" "$TOXICITY_FILTER" "$MIN_TOXICITY_FILLED_EVENTS" <<'PY'
+  python3 - "$UNIVERSE_DUCKDB" "$BASELINE_REPORT_ROOT" "$COMPARISON_REPORT_ROOTS" "$RUN_ROOT" "$REPORT_TIMESTAMP" "$DATA_LAKE_ROOT" "$REPORT_ROOT" "$MANIFEST_ROOT" "$DURATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$MARKET_TIMING_FILTER" "$MIN_FUTURE_TOUCH_RATE" "$MIN_TIMING_SIGNALS" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SELECTION_SOURCE" "$ADVERSE_SELECTION_FILTER" "$MAX_ADVERSE_30S_RATE" "$MIN_ADVERSE_FILLED_EVENTS" "$TOXICITY_FILTER" "$MIN_TOXICITY_FILLED_EVENTS" "$MIN_RUNTIME_ACTIVE_MINUTES" "$RUNTIME_ACTIVITY_BACKFILL" "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES" "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES" <<'PY'
 import json
 import sys
 
@@ -201,6 +241,10 @@ import sys
     min_adverse_filled_events,
     toxicity_filter,
     min_toxicity_filled_events,
+    min_runtime_active_minutes,
+    runtime_activity_backfill,
+    runtime_backfill_min_opportunities,
+    runtime_backfill_min_active_minutes,
 ) = sys.argv[1:]
 comparison_roots = [
     item.strip()
@@ -237,6 +281,10 @@ print(json.dumps({
     "min_adverse_filled_events": int(min_adverse_filled_events),
     "toxicity_filter": toxicity_filter,
     "min_toxicity_filled_events": int(min_toxicity_filled_events),
+    "min_runtime_active_minutes": int(min_runtime_active_minutes),
+    "runtime_activity_backfill": runtime_activity_backfill in {"1", "true"},
+    "runtime_backfill_min_opportunities": int(runtime_backfill_min_opportunities),
+    "runtime_backfill_min_active_minutes": int(runtime_backfill_min_active_minutes),
     "universe_selection_path": universe_selection_path,
     "delegates_to": [
         "scripts/prepare_execution_probe_cycle.sh",
@@ -283,7 +331,13 @@ PREPARE_ARGS=(
   --min-adverse-filled-events "$MIN_ADVERSE_FILLED_EVENTS"
   --toxicity-filter "$TOXICITY_FILTER"
   --min-toxicity-filled-events "$MIN_TOXICITY_FILLED_EVENTS"
+  --min-runtime-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES"
+  --runtime-backfill-min-opportunities "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES"
+  --runtime-backfill-min-active-minutes "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES"
 )
+if [[ "$RUNTIME_ACTIVITY_BACKFILL" == "true" || "$RUNTIME_ACTIVITY_BACKFILL" == "1" ]]; then
+  PREPARE_ARGS+=(--runtime-activity-backfill)
+fi
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   PREPARE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
 fi

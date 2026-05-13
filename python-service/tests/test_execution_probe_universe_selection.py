@@ -122,13 +122,46 @@ def test_execution_probe_universe_selection_supports_v10_executable_segments(
     assert report["market_asset_ids"] == ["asset-executable"]
     segment_filter = cast(dict[str, Any], report["segment_opportunity_filter"])
     assert segment_filter["enabled"] is True
+    assert segment_filter["source_relation"] == "allowed_segment_candidates"
     assert segment_filter["selected_segments"] == 1
+    assert segment_filter["allowed_segments"] == 1
+    assert segment_filter["runtime_activity_backfill"] is True
     assert (
         tmp_path
         / "universe"
         / "segment_opportunity_ranking"
         / "allowed_segments.json"
     ).exists()
+
+
+def test_execution_probe_universe_selection_backfills_runtime_active_segments(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_activity_segment_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v10",
+            selection_source="executable_segments",
+            min_runtime_active_minutes=2,
+            runtime_activity_backfill=True,
+            runtime_backfill_min_opportunities=3,
+            runtime_backfill_min_active_minutes=2,
+            limit=3,
+            min_assets=1,
+        ),
+    )
+
+    assert report["status"] == "ready"
+    assert report["market_asset_ids"] == ["asset-active-diagnostic"]
+    segment_filter = cast(dict[str, Any], report["segment_opportunity_filter"])
+    assert segment_filter["selected_segments"] == 0
+    assert segment_filter["allowed_segments"] == 1
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert selected[0]["allowed_reason"] == "RUNTIME_ACTIVITY_BACKFILL"
+    assert selected[0]["runtime_active_minutes"] == 3
 
 
 def test_execution_probe_universe_selection_filters_by_future_touch_timing(
@@ -972,6 +1005,153 @@ def seed_executable_segment_universe_db(tmp_path: Path) -> Path:
                     "250_500bps",
                     "stable",
                     0.04,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+            ],
+        )
+    return db_path
+
+
+def seed_runtime_activity_segment_universe_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "research.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table executable_opportunities (
+                signal_id varchar,
+                market_id varchar,
+                asset_id varchar,
+                side varchar,
+                strategy varchar,
+                model_version varchar,
+                feature_version varchar,
+                signal_timestamp_ms bigint,
+                spread_bucket varchar,
+                timing_bucket varchar,
+                expected_edge double,
+                available_depth double,
+                observed_filled boolean,
+                synthetic_filled boolean,
+                observed_fill_rate double,
+                synthetic_fill_rate double,
+                pnl_30s double,
+                adverse_30s double,
+                executable_score double,
+                is_executable boolean
+            )
+            """
+        )
+        conn.executemany(
+            "insert into executable_opportunities values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "strict-1",
+                    "market-strict",
+                    "asset-strict-sparse",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    1_000,
+                    "250_500bps",
+                    "stable",
+                    0.04,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "strict-2",
+                    "market-strict",
+                    "asset-strict-sparse",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    2_000,
+                    "250_500bps",
+                    "stable",
+                    0.04,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "active-1",
+                    "market-active",
+                    "asset-active-diagnostic",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    1_000,
+                    "250_500bps",
+                    "stable",
+                    0.005,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "active-2",
+                    "market-active",
+                    "asset-active-diagnostic",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    61_000,
+                    "250_500bps",
+                    "stable",
+                    0.006,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "active-3",
+                    "market-active",
+                    "asset-active-diagnostic",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    121_000,
+                    "250_500bps",
+                    "stable",
+                    0.007,
                     50.0,
                     True,
                     True,
