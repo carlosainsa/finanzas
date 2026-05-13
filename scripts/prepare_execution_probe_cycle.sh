@@ -148,8 +148,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" && "$PROFILE" != "execution_probe_v8" && "$PROFILE" != "execution_probe_v9" && "$PROFILE" != "execution_probe_v10" && "$PROFILE" != "execution_probe_v11" ]]; then
-  echo "Only PROFILE=execution_probe_v6, PROFILE=execution_probe_v7, PROFILE=execution_probe_v8, PROFILE=execution_probe_v9, PROFILE=execution_probe_v10, or PROFILE=execution_probe_v11 is supported by this cycle preparer." >&2
+if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" && "$PROFILE" != "execution_probe_v8" && "$PROFILE" != "execution_probe_v9" && "$PROFILE" != "execution_probe_v10" && "$PROFILE" != "execution_probe_v11" && "$PROFILE" != "execution_probe_v12" ]]; then
+  echo "Only PROFILE=execution_probe_v6, PROFILE=execution_probe_v7, PROFILE=execution_probe_v8, PROFILE=execution_probe_v9, PROFILE=execution_probe_v10, PROFILE=execution_probe_v11, or PROFILE=execution_probe_v12 is supported by this cycle preparer." >&2
   exit 64
 fi
 if [[ -z "$UNIVERSE_DUCKDB" || ! -f "$UNIVERSE_DUCKDB" ]]; then

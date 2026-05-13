@@ -103,6 +103,25 @@ def test_next_decision_changes_market_or_timing_when_future_books_never_touch() 
     assert timing["decision"] == "NOT_EVALUATED"
 
 
+def test_next_decision_routes_v11_no_fill_to_v12_ab_probe() -> None:
+    report = decide_execution_probe_next_step(
+        comparison_with_candidate(
+            profile="execution_probe_v11",
+            signals=400,
+            filled_signals=0,
+            observed_fill_rate=0.0,
+            synthetic_fill_rate=0.0,
+            no_fill_future_touch_rate=0.25,
+        )
+    )
+
+    quote = cast(dict[str, Any], report["quote_aggressiveness_decision"])
+    assert quote["decision"] == "CREATE_V12_AT_TOUCH_RUNTIME_PROBE"
+    next_cycle = cast(dict[str, Any], quote["next_cycle"])
+    assert next_cycle["script"] == "scripts/run_runtime_touch_ab_cycle.sh"
+    assert report["can_promote_live"] is False
+
+
 def test_next_decision_creates_v8_when_v7_orders_stay_one_tick_away() -> None:
     report = decide_execution_probe_next_step(
         comparison_with_candidate(

@@ -153,6 +153,14 @@ class Settings(BaseSettings):
     predictor_execution_probe_v11_min_signal_interval_ms: int = 20_000
     predictor_execution_probe_v11_offset_ticks: int = 0
     predictor_execution_probe_v11_fraction_selection_path: str | None = None
+    predictor_execution_probe_v12_min_confidence: float = 0.57
+    predictor_execution_probe_v12_near_touch_max_spread_fraction: float = 1.0
+    predictor_execution_probe_v12_min_depth: float = 1.5
+    predictor_execution_probe_v12_max_top_changes: int = 2
+    predictor_execution_probe_v12_top_change_window_ms: int = 60_000
+    predictor_execution_probe_v12_min_signal_interval_ms: int = 20_000
+    predictor_execution_probe_v12_offset_ticks: int = 0
+    predictor_execution_probe_v12_fraction_selection_path: str | None = None
     predictor_allowed_segments_path: str | None = None
     predictor_blocked_segments_path: str | None = None
 

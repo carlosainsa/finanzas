@@ -755,6 +755,53 @@ def test_runtime_touch_observation_print_plan_uses_runtime_touch_universe(
     assert plan["real_dry_run_seconds"] == 1800
 
 
+def test_runtime_touch_observation_print_plan_supports_v12(
+    tmp_path: Path,
+) -> None:
+    universe = tmp_path / "execution_probe_universe_selection.json"
+    universe.write_text(
+        json.dumps(
+            {
+                "can_execute_trades": False,
+                "status": "ready",
+                "profile": "execution_probe_v11",
+                "source_report_version": "runtime_touch_ranking_v1",
+                "market_asset_ids": ["asset-1", "asset-2"],
+                "runtime_touch_filter": {
+                    "enabled": True,
+                    "selected_assets": 2,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_observation.sh",
+            "--universe-selection",
+            str(universe),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PREDICTOR_STRATEGY_PROFILE": "execution_probe_v12"},
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_observation.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["predictor_strategy_profile"] == "execution_probe_v12"
+    assert plan["predictor_execution_probe_v12_near_touch_max_spread_fraction"] == 1.0
+    assert plan["signal_rejection_profiles"] == "execution_probe_v12"
+
+
 def test_runtime_touch_cycle_print_plan_is_research_only(tmp_path: Path) -> None:
     fresh_duckdb = tmp_path / "research.duckdb"
     fresh_duckdb.write_bytes(b"placeholder")
@@ -802,6 +849,46 @@ def test_runtime_touch_cycle_print_plan_is_research_only(tmp_path: Path) -> None
     )
     assert 'REAL_DRY_RUN_RESEARCH_MODE="data_lake_only"' in script
     assert 'REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS="${REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS:-1}"' in script
+
+
+def test_runtime_touch_ab_cycle_print_plan_is_research_only(tmp_path: Path) -> None:
+    fresh_duckdb = tmp_path / "research.duckdb"
+    fresh_duckdb.write_bytes(b"placeholder")
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_ab_cycle.sh",
+            "--skip-fresh-capture",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            "--fresh-report-root",
+            str(baseline),
+            "--comparison-report-roots",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_ab_cycle.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["skip_fresh_capture"] is True
+    assert plan["profile_a"] == "execution_probe_v11"
+    assert plan["profile_b"] == "execution_probe_v12"
+    assert "src.research.execution_failure_diagnostics" in plan["delegates_to"]
+    assert "profile_observation_comparison.json" in plan["outputs"][
+        "profile_observation_comparison"
+    ]
 
 
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
