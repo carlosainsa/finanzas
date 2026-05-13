@@ -219,6 +219,34 @@ def test_predictor_v10_rejects_outside_allowed_segment(
     assert decision.rejection_reason == "outside_allowed_segment"
 
 
+def test_predictor_v11_uses_touch_probability_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "predictor_strategy_profile", "execution_probe_v11")
+    monkeypatch.setattr(settings, "predictor_quote_placement", "near_touch")
+    monkeypatch.setattr(settings, "execution_mode", "dry_run")
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "predictor_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v11_min_confidence", 0.50)
+    monkeypatch.setattr(settings, "predictor_execution_probe_v11_min_depth", 1.0)
+    monkeypatch.setattr(
+        settings,
+        "predictor_execution_probe_v11_near_touch_max_spread_fraction",
+        0.90,
+    )
+    monkeypatch.setattr(settings, "predictor_execution_probe_v11_offset_ticks", 0)
+
+    decision = Predictor().evaluate(make_book(0.45, 0.50))
+
+    assert decision.accepted
+    assert decision.signal is not None
+    assert decision.signal.price == 0.495
+    assert (
+        decision.signal.model_version
+        == "passive_spread_capture_execution_probe_near_touch_v11"
+    )
+
+
 def test_predictor_near_touch_quote_is_dry_run_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

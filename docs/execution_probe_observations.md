@@ -4,7 +4,31 @@ This document records operator-level dry-run observations that should inform the
 next execution-probe variant. These entries are research evidence only and never
 authorize live trading.
 
-## Next Variant: execution_probe_v10
+## Current Next Decision After execution_probe_v11
+
+The completed `execution_probe_v11` run confirmed that runtime activity can be
+restored on a touch-probability universe, but selected markets still did not
+produce fills or future-touch evidence. The next change should target fresh
+market/timing selection, not live gates.
+
+V11 differences from v10:
+
+- offline `touch_probability_ranking_v1` ranks assets by observed/future touch
+  probability, observed fill evidence, distance to touch, stale rate, depth,
+  liquidity, and synthetic-vs-observed gap penalty.
+- `execution_probe_universe_selection_v1` supports
+  `selection_source=touch_probability` and records
+  `touch_probability_filter` in the research-only universe payload.
+- runtime uses `execution_probe_v11`, remains `EXECUTION_MODE=dry_run`, and
+  preserves the conservative v10 quote policy while testing whether better
+  market/timing selection can recover fills.
+- `scripts/run_execution_probe_v11_cycle.sh` defaults to 60 minutes,
+  `selection_source=touch_probability`, and `market_timing_filter=future_touch`.
+
+Promotion remains blocked. The next candidate should use fresh runtime touch
+evidence or current-market activity before any global quote-aggression change.
+
+## Prior Variant: execution_probe_v10
 
 `execution_probe_v10` is the next research-only variant after the corrected
 v9 toxicity filter proved active but produced zero observed fills in the longer
@@ -192,6 +216,55 @@ Decision:
 - The selector now deduplicates `market_asset_ids` when multiple allowed
   segment buckets point to the same asset, so universe coverage is not inflated
   by spread/timing variants.
+
+## 2026-05-13 - execution_probe_v11 Touch-Probability 60m
+
+- Run id: `execution-probe-v11-touch-probability-20260513T160121Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v11-touch-probability-20260513T160121Z/reports/execution-probe-v11-touch-probability-20260513T160121Z`
+- Source DuckDB: `.tmp/real-dry-run-data-lake/pre-v10-base-20260513T012123Z/research.duckdb`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v11`
+- Selection source: `touch_probability`
+- Planned duration: 60 minutes
+
+Offline v11 selection:
+
+- Default `min_assets=5` failed closed because the source evidence only had 2
+  unique assets after deduplicating strategy/model rows.
+- The actual run used explicit `min_assets=2` to observe the two assets with
+  strongest touch/fill evidence instead of inflating coverage with duplicate
+  rows.
+- Selected assets:
+  - `88275040060084773376557187972215267513049848642895776801789297917961077894224`
+  - `53831553061883006530739877284105938919721408776239639687877978808906551086026`
+
+Runtime observation:
+
+- Final stream lengths: `orderbook=4264`, `signals=241`, `reports=482`
+- Recent report statuses: `DELAYED=241`, `UNMATCHED=241`
+- Signal-to-order consumption rate: `1.0`
+- Order creation rate: `1.0`
+- Missing report rate: `0.0`
+- Observed fill rate: `0.0`
+- Synthetic fill rate: `0.0`
+- No-fill future-touch rate: `0.0`
+- Average no-fill distance to touch: `0.0016431535269709559`
+- Pre-live decision: `NO_GO`
+- Cycle recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+
+Decision:
+
+- Live remains blocked.
+- V11 confirmed the stack works end-to-end on a touch-probability universe, but
+  it did not recover fills.
+- The two historically fillable assets were close to touch in this window, but
+  their quotes were not touched within the synthetic future window. This points
+  to market/timing regime drift or stale offline selection, not a Rust/API
+  execution failure.
+- Do not increase quote aggression from this single run. The next work should
+  re-rank by fresh runtime touch evidence, widen the candidate universe with
+  current-market activity, or run a short at-touch diagnostic before changing
+  the default quote policy.
 
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 

@@ -74,6 +74,8 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
     assert "MARKET_ASSET_IDS must contain at least one token ID" in script
     assert "PREDICTOR_EXECUTION_PROBE_V9_NEAR_TOUCH_MAX_SPREAD_FRACTION" in script
     assert "PREDICTOR_EXECUTION_PROBE_V9_FRACTION_SELECTION_PATH" in script
+    assert "PREDICTOR_EXECUTION_PROBE_V11_NEAR_TOUCH_MAX_SPREAD_FRACTION" in script
+    assert "PREDICTOR_EXECUTION_PROBE_V11_FRACTION_SELECTION_PATH" in script
     assert "while True:" in script
     assert "count=1000" in script
     assert 'next_max = f"({last_id}"' in script
@@ -608,6 +610,99 @@ def test_execution_probe_v10_cycle_print_plan_uses_executable_segments(
         "segment_opportunity_ranking"
     ]
     assert "allowed_segments.json" in plan["outputs"]["allowed_segments"]
+
+
+def test_execution_probe_v11_observation_print_plan_uses_touch_probability(
+    tmp_path: Path,
+) -> None:
+    universe = tmp_path / "execution_probe_universe_selection.json"
+    universe.write_text(
+        json.dumps(
+            {
+                "can_execute_trades": False,
+                "status": "ready",
+                "profile": "execution_probe_v11",
+                "source_report_version": "touch_probability_ranking_v1",
+                "market_asset_ids": ["asset-1", "asset-2"],
+                "touch_probability_filter": {
+                    "enabled": True,
+                    "selected_assets": 2,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v11_observation.sh",
+            "--universe-selection",
+            str(universe),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v11_observation.sh"
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["predictor_strategy_profile"] == "execution_probe_v11"
+    assert plan["predictor_quote_placement"] == "near_touch"
+    assert plan["predictor_execution_probe_v11_min_confidence"] == 0.55
+    assert plan["predictor_execution_probe_v11_near_touch_max_spread_fraction"] == 0.9
+    assert plan["predictor_execution_probe_v11_offset_ticks"] == 0
+    assert plan["signal_rejection_profiles"] == "execution_probe_v11"
+    assert plan["real_dry_run_seconds"] == 1800
+
+
+def test_execution_probe_v11_cycle_print_plan_uses_touch_probability(
+    tmp_path: Path,
+) -> None:
+    universe_duckdb = tmp_path / "research.duckdb"
+    universe_duckdb.write_bytes(b"placeholder")
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_execution_probe_v11_cycle.sh",
+            "--universe-duckdb",
+            str(universe_duckdb),
+            "--baseline-report-root",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_execution_probe_v11_cycle.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["profile"] == "execution_probe_v11"
+    assert plan["selection_source"] == "touch_probability"
+    assert plan["market_timing_filter"] == "future_touch"
+    assert plan["min_future_touch_rate"] == 0.00625
+    assert "src.research.touch_probability_ranking" in plan["delegates_to"]
+    assert "scripts/run_execution_probe_v11_observation.sh" in plan["delegates_to"]
+    assert "touch_probability_ranking.json" in plan["outputs"][
+        "touch_probability_ranking"
+    ]
+    assert "execution_probe_next_decision.json" in plan["outputs"][
+        "execution_probe_next_decision"
+    ]
 
 
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:

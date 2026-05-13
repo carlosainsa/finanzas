@@ -13,6 +13,7 @@ SUPPORTED_CANDIDATE_PROFILES = {
     "execution_probe_v8",
     "execution_probe_v9",
     "execution_probe_v10",
+    "execution_probe_v11",
 }
 
 
@@ -265,7 +266,7 @@ def classify_next_step(
             ["no_observed_fills", "sample_is_large_enough"],
         )
     if fill_rate_gap > thresholds.max_synthetic_observed_gap:
-        if profile in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9", "execution_probe_v10"}:
+        if profile in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9", "execution_probe_v10", "execution_probe_v11"}:
             return (
                 "HOLD_RESEARCH",
                 "Do not add another quote profile until synthetic-only evidence is guarded or excluded.",
@@ -325,6 +326,16 @@ def classify_next_step(
                 "Do not promote v10 until executable segment ranking finds a non-toxic, fillable segment.",
                 [
                     "v10_executable_segment_probe_failed_risk_gate",
+                    f"adverse_selection={adverse_selection}",
+                    f"drawdown={drawdown}",
+                ],
+            )
+        if profile == "execution_probe_v11":
+            return (
+                "HOLD_RESEARCH",
+                "Do not promote v11 until touch-probability ranking produces observed fills without adverse selection.",
+                [
+                    "v11_touch_probability_probe_failed_risk_gate",
                     f"adverse_selection={adverse_selection}",
                     f"drawdown={drawdown}",
                 ],
@@ -575,14 +586,15 @@ def market_timing_next_cycle(
                 "--min-assets": format_number(float(resolved_min_assets)),
             }
         )
-    elif selection_source == "fillability":
-        args["--selection-source"] = "fillability"
+    elif selection_source in {"fillability", "touch_probability"}:
+        args["--selection-source"] = str(selection_source)
     cycle_script = {
         "execution_probe_v6": "scripts/run_execution_probe_v6_cycle.sh",
         "execution_probe_v7": "scripts/run_execution_probe_v7_cycle.sh",
         "execution_probe_v8": "scripts/run_execution_probe_v8_cycle.sh",
         "execution_probe_v9": "scripts/run_execution_probe_v9_cycle.sh",
         "execution_probe_v10": "scripts/run_execution_probe_v10_cycle.sh",
+        "execution_probe_v11": "scripts/run_execution_probe_v11_cycle.sh",
     }.get(profile, "scripts/run_execution_probe_v7_cycle.sh")
     return {
         "script": cycle_script,
@@ -595,7 +607,7 @@ def decide_quote_aggressiveness(
     thresholds: ExecutionProbeDecisionThresholds,
 ) -> dict[str, object]:
     profile = str(candidate.get("profile") or "")
-    if profile not in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9", "execution_probe_v10"}:
+    if profile not in {"execution_probe_v7", "execution_probe_v8", "execution_probe_v9", "execution_probe_v10", "execution_probe_v11"}:
         return {
             "decision": "NOT_EVALUATED",
             "reason": "candidate_profile_not_quote_tuning_stage",

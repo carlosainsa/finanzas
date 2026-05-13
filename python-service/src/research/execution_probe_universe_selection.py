@@ -24,6 +24,10 @@ from src.research.segment_opportunity_ranking import (
     SegmentOpportunityRankingConfig,
     create_segment_opportunity_ranking_report,
 )
+from src.research.touch_probability_ranking import (
+    TouchProbabilityRankingConfig,
+    create_touch_probability_ranking_report,
+)
 
 
 REPORT_VERSION = "execution_probe_universe_selection_v1"
@@ -42,7 +46,12 @@ DEFAULT_RECOMMENDATIONS = (
     "NEEDS_EXECUTION_EVIDENCE",
 )
 MARKET_TIMING_FILTERS = ("none", "future_touch")
-SELECTION_SOURCES = ("candidate_market_ranking", "fillability", "executable_segments")
+SELECTION_SOURCES = (
+    "candidate_market_ranking",
+    "fillability",
+    "executable_segments",
+    "touch_probability",
+)
 ADVERSE_SELECTION_FILTERS = ("none", "market_side")
 TOXICITY_FILTERS = ("none", "segment")
 
@@ -77,9 +86,10 @@ class ExecutionProbeUniverseConfig:
             "execution_probe_v8",
             "execution_probe_v9",
             "execution_probe_v10",
+            "execution_probe_v11",
         }:
             raise ValueError(
-                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, or execution_probe_v10"
+                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, or execution_probe_v11"
             )
         if self.limit <= 0:
             raise ValueError("limit must be positive")
@@ -93,7 +103,7 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("market_timing_filter must be none or future_touch")
         if self.selection_source not in SELECTION_SOURCES:
             raise ValueError(
-                "selection_source must be candidate_market_ranking, fillability, or executable_segments"
+                "selection_source must be candidate_market_ranking, fillability, executable_segments, or touch_probability"
             )
         if self.adverse_selection_filter not in ADVERSE_SELECTION_FILTERS:
             raise ValueError("adverse_selection_filter must be none or market_side")
@@ -159,6 +169,9 @@ def create_execution_probe_universe_selection(
     segment_opportunity_report = create_segment_opportunity_inputs(
         db_path, output_dir, config
     )
+    touch_probability_report = create_touch_probability_inputs(
+        db_path, output_dir, config
+    )
     toxicity_report = create_toxicity_inputs(db_path, output_dir, config)
     with duckdb.connect(str(db_path)) as conn:
         has_quote_execution_by_asset = relation_exists(conn, "quote_execution_by_market_asset")
@@ -173,6 +186,8 @@ def create_execution_probe_universe_selection(
             )
         if config.selection_source == "executable_segments":
             frame = select_executable_segment_universe(conn, config)
+        elif config.selection_source == "touch_probability":
+            frame = select_touch_probability_universe(conn, config)
         elif config.selection_source == "fillability":
             frame = select_fillability_universe(conn, config)
         else:
@@ -217,6 +232,9 @@ def create_execution_probe_universe_selection(
         "segment_opportunity_filter": segment_opportunity_payload(
             segment_opportunity_report
         ),
+        "touch_probability_filter": touch_probability_payload(
+            touch_probability_report
+        ),
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -231,6 +249,7 @@ def create_execution_probe_universe_selection(
             "execution_probe_universe_toxicity_quality.parquet",
             "segment_opportunity_ranking/segment_opportunity_ranking.json",
             "segment_opportunity_ranking/allowed_segments.json",
+            "touch_probability_ranking/touch_probability_ranking.json",
         ],
     }
     (output_dir / "execution_probe_universe_selection.json").write_text(
@@ -668,6 +687,80 @@ def select_fillability_universe(
     return selected.head(config.limit)
 
 
+def touch_probability_quality_score_sql() -> str:
+    return """
+        (
+            coalesce(touch.touch_probability_score, 0)
+            + coalesce(touch.future_touch_rate, 0) * 10
+            + coalesce(touch.observed_fill_rate, 0) * 5
+            + least(coalesce(touch.liquidity, 0) / 10000.0, 1.0) * 0.10
+            - coalesce(toxicity_quality.quality_penalty, 0)
+        )
+    """
+
+
+def select_touch_probability_universe(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    spread_filters = []
+    if config.min_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(touch.avg_spread_at_signal, 0) >= {config.min_avg_opportunity_spread}"
+        )
+    if config.max_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(touch.avg_spread_at_signal, 0) <= {config.max_avg_opportunity_spread}"
+        )
+    spread_filter_sql = (
+        "\n          and " + "\n          and ".join(spread_filters)
+        if spread_filters
+        else ""
+    )
+    return conn.execute(
+        f"""
+        with candidates as (
+            select
+                touch.*,
+                {touch_probability_quality_score_sql()} as execution_quality_score,
+                {toxicity_select_columns_sql()},
+                touch.signals as timing_signals,
+                'primary' as selection_tier,
+                null::varchar as fallback_reason,
+                row_number() over (
+                    partition by touch.asset_id
+                    order by
+                        {touch_probability_quality_score_sql()} desc,
+                        touch.touch_probability_score desc,
+                        coalesce(touch.future_touch_rate, 0) desc,
+                        coalesce(touch.observed_fill_rate, 0) desc,
+                        touch.signals desc,
+                        touch.rank
+                ) as asset_rank
+            from touch_probability_ranking touch
+            {adverse_join_sql("touch", "touch.side")}
+            {toxicity_join_sql("touch", "touch.side")}
+            where touch.recommendation = 'PROMOTE_TO_OBSERVATION'
+              {adverse_filter_sql()}
+              and touch.signals >= {config.min_timing_signals}
+              and coalesce(touch.future_touch_rate, 0) >= {config.min_future_touch_rate}
+              {spread_filter_sql}
+        )
+        select * exclude (asset_rank)
+        from candidates
+        where asset_rank = 1
+        order by
+            execution_quality_score desc,
+            touch_probability_score desc,
+            coalesce(future_touch_rate, 0) desc,
+            coalesce(observed_fill_rate, 0) desc,
+            signals desc,
+            asset_id
+        limit {config.limit}
+        """
+    ).fetch_df()
+
+
 def select_market_opportunity_fallback(
     conn: duckdb.DuckDBPyConnection,
     selected_assets: list[str],
@@ -839,6 +932,24 @@ def create_segment_opportunity_inputs(
     )
 
 
+def create_touch_probability_inputs(
+    db_path: Path,
+    output_dir: Path,
+    config: ExecutionProbeUniverseConfig,
+) -> dict[str, object] | None:
+    if config.selection_source != "touch_probability":
+        return None
+    return create_touch_probability_ranking_report(
+        db_path,
+        output_dir / "touch_probability_ranking",
+        TouchProbabilityRankingConfig(
+            min_signals=config.min_timing_signals,
+            min_future_touch_rate=config.min_future_touch_rate,
+            limit=max(config.limit, config.min_assets),
+        ),
+    )
+
+
 def select_executable_segment_universe(
     conn: duckdb.DuckDBPyConnection,
     config: ExecutionProbeUniverseConfig,
@@ -912,6 +1023,8 @@ def excluded_assets_sql(asset_ids: list[str], alias: str) -> str:
 def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
     if config.selection_source == "executable_segments":
         return "segment_opportunity_ranking_v1"
+    if config.selection_source == "touch_probability":
+        return "touch_probability_ranking_v1"
     if config.selection_source == "fillability":
         return "fillability_baseline_v1"
     return "candidate_market_ranking_v1"
@@ -987,6 +1100,31 @@ def segment_opportunity_payload(
         ),
         "allowed_segments_path": (
             report.get("allowed_segments_path")
+            if isinstance(report, dict)
+            else None
+        ),
+    }
+
+
+def touch_probability_payload(
+    report: dict[str, object] | None,
+) -> dict[str, object]:
+    return {
+        "enabled": report is not None,
+        "mode": "touch_probability" if report is not None else "none",
+        "source_relation": "touch_probability_ranking",
+        "selected_assets": (
+            typed_count(report.get("counts"), "selected_touch_probability_markets")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "ranked_assets": (
+            typed_count(report.get("counts"), "touch_probability_ranking")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "touch_probability_ranking_path": (
+            str(Path("touch_probability_ranking") / "touch_probability_ranking.json")
             if isinstance(report, dict)
             else None
         ),

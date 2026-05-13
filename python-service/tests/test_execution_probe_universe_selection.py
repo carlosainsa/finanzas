@@ -134,6 +134,39 @@ def test_execution_probe_universe_selection_supports_v10_executable_segments(
     ).exists()
 
 
+def test_execution_probe_universe_selection_supports_v11_touch_probability(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_fillability_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v11",
+            selection_source="touch_probability",
+            limit=2,
+            min_assets=1,
+            min_timing_signals=1,
+            min_future_touch_rate=0.05,
+        ),
+    )
+
+    assert report["profile"] == "execution_probe_v11"
+    assert report["source_report_version"] == "touch_probability_ranking_v1"
+    assert report["status"] == "ready"
+    assert report["market_asset_ids"] == ["asset-touch"]
+    touch_filter = cast(dict[str, Any], report["touch_probability_filter"])
+    assert touch_filter["enabled"] is True
+    assert touch_filter["selected_assets"] == 1
+    assert (
+        tmp_path
+        / "universe"
+        / "touch_probability_ranking"
+        / "touch_probability_ranking.json"
+    ).exists()
+
+
 def test_execution_probe_universe_selection_backfills_runtime_active_segments(
     tmp_path: Path,
 ) -> None:
@@ -471,7 +504,7 @@ def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
         ExecutionProbeUniverseConfig(profile="live")
     except ValueError as exc:
         assert (
-            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, or execution_probe_v10"
+            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, or execution_probe_v11"
             in str(exc)
         )
     else:
@@ -483,7 +516,7 @@ def test_execution_probe_universe_selection_rejects_invalid_selection_source() -
         ExecutionProbeUniverseConfig(selection_source="manual")
     except ValueError as exc:
         assert (
-            "selection_source must be candidate_market_ranking, fillability, or executable_segments"
+            "selection_source must be candidate_market_ranking, fillability, executable_segments, or touch_probability"
             in str(exc)
         )
     else:
