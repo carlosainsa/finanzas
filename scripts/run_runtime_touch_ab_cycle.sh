@@ -177,6 +177,7 @@ print(json.dumps({
         "src.research.execution_failure_diagnostics",
         "src.research.profile_observation_comparison",
         "src.research.execution_probe_touch_comparison",
+        "src.research.runtime_touch_ab_decision",
     ],
     "outputs": {
         "run_root": run_root,
@@ -186,6 +187,7 @@ print(json.dumps({
         "profile_b_report_root": profile_b_report_root,
         "profile_observation_comparison": f"{run_root}/profile_observation_comparison.json",
         "execution_probe_touch_comparison": f"{run_root}/execution_probe_touch_comparison.json",
+        "runtime_touch_ab_decision": f"{run_root}/runtime_touch_ab_decision.json",
         "cycle_summary": f"{run_root}/runtime_touch_ab_cycle_summary.json",
     },
 }, indent=2, sort_keys=True))
@@ -280,6 +282,15 @@ run_observation() {
   local status=$?
   set -e
   if [[ "$status" != "0" && "$status" != "20" ]]; then
+    local preflight_path="$report_root/real_dry_run_preflight.json"
+    if [[ -f "$preflight_path" ]]; then
+      PYTHONPATH=python-service python3 -m src.research.runtime_touch_ab_decision \
+        --preflight-failure "$preflight_path" \
+        --failed-profile "$profile" \
+        --output "$RUN_ROOT/runtime_touch_ab_decision.json" \
+        > "$RUN_ROOT/runtime_touch_ab_decision.stdout.json"
+      write_failure_summary "$profile" "$status" "$report_root" "$preflight_path"
+    fi
     echo "$profile observation failed with status $status" >&2
     exit "$status"
   fi
@@ -295,6 +306,53 @@ run_observation() {
   cp "$RUNTIME_TOUCH_RANKING_DIR"/runtime_touch_*.parquet "$report_root/runtime_touch_ranking/"
   cp "$RUNTIME_TOUCH_RANKING_DIR"/selected_runtime_touch_markets.parquet "$report_root/runtime_touch_ranking/"
   cp "$RUNTIME_TOUCH_RANKING_DIR"/runtime_touch_ranking.json "$report_root/runtime_touch_ranking/runtime_touch_ranking.json"
+}
+
+write_failure_summary() {
+  local failed_profile="$1"
+  local status="$2"
+  local report_root="$3"
+  local preflight_path="$4"
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$UNIVERSE_SELECTION_PATH" "$failed_profile" "$status" "$report_root" "$preflight_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+run_root = Path(sys.argv[1])
+fresh_duckdb = Path(sys.argv[2])
+fresh_report_root = Path(sys.argv[3])
+universe_selection_path = Path(sys.argv[4])
+failed_profile = sys.argv[5]
+status = int(sys.argv[6])
+report_root = Path(sys.argv[7])
+preflight_path = Path(sys.argv[8])
+
+def read_json(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+summary = {
+    "can_execute_trades": False,
+    "decision_policy": "runtime_touch_ab_cycle_research_only",
+    "status": "failed",
+    "failed_profile": failed_profile,
+    "failed_status": status,
+    "fresh_duckdb": str(fresh_duckdb),
+    "fresh_report_root": str(fresh_report_root),
+    "universe_selection": read_json(universe_selection_path),
+    "failed_report_root": str(report_root),
+    "failed_preflight": read_json(preflight_path),
+    "runtime_touch_ab_decision": read_json(run_root / "runtime_touch_ab_decision.json"),
+}
+(run_root / "runtime_touch_ab_cycle_summary.json").write_text(
+    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+print(json.dumps(summary, indent=2, sort_keys=True))
+PY
 }
 
 run_observation "$PROFILE_A" "$PROFILE_A_TIMESTAMP" "$PROFILE_A_DATA_LAKE_ROOT" "$PROFILE_A_REPORT_ROOT"
@@ -325,6 +383,12 @@ PYTHONPATH=python-service python3 -m src.research.execution_probe_touch_comparis
   "${TOUCH_COMPARISON_ARGS[@]}" \
   --output "$RUN_ROOT/execution_probe_touch_comparison.json" \
   > "$RUN_ROOT/execution_probe_touch_comparison.stdout.json"
+
+PYTHONPATH=python-service python3 -m src.research.runtime_touch_ab_decision \
+  --profile-observation-comparison "$RUN_ROOT/profile_observation_comparison.json" \
+  --touch-comparison "$RUN_ROOT/execution_probe_touch_comparison.json" \
+  --output "$RUN_ROOT/runtime_touch_ab_decision.json" \
+  > "$RUN_ROOT/runtime_touch_ab_decision.stdout.json"
 
 python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$UNIVERSE_SELECTION_PATH" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" <<'PY'
 import json
@@ -357,6 +421,7 @@ summary = {
     "profile_b_execution_failure": read_json(profile_b_report_root / "execution_failure_diagnostics.json"),
     "profile_observation_comparison": read_json(run_root / "profile_observation_comparison.json"),
     "execution_probe_touch_comparison": read_json(run_root / "execution_probe_touch_comparison.json"),
+    "runtime_touch_ab_decision": read_json(run_root / "runtime_touch_ab_decision.json"),
 }
 (run_root / "runtime_touch_ab_cycle_summary.json").write_text(
     json.dumps(summary, indent=2, sort_keys=True) + "\n",

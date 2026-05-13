@@ -886,8 +886,12 @@ def test_runtime_touch_ab_cycle_print_plan_is_research_only(tmp_path: Path) -> N
     assert plan["profile_a"] == "execution_probe_v11"
     assert plan["profile_b"] == "execution_probe_v12"
     assert "src.research.execution_failure_diagnostics" in plan["delegates_to"]
+    assert "src.research.runtime_touch_ab_decision" in plan["delegates_to"]
     assert "profile_observation_comparison.json" in plan["outputs"][
         "profile_observation_comparison"
+    ]
+    assert "runtime_touch_ab_decision.json" in plan["outputs"][
+        "runtime_touch_ab_decision"
     ]
 
 
