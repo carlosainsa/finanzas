@@ -75,6 +75,63 @@ operational step is to collect a fresh dry-run data lake window with orderbook,
 signals, reports, and synthetic/observed execution diagnostics, then regenerate
 `executable_opportunities_v1` and `segment_opportunity_ranking_v1`.
 
+## 2026-05-13 - execution_probe_v10 Fresh Base And Sparse Observation
+
+- Base run id: `pre-v10-base-20260513T012123Z`
+- Base report root: `.tmp/real-dry-run-data-lake/pre-v10-base-20260513T012123Z/reports/pre-v10-base-20260513T012123Z`
+- V10 cycle id: `execution-probe-v10-complete-from-pre-v10-base-20260513T012123Z`
+- V10 report root: `.tmp/real-dry-run-data-lake/execution-probe-v10-complete-from-pre-v10-base-20260513T012123Z/reports/execution-probe-v10-complete-from-pre-v10-base-20260513T012123Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v10`
+- Selection source: `executable_segments`
+- Planned duration: 30 minutes
+- Selected market assets: `2`
+
+Base dry-run evidence:
+
+- Orderbook stream length: `10786`
+- Signals stream length: `10786`
+- Reports stream length: `21570`
+- Recent report statuses: `MATCHED=10743`, `DELAYED=10786`, `UNMATCHED=41`
+- Base run note: the capture produced a usable DuckDB and evidence artifacts,
+  but the full post-run readiness wrapper hit memory pressure in
+  `signal_to_order_conversion`. The exported DuckDB and reports were still
+  sufficient for v10 offline selection.
+
+Offline v10 selection:
+
+- Opportunities: `10802`
+- Executable opportunities: `10785`
+- Observed fills: `10761`
+- Synthetic fills: `10742`
+- Ranked segments: `69`
+- Selected executable segments: `2`
+- Selected assets:
+  - `53831553061883006530739877284105938919721408776239639687877978808906551086026`
+  - `98022490269692409998126496127597032490334070080325855126491859374983463996227`
+
+Runtime v10 observation:
+
+- Preflight contract was tightened for sparse research probes:
+  `execution_probe_v10` can pass preflight with orderbook progress and zero
+  signal progress, while the normal pre-live dry-run path still requires signal
+  progress.
+- Final stream lengths: `orderbook=977`, `signals=0`, `reports=0`
+- Observation classification: `sparse_probe_no_signals`
+- Cycle recommendation: `DO_NOT_PROMOTE`
+- Next step emitted by the cycle: expand or re-rank the v10 segment selection by
+  runtime activity before repeating observation.
+
+Decision:
+
+- Live remains blocked.
+- Do not tune global quote aggressiveness from this result.
+- Do not promote the two selected segments: they looked executable offline but
+  generated no runtime signals under the v10 allowlist during the 30-minute
+  observation.
+- The next v10 improvement should add an activity-aware selector or widen the
+  allowlist with explicit runtime-coverage evidence before repeating.
+
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 
 - Run id: `execution-probe-v5-multimarket-60m-20260506T211421Z`

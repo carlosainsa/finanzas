@@ -31,6 +31,7 @@ def build_preflight_report(
     blocked_segments_path: str | None,
     check_seconds: int,
     capture_seconds: int,
+    allow_zero_signals: bool = False,
 ) -> dict[str, object]:
     stream_progress = {
         name: {
@@ -54,6 +55,7 @@ def build_preflight_report(
         dry_run_report_found=dry_run_report_found,
         valid_report_status_seen=valid_report_status_seen,
         require_reports=require_reports,
+        allow_zero_signals=allow_zero_signals,
     )
     market_asset_ids_csv = ",".join(market_asset_ids)
     status = "ok" if not blockers else "failed"
@@ -78,6 +80,8 @@ def build_preflight_report(
         ).hexdigest(),
         "blocked_segments_enabled": blocked_segments_path is not None,
         "blocked_segments_path": blocked_segments_path,
+        "signals_required": not allow_zero_signals,
+        "allow_zero_signals": allow_zero_signals,
         "recommendation": preflight_recommendation(blockers),
         "exit_code": 0 if status == "ok" else PREFLIGHT_FAILURE_EXIT_CODE,
         "can_execute_trades": False,
@@ -90,11 +94,13 @@ def preflight_blockers(
     dry_run_report_found: bool,
     valid_report_status_seen: bool,
     require_reports: bool,
+    allow_zero_signals: bool,
 ) -> list[str]:
     blockers: list[str] = []
-    for name in ("orderbook", "signals"):
-        if numeric(stream_progress[name].get("delta")) < 1:
-            blockers.append(f"missing_{name}_stream_progress")
+    if numeric(stream_progress["orderbook"].get("delta")) < 1:
+        blockers.append("missing_orderbook_stream_progress")
+    if not allow_zero_signals and numeric(stream_progress["signals"].get("delta")) < 1:
+        blockers.append("missing_signals_stream_progress")
     if require_reports and numeric(stream_progress["reports"].get("delta")) < 1:
         blockers.append("missing_execution_reports_stream_progress")
     if require_reports and not dry_run_report_found:
@@ -164,6 +170,7 @@ async def wait_for_preflight(
     blocked_segments_path: str | None,
     run_id: str,
     capture_seconds: int,
+    allow_zero_signals: bool,
 ) -> dict[str, object]:
     client = redis.from_url(redis_url, decode_responses=True)
     started_at = datetime.now(UTC).isoformat()
@@ -190,6 +197,7 @@ async def wait_for_preflight(
             blocked_segments_path=blocked_segments_path,
             check_seconds=check_seconds,
             capture_seconds=capture_seconds,
+            allow_zero_signals=allow_zero_signals,
         )
         if candidate["status"] == "ok" or time.monotonic() >= deadline:
             await client.aclose()
@@ -224,6 +232,14 @@ def main() -> int:
     parser.add_argument("--poll-seconds", type=int, default=5)
     parser.add_argument("--capture-seconds", type=int, default=900)
     parser.add_argument("--require-reports", action="store_true")
+    parser.add_argument(
+        "--allow-zero-signals",
+        action="store_true",
+        help=(
+            "Allow preflight success with orderbook progress but no signal progress. "
+            "Use only for intentionally sparse research probes."
+        ),
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -244,6 +260,7 @@ def main() -> int:
             blocked_segments_path=os.getenv("PREDICTOR_BLOCKED_SEGMENTS_PATH"),
             run_id=os.getenv("REPORT_TIMESTAMP", "unknown"),
             capture_seconds=args.capture_seconds,
+            allow_zero_signals=args.allow_zero_signals,
         )
     )
     if args.json:

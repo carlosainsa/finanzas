@@ -342,6 +342,61 @@ if [[ "$observation_status" != "0" && "$observation_status" != "20" ]]; then
   exit "$observation_status"
 fi
 
+real_dry_run_evidence_status="missing"
+if [[ -f "$REPORT_ROOT/real_dry_run_evidence.json" ]]; then
+  real_dry_run_evidence_status="$(
+    python3 - "$REPORT_ROOT/real_dry_run_evidence.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+print(payload.get("status", "missing"))
+PY
+  )"
+fi
+if [[ "$observation_status" == "20" && "$real_dry_run_evidence_status" == "no_signals" ]]; then
+  python3 - "$RUN_ROOT" "$REPORT_ROOT" "$DATA_LAKE_ROOT" "$MANIFEST_ROOT" "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+run_root = Path(sys.argv[1])
+report_root = Path(sys.argv[2])
+data_lake_root = Path(sys.argv[3])
+manifest_root = Path(sys.argv[4])
+comparison_report_roots = [item for item in sys.argv[5].split(",") if item]
+evidence_path = report_root / "real_dry_run_evidence.json"
+evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+summary = {
+    "report_version": "execution_probe_v10_cycle_summary_v1",
+    "can_execute_trades": False,
+    "execution_mode": "dry_run",
+    "observation_status": 20,
+    "observation_classification": "sparse_probe_no_signals",
+    "report_root": str(report_root),
+    "data_lake_root": str(data_lake_root),
+    "manifest_root": str(manifest_root),
+    "comparison_report_roots": comparison_report_roots,
+    "real_dry_run_evidence_path": str(evidence_path),
+    "stream_lengths": evidence.get("stream_lengths"),
+    "recommendation": "DO_NOT_PROMOTE",
+    "next_step": (
+        "Expand or re-rank execution_probe_v10 segment selection by runtime "
+        "activity before repeating observation."
+    ),
+}
+run_root.mkdir(parents=True, exist_ok=True)
+(run_root / "execution_probe_v10_cycle_summary.json").write_text(
+    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+print(json.dumps(summary, indent=2, sort_keys=True))
+PY
+  exit 20
+fi
+
 PROFILE_ARGS=()
 if [[ -n "${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}" ]]; then
   IFS=',' read -r -a PROFILE_ROOTS <<< "$PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS"

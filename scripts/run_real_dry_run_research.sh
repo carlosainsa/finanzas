@@ -164,6 +164,10 @@ run_preflight_with_service_monitoring() {
   if [[ "$REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS" == "1" || "$REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS" == "true" ]]; then
     require_reports_flag=(--require-reports)
   fi
+  local allow_zero_signals_flag=()
+  if [[ "${REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS:-0}" == "1" || "${REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS:-0}" == "true" ]]; then
+    allow_zero_signals_flag=(--allow-zero-signals)
+  fi
   set +e
   PYTHONPATH=python-service python3 -m src.research.real_dry_run_preflight \
     --redis-url "$REDIS_URL" \
@@ -172,6 +176,7 @@ run_preflight_with_service_monitoring() {
     --poll-seconds "$REAL_DRY_RUN_PREFLIGHT_POLL_SECONDS" \
     --capture-seconds "$REAL_DRY_RUN_SECONDS" \
     "${require_reports_flag[@]}" \
+    "${allow_zero_signals_flag[@]}" \
     --json
   preflight_status=$?
   set -e
@@ -328,8 +333,18 @@ async def main() -> None:
         "reports": os.getenv("EXECUTION_REPORTS_STREAM", "execution:reports:stream"),
     }
     lengths = {name: await client.xlen(stream) for name, stream in streams.items()}
-    if any(length <= 0 for length in lengths.values()):
+    allow_empty_signals = os.getenv("REAL_DRY_RUN_ALLOW_EMPTY_SIGNALS", "0") in {
+        "1",
+        "true",
+    }
+    empty_signal_observation = lengths["signals"] <= 0 and lengths["reports"] <= 0
+    if lengths["orderbook"] <= 0:
         raise SystemExit(f"missing real dry-run stream data: {lengths}")
+    if empty_signal_observation:
+        if not allow_empty_signals:
+            raise SystemExit(f"missing real dry-run stream data: {lengths}")
+    elif lengths["signals"] <= 0 or lengths["reports"] <= 0:
+        raise SystemExit(f"incomplete real dry-run stream data: {lengths}")
     reports = []
     next_max = "+"
     while True:
@@ -351,9 +366,15 @@ async def main() -> None:
             value = json.loads(payload)
             if isinstance(value, dict):
                 parsed.append(value)
-    if not any(str(item.get("order_id", "")).startswith("dry-run-") for item in parsed):
+    if (
+        not empty_signal_observation
+        and not any(str(item.get("order_id", "")).startswith("dry-run-") for item in parsed)
+    ):
         raise SystemExit("no dry-run execution report found")
-    if not any(item.get("status") in {"DELAYED", "UNMATCHED", "MATCHED", "PARTIAL"} for item in parsed):
+    if (
+        not empty_signal_observation
+        and not any(item.get("status") in {"DELAYED", "UNMATCHED", "MATCHED", "PARTIAL"} for item in parsed)
+    ):
         raise SystemExit("no valid dry-run report status found")
     status_counts: dict[str, int] = {}
     for item in parsed:
@@ -366,7 +387,11 @@ async def main() -> None:
     ]
     market_asset_ids_csv = ",".join(market_asset_ids)
     evidence = {
-        "status": "ok",
+        "status": "no_signals" if empty_signal_observation else "ok",
+        "classification": (
+            "sparse_probe_no_signals" if empty_signal_observation else "ok"
+        ),
+        "allow_empty_signals": allow_empty_signals,
         "run_id": os.environ["REPORT_TIMESTAMP"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "execution_mode": os.environ["EXECUTION_MODE"],
@@ -581,6 +606,22 @@ async def main() -> None:
 
 asyncio.run(main())
 PY
+
+real_dry_run_evidence_status="$(
+  python3 - "$RESEARCH_REPORT_ROOT/real_dry_run_evidence.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+print(payload.get("status", "missing"))
+PY
+)"
+if [[ "$real_dry_run_evidence_status" == "no_signals" ]]; then
+  echo "Sparse dry-run observation produced orderbook data but no signals; skipping research loop." >&2
+  exit 20
+fi
 
 set +e
 scripts/run_research_loop.sh

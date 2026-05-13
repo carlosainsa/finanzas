@@ -69,6 +69,32 @@ def test_preflight_report_fails_when_signals_do_not_progress() -> None:
 
     assert "missing_signals_stream_progress" in cast(list[str], payload["blockers"])
     assert payload["recommendation"] == "repair_predictor_pipeline_before_repeat"
+    assert payload["signals_required"] is True
+
+
+def test_preflight_report_can_allow_zero_signals_for_sparse_research_probe() -> None:
+    payload = build_preflight_report(
+        run_id="run-1",
+        started_at="2026-04-28T00:00:00+00:00",
+        finished_at="2026-04-28T00:01:00+00:00",
+        elapsed_seconds=60,
+        stream_names=stream_names(),
+        start_lengths={"orderbook": 1, "signals": 2, "reports": 3},
+        end_lengths={"orderbook": 2, "signals": 2, "reports": 3},
+        recent_reports=[],
+        require_reports=False,
+        market_asset_ids=["asset-1"],
+        blocked_segments_path=None,
+        check_seconds=60,
+        capture_seconds=900,
+        allow_zero_signals=True,
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["blockers"] == []
+    assert payload["signals_required"] is False
+    assert payload["allow_zero_signals"] is True
+    assert payload["recommendation"] == "continue_capture"
 
 
 def stream_names() -> dict[str, str]:

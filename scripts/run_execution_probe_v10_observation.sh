@@ -114,6 +114,8 @@ export SIGNAL_REJECTION_PROFILES="${SIGNAL_REJECTION_PROFILES:-execution_probe_v
 export SIGNAL_REJECTION_BASELINE_PROFILE="${SIGNAL_REJECTION_BASELINE_PROFILE:-execution_probe_v10}"
 export SIGNAL_REJECTION_CANDIDATE_PROFILE="${SIGNAL_REJECTION_CANDIDATE_PROFILE:-execution_probe_v10}"
 export EXECUTION_PROBE_UNIVERSE_SELECTION_PATH="$UNIVERSE_SELECTION_PATH"
+export REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS="${REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS:-1}"
+export REAL_DRY_RUN_ALLOW_EMPTY_SIGNALS="${REAL_DRY_RUN_ALLOW_EMPTY_SIGNALS:-1}"
 if [[ -n "$FRACTION_SELECTION_PATH" ]]; then
   export PREDICTOR_EXECUTION_PROBE_V10_FRACTION_SELECTION_PATH="$FRACTION_SELECTION_PATH"
 fi
@@ -185,6 +187,8 @@ print(json.dumps({
     "predictor_execution_probe_v10_offset_ticks": int(os.environ["PREDICTOR_EXECUTION_PROBE_V10_OFFSET_TICKS"]),
     "signal_rejection_profiles": os.environ["SIGNAL_REJECTION_PROFILES"],
     "execution_probe_universe_selection_path": os.environ["EXECUTION_PROBE_UNIVERSE_SELECTION_PATH"],
+    "preflight_allow_zero_signals": os.environ.get("REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS", "0"),
+    "allow_empty_signals": os.environ.get("REAL_DRY_RUN_ALLOW_EMPTY_SIGNALS", "0"),
     "predictor_execution_probe_v10_fraction_selection_path": os.environ.get("PREDICTOR_EXECUTION_PROBE_V10_FRACTION_SELECTION_PATH"),
     "predictor_allowed_segments_path": os.environ.get("PREDICTOR_ALLOWED_SEGMENTS_PATH"),
     "predictor_blocked_segments_path": os.environ.get("PREDICTOR_BLOCKED_SEGMENTS_PATH"),

@@ -562,6 +562,8 @@ def test_execution_probe_v10_observation_print_plan_requires_allowed_segments(
     assert plan["execution_mode"] == "dry_run"
     assert plan["predictor_strategy_profile"] == "execution_probe_v10"
     assert plan["predictor_allowed_segments_path"] == str(allowed_segments)
+    assert plan["preflight_allow_zero_signals"] == "1"
+    assert plan["allow_empty_signals"] == "1"
     assert plan["real_dry_run_seconds"] == 1800
 
 
