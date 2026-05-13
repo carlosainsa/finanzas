@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import duckdb
 import pandas as pd  # type: ignore[import-untyped]
@@ -189,7 +189,7 @@ def create_execution_probe_universe_selection(
             )
 
     selected = normalize_records(frame.to_dict(orient="records"))
-    asset_ids = [str(row["asset_id"]) for row in selected if row.get("asset_id")]
+    asset_ids = unique_asset_ids_from_rows(selected)
     status = "ready" if len(asset_ids) >= config.min_assets else "insufficient_assets"
     fallback = fillability_fallback_summary(selected, config)
     output_parquet = output_dir / "execution_probe_universe_selection.parquet"
@@ -881,11 +881,25 @@ def select_executable_segment_universe(
 
 
 def asset_ids_from_frame(frame: pd.DataFrame) -> list[str]:
-    return [
-        str(asset_id)
-        for asset_id in frame.get("asset_id", pd.Series(dtype=str)).tolist()
-        if str(asset_id)
-    ]
+    return unique_asset_ids(
+        frame.get("asset_id", pd.Series(dtype=str)).tolist()
+    )
+
+
+def unique_asset_ids_from_rows(rows: list[dict[str, object]]) -> list[str]:
+    return unique_asset_ids(row.get("asset_id") for row in rows)
+
+
+def unique_asset_ids(values: Iterable[object]) -> list[str]:
+    asset_ids: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        asset_id = str(value) if value else ""
+        if not asset_id or asset_id in seen:
+            continue
+        asset_ids.append(asset_id)
+        seen.add(asset_id)
+    return asset_ids
 
 
 def excluded_assets_sql(asset_ids: list[str], alias: str) -> str:

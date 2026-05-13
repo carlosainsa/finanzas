@@ -143,6 +143,56 @@ Decision:
   executable offline but had no live market activity during the probe window.
   Live remains blocked.
 
+## 2026-05-13 - execution_probe_v10 Runtime-Backfill 60m
+
+- Run id: `execution-probe-v10-runtime-backfill-20260513T134541Z`
+- Report root: `.tmp/real-dry-run-data-lake/execution-probe-v10-runtime-backfill-20260513T134541Z/reports/execution-probe-v10-runtime-backfill-20260513T134541Z`
+- Source DuckDB: `.tmp/real-dry-run-data-lake/pre-v10-base-20260513T012123Z/research.duckdb`
+- Mode: `EXECUTION_MODE=dry_run`
+- Profile: `execution_probe_v10`
+- Selection source: `executable_segments`
+- Runtime activity backfill: enabled
+- Planned duration: 60 minutes
+
+Offline v10 selection:
+
+- Universe status: `ready`
+- Unique market assets: `7`
+- Allowed segment candidates: `8`
+- Strict promoted segments: `2`
+- Backfill candidates: `6`
+- Allowed reasons: `PROMOTE_TO_OBSERVATION`,
+  `RUNTIME_ACTIVITY_BACKFILL`
+
+Runtime observation:
+
+- Final stream lengths: `orderbook=2890`, `signals=118`, `reports=236`
+- Recent report statuses: `DELAYED=118`, `UNMATCHED=118`
+- Signal-to-order consumption rate: `1.0`
+- Order creation rate: `1.0`
+- Missing report rate: `0.0`
+- Observed fill rate: `0.0`
+- Synthetic fill rate: `0.0`
+- Average no-fill distance to touch: `0.0010000000000000009`
+- No-fill future-touch rate: `0.0`
+- Pre-live decision: `NO_GO`
+- Cycle recommendation: `CHANGE_MARKET_OR_TIMING_FILTERS`
+
+Decision:
+
+- Live remains blocked.
+- The runtime backfill solved the sparse-runtime failure: v10 no longer produced
+  `signals=0`.
+- The remaining blocker moved to market/timing quality, not infrastructure:
+  118 orders were created and reconciled, but none filled and none had synthetic
+  future-touch evidence.
+- Do not increase quote aggression from this run alone. The automatic next step
+  is to keep v10 research-only and retune market/timing selection before quote
+  aggression.
+- The selector now deduplicates `market_asset_ids` when multiple allowed
+  segment buckets point to the same asset, so universe coverage is not inflated
+  by spread/timing variants.
+
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 
 - Run id: `execution-probe-v5-multimarket-60m-20260506T211421Z`

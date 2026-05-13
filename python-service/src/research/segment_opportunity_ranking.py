@@ -59,7 +59,7 @@ def create_segment_opportunity_ranking_report(
     create_segment_opportunity_ranking_views(db_path, config)
     output_dir.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(db_path)) as conn:
-        counts = copy_views(
+        counts = copy_relations(
             conn,
             output_dir,
             (
@@ -193,9 +193,16 @@ def create_segment_opportunity_ranking_views(
         )
     with duckdb.connect(str(db_path)) as conn:
         timestamp_expr = executable_opportunity_timestamp_expr(conn)
+        for relation_name in (
+            "allowed_segment_candidates",
+            "selected_segment_opportunities",
+            "segment_opportunity_ranking",
+            "segment_opportunity_base",
+        ):
+            drop_relation_if_exists(conn, relation_name)
         conn.execute(
             f"""
-            create or replace view segment_opportunity_base as
+            create table segment_opportunity_base as
             select
                 market_id,
                 asset_id,
@@ -243,7 +250,7 @@ def create_segment_opportunity_ranking_views(
         )
         conn.execute(
             f"""
-            create or replace view segment_opportunity_ranking as
+            create table segment_opportunity_ranking as
             select
                 row_number() over (
                     order by
@@ -313,7 +320,7 @@ def create_segment_opportunity_ranking_views(
             """
         conn.execute(
             f"""
-            create or replace view selected_segment_opportunities as
+            create table selected_segment_opportunities as
             select *
             from segment_opportunity_ranking
             where recommendation = 'PROMOTE_TO_OBSERVATION'
@@ -323,7 +330,7 @@ def create_segment_opportunity_ranking_views(
         )
         conn.execute(
             f"""
-            create or replace view allowed_segment_candidates as
+            create table allowed_segment_candidates as
             with ranked_with_key as (
                 select
                     *,
@@ -408,19 +415,37 @@ def executable_opportunity_timestamp_expr(conn: duckdb.DuckDBPyConnection) -> st
     return "0"
 
 
-def copy_views(
+def drop_relation_if_exists(conn: duckdb.DuckDBPyConnection, relation_name: str) -> None:
+    escaped = relation_name.replace('"', '""')
+    rows = conn.execute(
+        """
+        select table_type
+        from information_schema.tables
+        where table_schema = 'main'
+          and table_name = ?
+        """,
+        [relation_name],
+    ).fetchall()
+    for (table_type,) in rows:
+        if str(table_type).upper() == "VIEW":
+            conn.execute(f'drop view "{escaped}"')
+        else:
+            conn.execute(f'drop table "{escaped}"')
+
+
+def copy_relations(
     conn: duckdb.DuckDBPyConnection,
     output_dir: Path,
-    view_names: tuple[str, ...],
+    relation_names: tuple[str, ...],
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for view_name in view_names:
-        target = output_dir / f"{view_name}.parquet"
+    for relation_name in relation_names:
+        target = output_dir / f"{relation_name}.parquet"
         conn.execute(
-            f"copy (select * from {view_name}) to '{duckdb_literal(target.as_posix())}' (format parquet)"
+            f"copy (select * from {relation_name}) to '{duckdb_literal(target.as_posix())}' (format parquet)"
         )
-        row = conn.execute(f"select count(*) from {view_name}").fetchone()
-        counts[view_name] = int(row[0]) if row else 0
+        row = conn.execute(f"select count(*) from {relation_name}").fetchone()
+        counts[relation_name] = int(row[0]) if row else 0
     return counts
 
 

@@ -156,10 +156,12 @@ def test_execution_probe_universe_selection_backfills_runtime_active_segments(
 
     assert report["status"] == "ready"
     assert report["market_asset_ids"] == ["asset-active-diagnostic"]
+    assert report["market_asset_ids_count"] == 1
     segment_filter = cast(dict[str, Any], report["segment_opportunity_filter"])
     assert segment_filter["selected_segments"] == 0
-    assert segment_filter["allowed_segments"] == 1
+    assert segment_filter["allowed_segments"] == 2
     selected = cast(list[dict[str, Any]], report["selected"])
+    assert len(selected) == 2
     assert selected[0]["allowed_reason"] == "RUNTIME_ACTIVITY_BACKFILL"
     assert selected[0]["runtime_active_minutes"] == 3
 
@@ -1152,6 +1154,72 @@ def seed_runtime_activity_segment_universe_db(tmp_path: Path) -> Path:
                     "250_500bps",
                     "stable",
                     0.007,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "active-4",
+                    "market-active",
+                    "asset-active-diagnostic",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    181_000,
+                    "250_500bps",
+                    "rotating",
+                    0.007,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "active-5",
+                    "market-active",
+                    "asset-active-diagnostic",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    241_000,
+                    "250_500bps",
+                    "rotating",
+                    0.006,
+                    50.0,
+                    True,
+                    True,
+                    1.0,
+                    1.0,
+                    0.01,
+                    0.0,
+                    2.0,
+                    True,
+                ),
+                (
+                    "active-6",
+                    "market-active",
+                    "asset-active-diagnostic",
+                    "BUY",
+                    "near_touch",
+                    "research-model",
+                    "features",
+                    301_000,
+                    "250_500bps",
+                    "rotating",
+                    0.005,
                     50.0,
                     True,
                     True,
