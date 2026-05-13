@@ -49,11 +49,44 @@ def test_execution_probe_touch_comparison_diagnoses_quote_aggressiveness(
     assert report["report_version"] == REPORT_VERSION
     assert report["can_execute_trades"] is False
     diagnosis = cast(dict[str, Any], report["diagnosis"])
-    assert diagnosis["next_action"] == "CHANGE_MARKET_OR_TIMING_FILTERS"
+    assert diagnosis["next_action"] == "RETUNE_TO_AT_TOUCH"
     observations = cast(list[dict[str, Any]], report["observations"])
     assert cast(dict[str, Any], observations[1]["at_touch_diagnostic"])["summary"][
         "assets"
     ] == 2
+
+
+def test_execution_probe_touch_comparison_diagnoses_runtime_stale(
+    tmp_path: Path,
+) -> None:
+    candidate = seed_profile_report(
+        tmp_path / "v11",
+        profile="execution_probe_v11",
+        signals=120,
+        filled_signals=0,
+        observed_fill_rate=0.0,
+        synthetic_fill_rate=0.0,
+        blockers=("has_fills",),
+    )
+    (candidate / "at_touch_asset_diagnostic").mkdir()
+    write_json(
+        candidate / "at_touch_asset_diagnostic" / "at_touch_asset_diagnostic.json",
+        {
+            "summary": {
+                "assets": 2,
+                "signals": 120,
+                "observed_fill_rate": 0.0,
+                "future_touch_rate": 0.0,
+                "decisions": {"DROP_RUNTIME_STALE": 2},
+            }
+        },
+    )
+
+    report = create_execution_probe_touch_comparison([candidate])
+
+    diagnosis = cast(dict[str, Any], report["diagnosis"])
+    assert diagnosis["diagnosis"] == "runtime_touch_stale_or_quotes_not_reachable"
+    assert diagnosis["next_action"] == "CHANGE_MARKET_OR_TIMING_FILTERS"
 
 
 def seed_profile_report(

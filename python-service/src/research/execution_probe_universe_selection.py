@@ -95,10 +95,9 @@ class ExecutionProbeUniverseConfig:
             "execution_probe_v9",
             "execution_probe_v10",
             "execution_probe_v11",
-            "execution_probe_v12",
         }:
             raise ValueError(
-                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, execution_probe_v11, or execution_probe_v12"
+                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, or execution_probe_v11"
             )
         if self.limit <= 0:
             raise ValueError("limit must be positive")
@@ -1083,6 +1082,7 @@ def create_runtime_touch_inputs(
         RuntimeTouchRankingConfig(
             lookback_ms=config.runtime_touch_lookback_ms,
             min_snapshots=config.min_runtime_touch_snapshots,
+            min_active_minutes=config.min_runtime_active_minutes,
             min_touch_change_rate=config.min_runtime_touch_change_rate,
             min_spread=(
                 config.min_avg_opportunity_spread

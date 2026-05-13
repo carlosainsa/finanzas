@@ -76,6 +76,9 @@ def test_real_dry_run_script_persists_profile_and_gates_readiness() -> None:
     assert "PREDICTOR_EXECUTION_PROBE_V9_FRACTION_SELECTION_PATH" in script
     assert "PREDICTOR_EXECUTION_PROBE_V11_NEAR_TOUCH_MAX_SPREAD_FRACTION" in script
     assert "PREDICTOR_EXECUTION_PROBE_V11_FRACTION_SELECTION_PATH" in script
+    assert 'REAL_DRY_RUN_RESEARCH_MODE="${REAL_DRY_RUN_RESEARCH_MODE:-full}"' in script
+    assert 'REAL_DRY_RUN_RESEARCH_MODE" != "data_lake_only"' in script
+    assert '"report_version": "real_dry_run_data_lake_only_v1"' in script
     assert "while True:" in script
     assert "count=1000" in script
     assert 'next_max = f"({last_id}"' in script
@@ -703,6 +706,102 @@ def test_execution_probe_v11_cycle_print_plan_uses_touch_probability(
     assert "execution_probe_next_decision.json" in plan["outputs"][
         "execution_probe_next_decision"
     ]
+
+
+def test_runtime_touch_observation_print_plan_uses_runtime_touch_universe(
+    tmp_path: Path,
+) -> None:
+    universe = tmp_path / "execution_probe_universe_selection.json"
+    universe.write_text(
+        json.dumps(
+            {
+                "can_execute_trades": False,
+                "status": "ready",
+                "profile": "execution_probe_v11",
+                "source_report_version": "runtime_touch_ranking_v1",
+                "market_asset_ids": ["asset-1", "asset-2"],
+                "runtime_touch_filter": {
+                    "enabled": True,
+                    "selected_assets": 2,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_observation.sh",
+            "--universe-selection",
+            str(universe),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_observation.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["predictor_strategy_profile"] == "execution_probe_v11"
+    assert plan["predictor_execution_probe_v11_near_touch_max_spread_fraction"] == 0.9
+    assert plan["real_dry_run_seconds"] == 1800
+
+
+def test_runtime_touch_cycle_print_plan_is_research_only(tmp_path: Path) -> None:
+    fresh_duckdb = tmp_path / "research.duckdb"
+    fresh_duckdb.write_bytes(b"placeholder")
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_cycle.sh",
+            "--skip-fresh-capture",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            "--fresh-report-root",
+            str(baseline),
+            "--comparison-report-roots",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_cycle.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["skip_fresh_capture"] is True
+    assert plan["fresh_duckdb"] == str(fresh_duckdb)
+    assert plan["comparison_report_roots"] == [str(baseline)]
+    assert plan["min_runtime_active_minutes"] == 2
+    assert "src.research.runtime_touch_ranking" in plan["delegates_to"]
+    assert "scripts/run_runtime_touch_observation.sh" in plan["delegates_to"]
+    assert "src.research.execution_probe_touch_comparison" in plan["delegates_to"]
+    assert "runtime_touch_ranking.json" in plan["outputs"]["runtime_touch_ranking"]
+    assert "execution_probe_touch_comparison.json" in plan["outputs"][
+        "execution_probe_touch_comparison"
+    ]
+    script = (ROOT_DIR / "scripts" / "run_runtime_touch_cycle.sh").read_text(
+        encoding="utf-8"
+    )
+    assert 'REAL_DRY_RUN_RESEARCH_MODE="data_lake_only"' in script
+    assert 'REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS="${REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS:-1}"' in script
 
 
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:

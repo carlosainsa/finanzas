@@ -42,6 +42,7 @@ export PRE_LIVE_MIN_DRY_RUN_OBSERVED_FILL_RATE="${PRE_LIVE_MIN_DRY_RUN_OBSERVED_
 export PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA="${PRE_LIVE_MAX_ABS_SIMULATOR_FILL_RATE_DELTA:-0.75}"
 export ALLOW_RESEARCH_GATE_FAILURE="${ALLOW_RESEARCH_GATE_FAILURE:-1}"
 export RESEARCH_RUN_SOURCE="${RESEARCH_RUN_SOURCE:-real_market_dry_run}"
+export REAL_DRY_RUN_RESEARCH_MODE="${REAL_DRY_RUN_RESEARCH_MODE:-full}"
 export REPORT_TIMESTAMP="${REPORT_TIMESTAMP:-real-dry-run-$(date -u +%Y%m%dT%H%M%SZ)}"
 export REAL_DRY_RUN_PREFLIGHT_ENABLED="${REAL_DRY_RUN_PREFLIGHT_ENABLED:-1}"
 export REAL_DRY_RUN_PREFLIGHT_SECONDS="${REAL_DRY_RUN_PREFLIGHT_SECONDS:-120}"
@@ -73,6 +74,10 @@ if [[ "$DISABLE_MARKET_WS" == "1" || "$DISABLE_MARKET_WS" == "true" ]]; then
   echo "Refusing to run: DISABLE_MARKET_WS must be false to collect real market data." >&2
   exit 64
 fi
+if [[ "$REAL_DRY_RUN_RESEARCH_MODE" != "full" && "$REAL_DRY_RUN_RESEARCH_MODE" != "data_lake_only" ]]; then
+  echo "Refusing to run: REAL_DRY_RUN_RESEARCH_MODE must be full or data_lake_only." >&2
+  exit 64
+fi
 if [[ -n "${PREDICTOR_BLOCKED_SEGMENTS_PATH:-}" && ! -f "$PREDICTOR_BLOCKED_SEGMENTS_PATH" ]]; then
   echo "Refusing to run: PREDICTOR_BLOCKED_SEGMENTS_PATH does not exist: $PREDICTOR_BLOCKED_SEGMENTS_PATH" >&2
   exit 64
@@ -92,6 +97,7 @@ capture_seconds=$REAL_DRY_RUN_SECONDS
 preflight_enabled=$REAL_DRY_RUN_PREFLIGHT_ENABLED
 preflight_seconds=$REAL_DRY_RUN_PREFLIGHT_SECONDS
 preflight_require_reports=$REAL_DRY_RUN_PREFLIGHT_REQUIRE_REPORTS
+research_mode=$REAL_DRY_RUN_RESEARCH_MODE
 blocked_segments_path=${PREDICTOR_BLOCKED_SEGMENTS_PATH:-}
 EOF
 
@@ -663,6 +669,53 @@ PY
 if [[ "$real_dry_run_evidence_status" == "no_signals" ]]; then
   echo "Sparse dry-run observation produced orderbook data but no signals; skipping research loop." >&2
   exit 20
+fi
+
+if [[ "$REAL_DRY_RUN_RESEARCH_MODE" == "data_lake_only" ]]; then
+  DATA_LAKE_ARGS=(
+    -m src.research.data_lake
+    --root "$DATA_LAKE_ROOT"
+    --duckdb "$DATA_LAKE_DUCKDB"
+    --count "$DATA_LAKE_EXPORT_COUNT"
+    --include-market-metadata
+  )
+  PYTHONPATH=python-service python3 "${DATA_LAKE_ARGS[@]}" \
+    > "$RESEARCH_REPORT_ROOT/data_lake_export.json"
+  python3 - "$RESEARCH_REPORT_ROOT" "$DATA_LAKE_DUCKDB" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+report_root = Path(sys.argv[1])
+duckdb_path = Path(sys.argv[2])
+
+def read_json(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+summary = {
+    "report_version": "real_dry_run_data_lake_only_v1",
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "can_execute_trades": False,
+    "decision_policy": "runtime_market_selection_data_lake_only",
+    "research_mode": "data_lake_only",
+    "duckdb": str(duckdb_path),
+    "real_dry_run_evidence": read_json(report_root / "real_dry_run_evidence.json"),
+    "data_lake": read_json(report_root / "data_lake_export.json"),
+    "passed": False,
+}
+(report_root / "research_summary.json").write_text(
+    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+(report_root / "research_exit_code.txt").write_text("20\n", encoding="utf-8")
+print(json.dumps(summary, indent=2, sort_keys=True))
+PY
+  exit 0
 fi
 
 set +e

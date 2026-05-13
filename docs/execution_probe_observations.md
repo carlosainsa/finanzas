@@ -25,8 +25,12 @@ V11 differences from v10:
 - `scripts/run_execution_probe_v11_cycle.sh` defaults to 60 minutes,
   `selection_source=touch_probability`, and `market_timing_filter=future_touch`.
 
-Promotion remains blocked. The next candidate should use fresh runtime touch
-evidence or current-market activity before any global quote-aggression change.
+Promotion remains blocked. The next candidate should use
+`scripts/run_runtime_touch_cycle.sh`, which captures a fresh runtime window,
+selects assets with `runtime_touch_ranking_v1`, runs `execution_probe_v11` in
+dry-run over that universe, and writes `execution_probe_touch_comparison.json`.
+This keeps the predictor profile explicit while changing only market/timing
+selection.
 
 ## Prior Variant: execution_probe_v10
 
@@ -755,9 +759,23 @@ New research-only artifacts:
 
 Operational command order:
 
-1. `scripts/analyze_at_touch_assets.sh --report-root <v11-report-root>`
-2. `scripts/rank_runtime_touch_assets.sh --duckdb <latest-research.duckdb> --output-dir <report-root>/runtime_touch_ranking`
-3. `PYTHONPATH=python-service python3 -m src.research.execution_probe_touch_comparison --report-root <v10-root> --report-root <v11-root> --output <v11-root>/execution_probe_touch_comparison.json`
+Preferred command:
+
+```bash
+scripts/run_runtime_touch_cycle.sh \
+  --comparison-report-roots <v10-root>,<v11-root> \
+  --fresh-capture-seconds 1800 \
+  --duration-seconds 3600
+```
+
+Manual command order:
+
+1. `scripts/run_pre_live_dry_run.sh --duration-seconds 1800`
+2. `scripts/rank_runtime_touch_assets.sh --duckdb <fresh-research.duckdb> --output-dir <report-root>/runtime_touch_ranking`
+3. `PYTHONPATH=python-service python3 -m src.research.execution_probe_universe_selection --selection-source runtime_touch ...`
+4. `scripts/run_runtime_touch_observation.sh --universe-selection <execution_probe_universe_selection.json>`
+5. `scripts/analyze_at_touch_assets.sh --report-root <runtime-touch-observation-root>`
+6. `PYTHONPATH=python-service python3 -m src.research.execution_probe_touch_comparison --report-root <v10-root> --report-root <v11-root> --report-root <runtime-touch-observation-root> --output <runtime-touch-observation-root>/execution_probe_touch_comparison.json`
 
 Live remains blocked until observed fills, synthetic optimism, adverse selection,
 and realized edge all pass the go/no-go contract.
@@ -770,6 +788,51 @@ First validation on the 2026-05-13 v11 report:
 - `execution_probe_touch_comparison_v1`: diagnosis
   `runtime_touch_stale_or_quotes_not_reachable`, next action
   `CHANGE_MARKET_OR_TIMING_FILTERS`.
+
+## 2026-05-13 - Runtime-Touch Cycle 30m + 30m
+
+Command path:
+
+- `scripts/run_runtime_touch_cycle.sh`
+- Fresh capture: `runtime-touch-cycle-20260513T175000Z-fresh`
+- Observation: `runtime-touch-cycle-20260513T175000Z-resume-observation`
+- Comparison roots: v10 runtime-backfill, v11 touch-probability, runtime-touch observation
+
+Fresh capture result:
+
+- Duration: 30 minutes
+- Stream lengths: `orderbook=6465`, `signals=6465`, `reports=12930`
+- Report statuses: `6465 DELAYED`, `6464 MATCHED`, `1 UNMATCHED`
+- The full research loop was too heavy for this selection-only step and hit exit
+  code `137` in `ml_fill_evaluation`; the runtime-touch cycle now uses
+  `REAL_DRY_RUN_RESEARCH_MODE=data_lake_only` for fresh capture so future runs
+  export the DuckDB needed for selection without running heavy ML reports.
+
+Runtime-touch universe:
+
+- `runtime_touch_ranking_v1`: 20 ranked assets, 4 selected assets
+- Universe status: `ready`
+- Selection source: `runtime_touch`
+- Profile used for observation: `execution_probe_v11`
+
+Observation result:
+
+- Duration: 30 minutes
+- Stream lengths: `orderbook=495`, `signals=36`, `reports=68`
+- Report statuses: `32 DELAYED`, `32 UNMATCHED`, `4 ERROR`
+- Observed fill-rate: `0.0`
+- Synthetic fill-rate: `0.0`
+- At-touch diagnostic: 1 active asset, `DROP_RUNTIME_STALE`, future-touch rate `0.0`
+- Touch comparison diagnosis: `runtime_touch_stale_or_quotes_not_reachable`
+- Next action: `CHANGE_MARKET_OR_TIMING_FILTERS`
+
+Interpretation:
+
+The runtime-touch selector improved universe freshness enough to start a valid
+dry-run observation, but the selected runtime-active markets still did not touch
+or fill the strategy quotes. This is stronger evidence that the blocker is not
+just stale v11 asset selection; the next iteration should change market/timing
+filters or quote policy in a versioned research profile. Live remains blocked.
 
 ## 2026-05-09 - Exposure Release execution_probe_v7 60m
 

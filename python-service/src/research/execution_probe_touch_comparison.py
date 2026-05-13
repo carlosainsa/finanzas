@@ -91,13 +91,19 @@ def diagnose_candidate(
     no_fill_future_touch_rate = (
         numeric_or_none(metrics.get("no_fill_future_touch_rate")) or 0.0
     )
+    at_touch_decisions = typed_dict(metrics.get("at_touch_decisions"))
+    retune_assets = numeric_or_none(at_touch_decisions.get("RETUNE_TO_AT_TOUCH")) or 0.0
+    stale_assets = numeric_or_none(at_touch_decisions.get("DROP_RUNTIME_STALE")) or 0.0
     fill_rate_gap = numeric_or_none(metrics.get("fill_rate_gap")) or (
         synthetic_fill_rate - observed_fill_rate
     )
     if not candidate:
         diagnosis = "missing_candidate_observation"
         next_action = "GENERATE_OBSERVATION"
-    elif observed_fill_rate <= 0 and no_fill_future_touch_rate <= 0:
+    elif observed_fill_rate <= 0 and retune_assets > 0:
+        diagnosis = "quote_aggressiveness_blocker"
+        next_action = "RETUNE_TO_AT_TOUCH"
+    elif observed_fill_rate <= 0 and stale_assets > 0 and no_fill_future_touch_rate <= 0:
         diagnosis = "runtime_touch_stale_or_quotes_not_reachable"
         next_action = "CHANGE_MARKET_OR_TIMING_FILTERS"
     elif observed_fill_rate <= 0 and no_fill_future_touch_rate > 0:

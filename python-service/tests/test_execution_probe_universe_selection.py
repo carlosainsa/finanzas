@@ -176,7 +176,7 @@ def test_execution_probe_universe_selection_supports_runtime_touch_source(
         db_path,
         tmp_path / "universe",
         ExecutionProbeUniverseConfig(
-            profile="execution_probe_v12",
+            profile="execution_probe_v11",
             selection_source="runtime_touch",
             limit=2,
             min_assets=1,
@@ -185,7 +185,7 @@ def test_execution_probe_universe_selection_supports_runtime_touch_source(
         ),
     )
 
-    assert report["profile"] == "execution_probe_v12"
+    assert report["profile"] == "execution_probe_v11"
     assert report["source_report_version"] == "runtime_touch_ranking_v1"
     assert report["status"] == "ready"
     assert report["market_asset_ids"] == ["asset-runtime"]
@@ -537,7 +537,7 @@ def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
         ExecutionProbeUniverseConfig(profile="live")
     except ValueError as exc:
         assert (
-            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, execution_probe_v11, or execution_probe_v12"
+            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, or execution_probe_v11"
             in str(exc)
         )
     else:
