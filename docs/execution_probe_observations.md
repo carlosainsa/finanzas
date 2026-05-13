@@ -737,6 +737,40 @@ executor reports before changing quote aggressiveness.
 The run remains `research-only`; `can_execute_trades=false` and the go/no-go
 decision is `NO_GO`.
 
+## Current Diagnostic Loop
+
+After the v10/v11 observations, the current blocker is not Redis, signal
+consumption, or executor reconciliation. The blocker is that selected assets
+generate orders but the runtime market does not fill or later touch those quotes.
+
+New research-only artifacts:
+
+- `at_touch_asset_diagnostic_v1`: per-asset diagnosis from existing quote
+  execution reports. It decides whether to retune to at-touch, drop stale
+  runtime assets, repeat, or collect more sample.
+- `runtime_touch_ranking_v1`: selector input based on fresh top-of-book changes,
+  active minutes, stale-rate, spread opportunity, and depth.
+- `execution_probe_touch_comparison_v1`: compares v10/v11/at-touch diagnostics
+  and emits the next research action while keeping `can_execute_trades=false`.
+
+Operational command order:
+
+1. `scripts/analyze_at_touch_assets.sh --report-root <v11-report-root>`
+2. `scripts/rank_runtime_touch_assets.sh --duckdb <latest-research.duckdb> --output-dir <report-root>/runtime_touch_ranking`
+3. `PYTHONPATH=python-service python3 -m src.research.execution_probe_touch_comparison --report-root <v10-root> --report-root <v11-root> --output <v11-root>/execution_probe_touch_comparison.json`
+
+Live remains blocked until observed fills, synthetic optimism, adverse selection,
+and realized edge all pass the go/no-go contract.
+
+First validation on the 2026-05-13 v11 report:
+
+- `at_touch_asset_diagnostic_v1`: 2 assets, 241 signals, both
+  `DROP_RUNTIME_STALE`, future-touch rate `0.0`, observed fill-rate `0.0`.
+- `runtime_touch_ranking_v1`: 2 ranked assets, 0 selected runtime-touch assets.
+- `execution_probe_touch_comparison_v1`: diagnosis
+  `runtime_touch_stale_or_quotes_not_reachable`, next action
+  `CHANGE_MARKET_OR_TIMING_FILTERS`.
+
 ## 2026-05-09 - Exposure Release execution_probe_v7 60m
 
 - Run id: `execution-probe-v7-exposure-release-20260509T020000Z`

@@ -167,6 +167,39 @@ def test_execution_probe_universe_selection_supports_v11_touch_probability(
     ).exists()
 
 
+def test_execution_probe_universe_selection_supports_runtime_touch_source(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v12",
+            selection_source="runtime_touch",
+            limit=2,
+            min_assets=1,
+            min_runtime_touch_snapshots=3,
+            min_runtime_touch_change_rate=0.10,
+        ),
+    )
+
+    assert report["profile"] == "execution_probe_v12"
+    assert report["source_report_version"] == "runtime_touch_ranking_v1"
+    assert report["status"] == "ready"
+    assert report["market_asset_ids"] == ["asset-runtime"]
+    runtime_filter = cast(dict[str, Any], report["runtime_touch_filter"])
+    assert runtime_filter["enabled"] is True
+    assert runtime_filter["selected_assets"] == 1
+    assert (
+        tmp_path
+        / "universe"
+        / "runtime_touch_ranking"
+        / "runtime_touch_ranking.json"
+    ).exists()
+
+
 def test_execution_probe_universe_selection_backfills_runtime_active_segments(
     tmp_path: Path,
 ) -> None:
@@ -504,7 +537,7 @@ def test_execution_probe_universe_selection_rejects_invalid_profile() -> None:
         ExecutionProbeUniverseConfig(profile="live")
     except ValueError as exc:
         assert (
-            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, or execution_probe_v11"
+            "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, execution_probe_v11, or execution_probe_v12"
             in str(exc)
         )
     else:
@@ -516,7 +549,7 @@ def test_execution_probe_universe_selection_rejects_invalid_selection_source() -
         ExecutionProbeUniverseConfig(selection_source="manual")
     except ValueError as exc:
         assert (
-            "selection_source must be candidate_market_ranking, fillability, executable_segments, or touch_probability"
+            "selection_source must be candidate_market_ranking, fillability, executable_segments, touch_probability, or runtime_touch"
             in str(exc)
         )
     else:
@@ -1264,6 +1297,59 @@ def seed_runtime_activity_segment_universe_db(tmp_path: Path) -> Path:
                     True,
                 ),
             ],
+        )
+    return db_path
+
+
+def seed_runtime_touch_universe_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "runtime_touch_research.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table orderbook_snapshots (
+                market_id varchar,
+                asset_id varchar,
+                event_timestamp_ms bigint,
+                best_bid double,
+                best_ask double,
+                spread double,
+                bid_depth double,
+                ask_depth double
+            )
+            """
+        )
+        conn.execute(
+            """
+            create table market_metadata (
+                market_id varchar,
+                asset_id varchar,
+                outcome varchar,
+                question varchar,
+                slug varchar,
+                active boolean,
+                closed boolean,
+                archived boolean,
+                enable_order_book boolean,
+                liquidity double,
+                volume double,
+                ingested_at_ms bigint
+            )
+            """
+        )
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-runtime", "asset-runtime", 1_000, 0.40, 0.45, 0.05, 10.0, 10.0),
+                ("market-runtime", "asset-runtime", 61_000, 0.41, 0.45, 0.04, 10.0, 10.0),
+                ("market-runtime", "asset-runtime", 121_000, 0.41, 0.44, 0.03, 10.0, 10.0),
+            ],
+        )
+        conn.execute(
+            """
+            insert into market_metadata values
+            ('market-runtime', 'asset-runtime', 'YES', 'Runtime question', 'runtime-question',
+             true, false, false, true, 1000.0, 2000.0, 1)
+            """
         )
     return db_path
 

@@ -24,6 +24,10 @@ from src.research.segment_opportunity_ranking import (
     SegmentOpportunityRankingConfig,
     create_segment_opportunity_ranking_report,
 )
+from src.research.runtime_touch_ranking import (
+    RuntimeTouchRankingConfig,
+    create_runtime_touch_ranking_report,
+)
 from src.research.touch_probability_ranking import (
     TouchProbabilityRankingConfig,
     create_touch_probability_ranking_report,
@@ -51,6 +55,7 @@ SELECTION_SOURCES = (
     "fillability",
     "executable_segments",
     "touch_probability",
+    "runtime_touch",
 )
 ADVERSE_SELECTION_FILTERS = ("none", "market_side")
 TOXICITY_FILTERS = ("none", "segment")
@@ -77,6 +82,9 @@ class ExecutionProbeUniverseConfig:
     runtime_activity_backfill: bool = False
     runtime_backfill_min_opportunities: int = 3
     runtime_backfill_min_active_minutes: int = 2
+    runtime_touch_lookback_ms: int = 900_000
+    min_runtime_touch_change_rate: float = 0.01
+    min_runtime_touch_snapshots: int = 10
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -87,9 +95,10 @@ class ExecutionProbeUniverseConfig:
             "execution_probe_v9",
             "execution_probe_v10",
             "execution_probe_v11",
+            "execution_probe_v12",
         }:
             raise ValueError(
-                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, or execution_probe_v11"
+                "profile must be execution_probe_v5, execution_probe_v6, execution_probe_v7, execution_probe_v8, execution_probe_v9, execution_probe_v10, execution_probe_v11, or execution_probe_v12"
             )
         if self.limit <= 0:
             raise ValueError("limit must be positive")
@@ -103,7 +112,7 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("market_timing_filter must be none or future_touch")
         if self.selection_source not in SELECTION_SOURCES:
             raise ValueError(
-                "selection_source must be candidate_market_ranking, fillability, executable_segments, or touch_probability"
+                "selection_source must be candidate_market_ranking, fillability, executable_segments, touch_probability, or runtime_touch"
             )
         if self.adverse_selection_filter not in ADVERSE_SELECTION_FILTERS:
             raise ValueError("adverse_selection_filter must be none or market_side")
@@ -125,6 +134,12 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("runtime_backfill_min_opportunities must be positive")
         if self.runtime_backfill_min_active_minutes <= 0:
             raise ValueError("runtime_backfill_min_active_minutes must be positive")
+        if self.runtime_touch_lookback_ms <= 0:
+            raise ValueError("runtime_touch_lookback_ms must be positive")
+        if not 0 <= self.min_runtime_touch_change_rate <= 1:
+            raise ValueError("min_runtime_touch_change_rate must be between 0 and 1")
+        if self.min_runtime_touch_snapshots <= 0:
+            raise ValueError("min_runtime_touch_snapshots must be positive")
         if (
             self.min_avg_opportunity_spread is not None
             and self.min_avg_opportunity_spread < 0
@@ -152,6 +167,8 @@ def create_execution_probe_universe_selection(
 ) -> dict[str, object]:
     if config.selection_source == "executable_segments":
         pass
+    elif config.selection_source == "runtime_touch":
+        pass
     elif config.selection_source == "fillability":
         create_fillability_baseline_views(
             db_path,
@@ -172,6 +189,7 @@ def create_execution_probe_universe_selection(
     touch_probability_report = create_touch_probability_inputs(
         db_path, output_dir, config
     )
+    runtime_touch_report = create_runtime_touch_inputs(db_path, output_dir, config)
     toxicity_report = create_toxicity_inputs(db_path, output_dir, config)
     with duckdb.connect(str(db_path)) as conn:
         has_quote_execution_by_asset = relation_exists(conn, "quote_execution_by_market_asset")
@@ -186,6 +204,8 @@ def create_execution_probe_universe_selection(
             )
         if config.selection_source == "executable_segments":
             frame = select_executable_segment_universe(conn, config)
+        elif config.selection_source == "runtime_touch":
+            frame = select_runtime_touch_universe(conn, config)
         elif config.selection_source == "touch_probability":
             frame = select_touch_probability_universe(conn, config)
         elif config.selection_source == "fillability":
@@ -235,6 +255,7 @@ def create_execution_probe_universe_selection(
         "touch_probability_filter": touch_probability_payload(
             touch_probability_report
         ),
+        "runtime_touch_filter": runtime_touch_payload(runtime_touch_report),
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -250,6 +271,7 @@ def create_execution_probe_universe_selection(
             "segment_opportunity_ranking/segment_opportunity_ranking.json",
             "segment_opportunity_ranking/allowed_segments.json",
             "touch_probability_ranking/touch_probability_ranking.json",
+            "runtime_touch_ranking/runtime_touch_ranking.json",
         ],
     }
     (output_dir / "execution_probe_universe_selection.json").write_text(
@@ -761,6 +783,104 @@ def select_touch_probability_universe(
     ).fetch_df()
 
 
+def runtime_touch_quality_score_sql() -> str:
+    return """
+        (
+            coalesce(runtime.runtime_touch_score, 0)
+            + coalesce(runtime.touch_change_rate, 0) * 20
+            + coalesce(runtime.spread_opportunity_density, 0) * 10
+            + least(coalesce(runtime.avg_total_depth, 0) / 10000.0, 1.0)
+            - coalesce(runtime.stale_rate, 0) * 25
+            - coalesce(toxicity_quality.quality_penalty, 0)
+        )
+    """
+
+
+def select_runtime_touch_universe(
+    conn: duckdb.DuckDBPyConnection,
+    config: ExecutionProbeUniverseConfig,
+) -> pd.DataFrame:
+    spread_filters = []
+    if config.min_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(runtime.avg_spread, 0) >= {config.min_avg_opportunity_spread}"
+        )
+    if config.max_avg_opportunity_spread is not None:
+        spread_filters.append(
+            f"coalesce(runtime.avg_spread, 0) <= {config.max_avg_opportunity_spread}"
+        )
+    spread_filter_sql = (
+        "\n          and " + "\n          and ".join(spread_filters)
+        if spread_filters
+        else ""
+    )
+    return conn.execute(
+        f"""
+        with candidates as (
+            select
+                runtime.rank,
+                runtime.market_id,
+                runtime.asset_id,
+                'BUY' as side,
+                'runtime_touch' as strategy,
+                'runtime_touch_ranking_v1' as model_version,
+                runtime.snapshots as signals,
+                null::double as observed_fill_rate,
+                null::double as synthetic_fill_rate,
+                null::double as synthetic_observed_gap,
+                runtime.runtime_touch_score as avg_expected_edge,
+                runtime.avg_total_depth as avg_available_depth,
+                runtime.snapshots as runtime_opportunities,
+                runtime.active_minutes as runtime_active_minutes,
+                runtime.touch_change_rate as runtime_opportunity_density,
+                null::double as adverse_30s_rate,
+                null::double as avg_pnl_30s,
+                {runtime_touch_quality_score_sql()} as execution_quality_score,
+                null::varchar as spread_bucket,
+                null::varchar as timing_bucket,
+                runtime.recommendation,
+                'runtime_touch_fresh_activity' as allowed_reason,
+                runtime.snapshots as timing_signals,
+                'primary' as selection_tier,
+                null::varchar as fallback_reason,
+                runtime.touch_change_rate,
+                runtime.spread_opportunity_density,
+                runtime.stale_rate,
+                runtime.avg_spread,
+                runtime.avg_total_depth,
+                {toxicity_select_columns_sql()},
+                row_number() over (
+                    partition by runtime.asset_id
+                    order by
+                        {runtime_touch_quality_score_sql()} desc,
+                        runtime.runtime_touch_score desc,
+                        runtime.touch_change_rate desc,
+                        runtime.snapshots desc,
+                        runtime.rank
+                ) as asset_rank
+            from runtime_touch_ranking runtime
+            {adverse_join_sql("runtime", "'BUY'")}
+            {toxicity_join_sql("runtime", "'BUY'")}
+            where runtime.recommendation = 'PROMOTE_TO_OBSERVATION'
+              {adverse_filter_sql()}
+              and runtime.snapshots >= {config.min_runtime_touch_snapshots}
+              and coalesce(runtime.touch_change_rate, 0) >= {config.min_runtime_touch_change_rate}
+              {spread_filter_sql}
+        )
+        select * exclude (asset_rank)
+        from candidates
+        where asset_rank = 1
+        order by
+            execution_quality_score desc,
+            avg_expected_edge desc,
+            touch_change_rate desc,
+            signals desc,
+            asset_id
+        limit {config.limit}
+        """
+    ).fetch_df()
+
+
 def select_market_opportunity_fallback(
     conn: duckdb.DuckDBPyConnection,
     selected_assets: list[str],
@@ -950,6 +1070,31 @@ def create_touch_probability_inputs(
     )
 
 
+def create_runtime_touch_inputs(
+    db_path: Path,
+    output_dir: Path,
+    config: ExecutionProbeUniverseConfig,
+) -> dict[str, object] | None:
+    if config.selection_source != "runtime_touch":
+        return None
+    return create_runtime_touch_ranking_report(
+        db_path,
+        output_dir / "runtime_touch_ranking",
+        RuntimeTouchRankingConfig(
+            lookback_ms=config.runtime_touch_lookback_ms,
+            min_snapshots=config.min_runtime_touch_snapshots,
+            min_touch_change_rate=config.min_runtime_touch_change_rate,
+            min_spread=(
+                config.min_avg_opportunity_spread
+                if config.min_avg_opportunity_spread is not None
+                else RuntimeTouchRankingConfig.min_spread
+            ),
+            max_spread=config.max_avg_opportunity_spread,
+            limit=max(config.limit, config.min_assets),
+        ),
+    )
+
+
 def select_executable_segment_universe(
     conn: duckdb.DuckDBPyConnection,
     config: ExecutionProbeUniverseConfig,
@@ -1025,6 +1170,8 @@ def source_report_version(config: ExecutionProbeUniverseConfig) -> str:
         return "segment_opportunity_ranking_v1"
     if config.selection_source == "touch_probability":
         return "touch_probability_ranking_v1"
+    if config.selection_source == "runtime_touch":
+        return "runtime_touch_ranking_v1"
     if config.selection_source == "fillability":
         return "fillability_baseline_v1"
     return "candidate_market_ranking_v1"
@@ -1125,6 +1272,31 @@ def touch_probability_payload(
         ),
         "touch_probability_ranking_path": (
             str(Path("touch_probability_ranking") / "touch_probability_ranking.json")
+            if isinstance(report, dict)
+            else None
+        ),
+    }
+
+
+def runtime_touch_payload(
+    report: dict[str, object] | None,
+) -> dict[str, object]:
+    return {
+        "enabled": report is not None,
+        "mode": "runtime_touch" if report is not None else "none",
+        "source_relation": "runtime_touch_ranking",
+        "selected_assets": (
+            typed_count(report.get("counts"), "selected_runtime_touch_markets")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "ranked_assets": (
+            typed_count(report.get("counts"), "runtime_touch_ranking")
+            if isinstance(report, dict)
+            else 0
+        ),
+        "runtime_touch_ranking_path": (
+            str(Path("runtime_touch_ranking") / "runtime_touch_ranking.json")
             if isinstance(report, dict)
             else None
         ),
@@ -1286,6 +1458,21 @@ def main() -> int:
         default=ExecutionProbeUniverseConfig.runtime_backfill_min_active_minutes,
     )
     parser.add_argument(
+        "--runtime-touch-lookback-ms",
+        type=int,
+        default=ExecutionProbeUniverseConfig.runtime_touch_lookback_ms,
+    )
+    parser.add_argument(
+        "--min-runtime-touch-change-rate",
+        type=float,
+        default=ExecutionProbeUniverseConfig.min_runtime_touch_change_rate,
+    )
+    parser.add_argument(
+        "--min-runtime-touch-snapshots",
+        type=int,
+        default=ExecutionProbeUniverseConfig.min_runtime_touch_snapshots,
+    )
+    parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
         help="Comma-separated candidate_market_ranking recommendations to include.",
@@ -1314,6 +1501,9 @@ def main() -> int:
             runtime_activity_backfill=args.runtime_activity_backfill,
             runtime_backfill_min_opportunities=args.runtime_backfill_min_opportunities,
             runtime_backfill_min_active_minutes=args.runtime_backfill_min_active_minutes,
+            runtime_touch_lookback_ms=args.runtime_touch_lookback_ms,
+            min_runtime_touch_change_rate=args.min_runtime_touch_change_rate,
+            min_runtime_touch_snapshots=args.min_runtime_touch_snapshots,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

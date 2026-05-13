@@ -24,10 +24,13 @@ MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-1}"
 RUNTIME_ACTIVITY_BACKFILL="${EXECUTION_PROBE_RUNTIME_ACTIVITY_BACKFILL:-false}"
 RUNTIME_BACKFILL_MIN_OPPORTUNITIES="${EXECUTION_PROBE_RUNTIME_BACKFILL_MIN_OPPORTUNITIES:-3}"
 RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES="${EXECUTION_PROBE_RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES:-2}"
+RUNTIME_TOUCH_LOOKBACK_MS="${EXECUTION_PROBE_RUNTIME_TOUCH_LOOKBACK_MS:-900000}"
+MIN_RUNTIME_TOUCH_CHANGE_RATE="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_CHANGE_RATE:-0.01}"
+MIN_RUNTIME_TOUCH_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS:-10}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability|executable_segments|touch_probability] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment] [--runtime-activity-backfill]
+Usage: scripts/prepare_execution_probe_cycle.sh --universe-duckdb PATH [--baseline-report-root PATH] [--duration-seconds N] [--universe-selection-source candidate_market_ranking|fillability|executable_segments|touch_probability|runtime_touch] [--market-timing-filter none|future_touch] [--toxicity-filter none|segment] [--runtime-activity-backfill]
 
 Prepares a repeatable execution-probe cycle without starting services:
 market universe selection -> observation command plan -> optional baseline compare
@@ -121,6 +124,18 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES="$2"
       shift 2
       ;;
+    --runtime-touch-lookback-ms)
+      RUNTIME_TOUCH_LOOKBACK_MS="$2"
+      shift 2
+      ;;
+    --min-runtime-touch-change-rate)
+      MIN_RUNTIME_TOUCH_CHANGE_RATE="$2"
+      shift 2
+      ;;
+    --min-runtime-touch-snapshots)
+      MIN_RUNTIME_TOUCH_SNAPSHOTS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -133,8 +148,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" && "$PROFILE" != "execution_probe_v8" && "$PROFILE" != "execution_probe_v9" && "$PROFILE" != "execution_probe_v10" && "$PROFILE" != "execution_probe_v11" ]]; then
-  echo "Only PROFILE=execution_probe_v6, PROFILE=execution_probe_v7, PROFILE=execution_probe_v8, PROFILE=execution_probe_v9, PROFILE=execution_probe_v10, or PROFILE=execution_probe_v11 is supported by this cycle preparer." >&2
+if [[ "$PROFILE" != "execution_probe_v6" && "$PROFILE" != "execution_probe_v7" && "$PROFILE" != "execution_probe_v8" && "$PROFILE" != "execution_probe_v9" && "$PROFILE" != "execution_probe_v10" && "$PROFILE" != "execution_probe_v11" && "$PROFILE" != "execution_probe_v12" ]]; then
+  echo "Only PROFILE=execution_probe_v6, PROFILE=execution_probe_v7, PROFILE=execution_probe_v8, PROFILE=execution_probe_v9, PROFILE=execution_probe_v10, PROFILE=execution_probe_v11, or PROFILE=execution_probe_v12 is supported by this cycle preparer." >&2
   exit 64
 fi
 if [[ -z "$UNIVERSE_DUCKDB" || ! -f "$UNIVERSE_DUCKDB" ]]; then
@@ -149,8 +164,8 @@ if [[ "$MARKET_TIMING_FILTER" != "none" && "$MARKET_TIMING_FILTER" != "future_to
   echo "market timing filter must be none or future_touch" >&2
   exit 64
 fi
-if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" != "fillability" && "$SELECTION_SOURCE" != "executable_segments" && "$SELECTION_SOURCE" != "touch_probability" ]]; then
-  echo "selection source must be candidate_market_ranking, fillability, executable_segments, or touch_probability" >&2
+if [[ "$SELECTION_SOURCE" != "candidate_market_ranking" && "$SELECTION_SOURCE" != "fillability" && "$SELECTION_SOURCE" != "executable_segments" && "$SELECTION_SOURCE" != "touch_probability" && "$SELECTION_SOURCE" != "runtime_touch" ]]; then
+  echo "selection source must be candidate_market_ranking, fillability, executable_segments, touch_probability, or runtime_touch" >&2
   exit 64
 fi
 if [[ "$ADVERSE_SELECTION_FILTER" != "none" && "$ADVERSE_SELECTION_FILTER" != "market_side" ]]; then
@@ -177,6 +192,14 @@ if ! [[ "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES" =~ ^[0-9]+$ ]] || (( RUNTIME_BACK
   echo "runtime backfill min active minutes must be a positive integer" >&2
   exit 64
 fi
+if ! [[ "$RUNTIME_TOUCH_LOOKBACK_MS" =~ ^[0-9]+$ ]] || (( RUNTIME_TOUCH_LOOKBACK_MS <= 0 )); then
+  echo "runtime touch lookback ms must be a positive integer" >&2
+  exit 64
+fi
+if ! [[ "$MIN_RUNTIME_TOUCH_SNAPSHOTS" =~ ^[0-9]+$ ]] || (( MIN_RUNTIME_TOUCH_SNAPSHOTS <= 0 )); then
+  echo "min runtime touch snapshots must be a positive integer" >&2
+  exit 64
+fi
 
 mkdir -p "$RUN_ROOT"
 
@@ -198,6 +221,9 @@ UNIVERSE_SELECTION_ARGS=(
   --min-runtime-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES"
   --runtime-backfill-min-opportunities "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES"
   --runtime-backfill-min-active-minutes "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES"
+  --runtime-touch-lookback-ms "$RUNTIME_TOUCH_LOOKBACK_MS"
+  --min-runtime-touch-change-rate "$MIN_RUNTIME_TOUCH_CHANGE_RATE"
+  --min-runtime-touch-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS"
 )
 if [[ "$RUNTIME_ACTIVITY_BACKFILL" == "true" || "$RUNTIME_ACTIVITY_BACKFILL" == "1" ]]; then
   UNIVERSE_SELECTION_ARGS+=(--runtime-activity-backfill)
@@ -242,10 +268,14 @@ OBSERVATION_COMMAND=(
   printf 'runtime_activity_backfill=%s\n' "$RUNTIME_ACTIVITY_BACKFILL"
   printf 'runtime_backfill_min_opportunities=%s\n' "$RUNTIME_BACKFILL_MIN_OPPORTUNITIES"
   printf 'runtime_backfill_min_active_minutes=%s\n' "$RUNTIME_BACKFILL_MIN_ACTIVE_MINUTES"
+  printf 'runtime_touch_lookback_ms=%s\n' "$RUNTIME_TOUCH_LOOKBACK_MS"
+  printf 'min_runtime_touch_change_rate=%s\n' "$MIN_RUNTIME_TOUCH_CHANGE_RATE"
+  printf 'min_runtime_touch_snapshots=%s\n' "$MIN_RUNTIME_TOUCH_SNAPSHOTS"
   printf 'toxicity_filter_input_report_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/fill_toxicity.json"
   printf 'toxicity_filter_input_blocklist_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/fill_toxicity/blocked_segments.json"
   printf 'universe_toxicity_quality_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_toxicity_quality.parquet"
   printf 'segment_opportunity_ranking_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/segment_opportunity_ranking/segment_opportunity_ranking.json"
+  printf 'runtime_touch_ranking_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/runtime_touch_ranking/runtime_touch_ranking.json"
   printf 'allowed_segments_path=%s\n' "$RUN_ROOT/execution_probe_universe_selection/segment_opportunity_ranking/allowed_segments.json"
   printf 'observation_command=%q ' "${OBSERVATION_COMMAND[@]}"
   printf '\n'
