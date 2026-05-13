@@ -27,6 +27,54 @@ Promotion remains blocked unless v10 produces observed fills, positive realized
 edge after slippage, low synthetic-vs-observed gap, stable segment evidence, and
 materially lower adverse selection.
 
+## 2026-05-13 - execution_probe_v10 Local Preflight
+
+- Run root: `.tmp/operational/execution-probe-v10-preflight-20260513T011527Z`
+- Source DuckDB: `data_lake/research.duckdb`
+- Baseline report root: `data_lake/reports/real-dry-run-20260426T204208Z`
+- Mode: research-only preflight, no services started
+- Profile: `execution_probe_v10`
+- Selection source: `executable_segments`
+- Planned duration: 30 minutes
+
+Generated offline artifacts:
+
+- `executable_opportunities_v1`
+- `segment_opportunity_ranking_v1`
+- `allowed_segments_v1`
+- `run_execution_probe_v10_cycle.print_plan.json`
+
+Key metrics:
+
+- Opportunities: `20`
+- Executable opportunities: `0`
+- Observed fills: `0`
+- Synthetic fills: `0`
+- Ranked segments: `20`
+- Selected executable segments: `0`
+- Universe status: `insufficient_assets`
+- Selected market assets: `0`
+
+Decision:
+
+- Observation was not started.
+- `scripts/run_execution_probe_v10_cycle.sh --print-plan` resolved correctly
+  with `selection_source=executable_segments` and `toxicity_filter=none`.
+- `scripts/prepare_execution_probe_cycle.sh` correctly failed closed because
+  the generated universe had `selected_segments=0` and
+  `market_asset_ids_count=0`.
+- Live remains blocked.
+
+Interpretation:
+
+The v10 pipeline works as a fail-closed research gate, but the only local
+DuckDB left after cleanup is too small and too old to infer executable
+segments. Running a 30-90 minute v10 observation now would be empty or
+misleading because the predictor would have no allowed segments. The next
+operational step is to collect a fresh dry-run data lake window with orderbook,
+signals, reports, and synthetic/observed execution diagnostics, then regenerate
+`executable_opportunities_v1` and `segment_opportunity_ranking_v1`.
+
 ## 2026-05-06 - execution_probe_v5 Multi-Market 60m
 
 - Run id: `execution-probe-v5-multimarket-60m-20260506T211421Z`
