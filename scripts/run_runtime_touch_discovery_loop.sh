@@ -11,6 +11,9 @@ DISCOVERY_LIMIT="${DISCOVERY_LIMIT:-50}"
 BATCH_SIZE="${DISCOVERY_BATCH_SIZE:-20}"
 BATCH_CAPTURE_SECONDS="${BATCH_CAPTURE_SECONDS:-1800}"
 MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
+MARKET_FILLABILITY_SCORE_PATH="${MARKET_FILLABILITY_SCORE_PATH:-}"
+MARKET_FAMILY_MEMORY_PATH="${MARKET_FAMILY_MEMORY_PATH:-}"
+DISCOVERY_EXPLORATION_RATE="${DISCOVERY_EXPLORATION_RATE:-0.20}"
 PRINT_PLAN=0
 
 usage() {
@@ -52,6 +55,18 @@ while [[ $# -gt 0 ]]; do
       MIN_ASSETS="$2"
       shift 2
       ;;
+    --market-fillability-score)
+      MARKET_FILLABILITY_SCORE_PATH="$2"
+      shift 2
+      ;;
+    --market-family-memory)
+      MARKET_FAMILY_MEMORY_PATH="$2"
+      shift 2
+      ;;
+    --exploration-rate)
+      DISCOVERY_EXPLORATION_RATE="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -84,12 +99,18 @@ if [[ "${EXECUTION_MODE:-dry_run}" != "dry_run" ]]; then
   echo "Refusing to run: EXECUTION_MODE must be dry_run or unset." >&2
   exit 64
 fi
+python3 - "$DISCOVERY_EXPLORATION_RATE" <<'PY'
+import sys
+value = float(sys.argv[1])
+if value < 0 or value > 1:
+    raise SystemExit("exploration rate must be between 0 and 1")
+PY
 
 DISCOVERY_BATCHES_JSON="${DISCOVERY_OUTPUT_DIR}/runtime_touch_discovery_batches.json"
 COMPARISON_JSON="${COMPARISON_OUTPUT_DIR}/runtime_touch_discovery_batch_comparison.json"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DISCOVERY_LIMIT" "$BATCH_SIZE" "$BATCH_CAPTURE_SECONDS" "$MIN_ASSETS" <<'PY'
+  python3 - "$RUN_ROOT" "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DISCOVERY_LIMIT" "$BATCH_SIZE" "$BATCH_CAPTURE_SECONDS" "$MIN_ASSETS" "$MARKET_FILLABILITY_SCORE_PATH" "$MARKET_FAMILY_MEMORY_PATH" "$DISCOVERY_EXPLORATION_RATE" <<'PY'
 import json
 import sys
 
@@ -102,6 +123,9 @@ import sys
     batch_size,
     batch_capture_seconds,
     min_assets,
+    market_fillability_score,
+    market_family_memory,
+    exploration_rate,
 ) = sys.argv[1:]
 print(json.dumps({
     "script": "scripts/run_runtime_touch_discovery_loop.sh",
@@ -111,6 +135,9 @@ print(json.dumps({
     "batch_size": int(batch_size),
     "batch_capture_seconds": int(batch_capture_seconds),
     "min_assets": int(min_assets),
+    "market_fillability_score": market_fillability_score or None,
+    "market_family_memory": market_family_memory or None,
+    "exploration_rate": float(exploration_rate),
     "delegates_to": [
         "src.research.runtime_touch_discovery_batches",
         "scripts/run_runtime_touch_selection_probe.sh",
@@ -129,10 +156,21 @@ fi
 
 mkdir -p "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR"
 
+DISCOVERY_ARGS=(
+  --output-dir "$DISCOVERY_OUTPUT_DIR"
+  --discovery-limit "$DISCOVERY_LIMIT"
+  --batch-size "$BATCH_SIZE"
+  --exploration-rate "$DISCOVERY_EXPLORATION_RATE"
+)
+if [[ -n "$MARKET_FILLABILITY_SCORE_PATH" ]]; then
+  DISCOVERY_ARGS+=(--market-fillability-score "$MARKET_FILLABILITY_SCORE_PATH")
+fi
+if [[ -n "$MARKET_FAMILY_MEMORY_PATH" ]]; then
+  DISCOVERY_ARGS+=(--market-family-memory "$MARKET_FAMILY_MEMORY_PATH")
+fi
+
 PYTHONPATH=python-service python3 -m src.research.runtime_touch_discovery_batches \
-  --output-dir "$DISCOVERY_OUTPUT_DIR" \
-  --discovery-limit "$DISCOVERY_LIMIT" \
-  --batch-size "$BATCH_SIZE" \
+  "${DISCOVERY_ARGS[@]}" \
   > "$RUN_ROOT/runtime_touch_discovery_batches.stdout.json"
 
 while IFS=$'\t' read -r batch_id asset_ids_csv; do

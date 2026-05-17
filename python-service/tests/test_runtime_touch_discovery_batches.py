@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from src.discovery.markets import MarketCandidate, score_market
 from src.research.runtime_touch_discovery_batches import (
@@ -27,7 +28,9 @@ def test_discovery_batches_groups_ranked_markets_without_execution(
     assert report["can_execute_trades"] is False
     assert report["can_promote_live"] is False
     assert report["decision_policy"] == "offline_runtime_touch_discovery_batching_only"
-    assert report["counts"] == {"asset_ids": 6, "batches": 2, "markets": 3}
+    assert report["counts"]["asset_ids"] == 6
+    assert report["counts"]["batches"] == 2
+    assert report["counts"]["markets"] == 3
     assert [batch["batch_id"] for batch in report["batches"]] == [
         "batch-01",
         "batch-02",
@@ -41,6 +44,61 @@ def test_discovery_batches_groups_ranked_markets_without_execution(
     assert (tmp_path / "discovery" / "runtime_touch_discovery_batches.json").exists()
 
 
+def test_discovery_batches_use_fillability_and_family_memory(
+    tmp_path: Path,
+) -> None:
+    fillability_path = tmp_path / "fillability.json"
+    family_memory_path = tmp_path / "family_memory.json"
+    fillability_path.write_text(
+        json.dumps(
+            {
+                "selected": [
+                    {
+                        "asset_id": "market-b-yes",
+                        "market_fillability_score": 50.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    family_memory_path.write_text(
+        json.dumps(
+            {
+                "families": [
+                    {
+                        "family_key": "tag:politics",
+                        "observations": 1,
+                        "family_memory_score": 20.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    markets = [
+        score_market(candidate("market-a", score_hint=30_000, tags=["Sports"])),
+        score_market(candidate("market-b", score_hint=10_000, tags=["Politics"])),
+    ]
+
+    report = write_runtime_touch_discovery_batches(
+        tmp_path / "discovery",
+        markets,
+        RuntimeTouchDiscoveryBatchConfig(
+            discovery_limit=2,
+            batch_size=4,
+            market_fillability_score_path=str(fillability_path),
+            market_family_memory_path=str(family_memory_path),
+            exploration_rate=0.50,
+        ),
+    )
+
+    assert report["selection_policy"] == "epsilon_family_fillability_explore_exploit_v1"
+    assert report["markets"][0]["market_id"] == "market-b"
+    assert report["markets"][0]["selection_mode"] == "exploit"
+    assert report["markets"][1]["selection_mode"] == "explore"
+
+
 def test_discovery_batch_config_rejects_invalid_batch_size() -> None:
     try:
         RuntimeTouchDiscoveryBatchConfig(batch_size=0)
@@ -50,7 +108,11 @@ def test_discovery_batch_config_rejects_invalid_batch_size() -> None:
         raise AssertionError("expected invalid batch size to fail")
 
 
-def candidate(market_id: str, score_hint: float) -> MarketCandidate:
+def candidate(
+    market_id: str,
+    score_hint: float,
+    tags: list[str] | None = None,
+) -> MarketCandidate:
     return MarketCandidate(
         market_id=market_id,
         question=f"Question {market_id}",
@@ -65,5 +127,5 @@ def candidate(market_id: str, score_hint: float) -> MarketCandidate:
         clob_token_ids=[f"{market_id}-yes", f"{market_id}-no"],
         description="A detailed market description with enough resolution context.",
         resolution_source="official source",
-        tags=["Politics"],
+        tags=tags or ["Politics"],
     )

@@ -847,6 +847,18 @@ the same DuckDB. A batch only becomes useful if its scout/route artifacts show
 at least two selected assets and a non-live research action; live remains
 blocked by `runtime_touch_route_decision_v1`.
 
+Discovery selection upgrade:
+
+- Market fillability: `market_fillability_score_v1`
+- Family memory: `market_family_memory_v1`
+- Discovery policy: `epsilon_family_fillability_explore_exploit_v1`
+
+This moves market selection away from Gamma liquidity alone. New discovery
+batches can now exploit markets/assets with prior fillability evidence, favor
+families that produced usable scout windows, and still reserve deterministic
+exploration capacity for new families with no memory. The upgrade is still
+research-only and does not change quote placement, risk gates, or live status.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal
