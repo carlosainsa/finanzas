@@ -15,13 +15,15 @@ MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
 DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_signalability_diagnostic}"
 EXPANSION_OUTPUT_DIR="${EXPANSION_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_candidate_expansion}"
 OPPORTUNITY_WINDOW_OUTPUT_DIR="${OPPORTUNITY_WINDOW_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_opportunity_windows}"
+MARKET_TIMING_SCOUT_OUTPUT_DIR="${MARKET_TIMING_SCOUT_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_market_timing_scout}"
+ROUTE_DECISION_OUTPUT="${ROUTE_DECISION_OUTPUT:-${RUN_ROOT}/runtime_touch_route_decision.json}"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/run_runtime_touch_selection_probe.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--fresh-capture-seconds N] [--print-plan]
 
 Runs a research-only short selection probe:
-fresh data-lake capture -> signalability diagnostic -> candidate expansion -> opportunity-window selection.
+fresh data-lake capture -> signalability diagnostic -> candidate expansion -> opportunity-window selection -> market timing scout -> route decision.
 It does not launch A/B, does not execute live trades, and does not modify risk.
 EOF
 }
@@ -49,6 +51,8 @@ while [[ $# -gt 0 ]]; do
       DIAGNOSTIC_OUTPUT_DIR="$2/runtime_touch_signalability_diagnostic"
       EXPANSION_OUTPUT_DIR="$2/runtime_touch_candidate_expansion"
       OPPORTUNITY_WINDOW_OUTPUT_DIR="$2/runtime_touch_opportunity_windows"
+      MARKET_TIMING_SCOUT_OUTPUT_DIR="$2/runtime_touch_market_timing_scout"
+      ROUTE_DECISION_OUTPUT="$2/runtime_touch_route_decision.json"
       shift 2
       ;;
     --min-assets)
@@ -89,7 +93,7 @@ if [[ "$PRINT_PLAN" != "1" && "$SKIP_FRESH_CAPTURE" == "1" && ! -f "$FRESH_DUCKD
 fi
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" "$OPPORTUNITY_WINDOW_OUTPUT_DIR" "$SKIP_FRESH_CAPTURE" "$MIN_ASSETS" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" "$OPPORTUNITY_WINDOW_OUTPUT_DIR" "$MARKET_TIMING_SCOUT_OUTPUT_DIR" "$ROUTE_DECISION_OUTPUT" "$SKIP_FRESH_CAPTURE" "$MIN_ASSETS" <<'PY'
 import json
 import sys
 
@@ -101,6 +105,8 @@ import sys
     diagnostic_output_dir,
     expansion_output_dir,
     opportunity_window_output_dir,
+    market_timing_scout_output_dir,
+    route_decision_output,
     skip_fresh_capture,
     min_assets,
 ) = sys.argv[1:]
@@ -116,6 +122,8 @@ print(json.dumps({
         "src.research.runtime_touch_signalability_diagnostic",
         "src.research.runtime_touch_candidate_expansion",
         "src.research.runtime_touch_opportunity_windows",
+        "src.research.runtime_touch_market_timing_scout",
+        "src.research.runtime_touch_route_decision",
     ],
     "outputs": {
         "run_root": run_root,
@@ -124,6 +132,8 @@ print(json.dumps({
         "signalability_diagnostic": f"{diagnostic_output_dir}/runtime_touch_signalability_diagnostic.json",
         "candidate_expansion": f"{expansion_output_dir}/runtime_touch_candidate_expansion.json",
         "opportunity_windows": f"{opportunity_window_output_dir}/runtime_touch_opportunity_windows.json",
+        "market_timing_scout": f"{market_timing_scout_output_dir}/runtime_touch_market_timing_scout.json",
+        "route_decision": route_decision_output,
         "selection_probe_summary": f"{run_root}/runtime_touch_selection_probe_summary.json",
     },
 }, indent=2, sort_keys=True))
@@ -160,6 +170,12 @@ PYTHONPATH=python-service python3 -m src.research.runtime_touch_opportunity_wind
   --output-dir "$OPPORTUNITY_WINDOW_OUTPUT_DIR" \
   --min-assets "$MIN_ASSETS" \
   > "$RUN_ROOT/runtime_touch_opportunity_windows.stdout.json"
+
+PYTHONPATH=python-service python3 -m src.research.runtime_touch_market_timing_scout \
+  --duckdb "$FRESH_DUCKDB" \
+  --output-dir "$MARKET_TIMING_SCOUT_OUTPUT_DIR" \
+  --min-assets "$MIN_ASSETS" \
+  > "$RUN_ROOT/runtime_touch_market_timing_scout.stdout.json"
 
 python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" "$OPPORTUNITY_WINDOW_OUTPUT_DIR" <<'PY'
 import json
@@ -206,3 +222,10 @@ payload = {
 )
 print(json.dumps(payload, indent=2, sort_keys=True))
 PY
+
+PYTHONPATH=python-service python3 -m src.research.runtime_touch_route_decision \
+  --selection-probe-summary "$RUN_ROOT/runtime_touch_selection_probe_summary.json" \
+  --market-timing-scout "$MARKET_TIMING_SCOUT_OUTPUT_DIR/runtime_touch_market_timing_scout.json" \
+  --output "$ROUTE_DECISION_OUTPUT" \
+  --min-assets "$MIN_ASSETS" \
+  > "$RUN_ROOT/runtime_touch_route_decision.stdout.json"

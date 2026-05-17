@@ -819,6 +819,21 @@ windows, not just isolated snapshots. The outcome is unchanged, so the next
 implementation should improve market discovery/timing coverage before any
 manual A/B retry ladder.
 
+Follow-up market-timing scout and route decision on the same DuckDB:
+
+- Market timing scout: `.tmp/operational/runtime-touch-selection-probe-route-validation/runtime_touch_market_timing_scout/runtime_touch_market_timing_scout.json`
+- Route decision: `.tmp/operational/runtime-touch-selection-probe-route-validation/runtime_touch_route_decision.json`
+- Scout asset windows: `100`
+- Scout windows: `5`
+- Eligible scout windows: `0`
+- Selected scout assets: `0`
+- Route next action: `EXPAND_MARKET_DISCOVERY`
+- Live gate: `BLOCK_LIVE`
+
+This closes the manual ambiguity from the previous selection-only result. The
+fresh DuckDB does not merely need a better quote parameter or a longer A/B run;
+it needs broader market discovery before another runtime-touch A/B retry.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal

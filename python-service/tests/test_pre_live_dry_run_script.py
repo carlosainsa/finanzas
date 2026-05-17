@@ -1018,6 +1018,8 @@ def test_runtime_touch_selection_probe_print_plan_is_research_only(
     assert "src.research.runtime_touch_signalability_diagnostic" in plan["delegates_to"]
     assert "src.research.runtime_touch_candidate_expansion" in plan["delegates_to"]
     assert "src.research.runtime_touch_opportunity_windows" in plan["delegates_to"]
+    assert "src.research.runtime_touch_market_timing_scout" in plan["delegates_to"]
+    assert "src.research.runtime_touch_route_decision" in plan["delegates_to"]
     assert "runtime_touch_signalability_diagnostic.json" in plan["outputs"][
         "signalability_diagnostic"
     ]
@@ -1027,6 +1029,10 @@ def test_runtime_touch_selection_probe_print_plan_is_research_only(
     assert "runtime_touch_opportunity_windows.json" in plan["outputs"][
         "opportunity_windows"
     ]
+    assert "runtime_touch_market_timing_scout.json" in plan["outputs"][
+        "market_timing_scout"
+    ]
+    assert "runtime_touch_route_decision.json" in plan["outputs"]["route_decision"]
 
 
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
