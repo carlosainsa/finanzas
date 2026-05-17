@@ -834,6 +834,19 @@ This closes the manual ambiguity from the previous selection-only result. The
 fresh DuckDB does not merely need a better quote parameter or a longer A/B run;
 it needs broader market discovery before another runtime-touch A/B retry.
 
+Implementation follow-up for broader discovery:
+
+- Discovery batches: `runtime_touch_discovery_batches_v1`
+- Operator loop: `scripts/run_runtime_touch_discovery_loop.sh`
+- Batch comparison: `runtime_touch_discovery_batch_comparison_v1`
+- Testable contract: `--print-plan` only for CI; real execution still runs
+  per-batch dry-run probes and writes isolated run roots.
+
+The next operational run should use the discovery loop instead of repeating
+the same DuckDB. A batch only becomes useful if its scout/route artifacts show
+at least two selected assets and a non-live research action; live remains
+blocked by `runtime_touch_route_decision_v1`.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal

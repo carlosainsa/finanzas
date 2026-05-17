@@ -107,10 +107,11 @@ def create_runtime_touch_market_timing_scout(
         index=False,
     )
     selected_rows = normalize_records(selected_assets.to_dict(orient="records"))
-    window_rows = normalize_records(windows.head(10).to_dict(orient="records"))
+    all_window_rows = normalize_records(windows.to_dict(orient="records"))
+    window_rows = all_window_rows[:10]
     selected_asset_ids = [str(row["asset_id"]) for row in selected_rows]
     eligible_windows = sum(
-        1 for row in window_rows if row.get("window_decision") == "SCOUT_WINDOW_READY"
+        1 for row in all_window_rows if row.get("window_decision") == "SCOUT_WINDOW_READY"
     )
     status = "ready" if len(selected_asset_ids) >= config.min_assets else "insufficient_assets"
     payload: dict[str, Any] = {

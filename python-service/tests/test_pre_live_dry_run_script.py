@@ -1035,6 +1035,52 @@ def test_runtime_touch_selection_probe_print_plan_is_research_only(
     assert "runtime_touch_route_decision.json" in plan["outputs"]["route_decision"]
 
 
+def test_runtime_touch_discovery_loop_print_plan_is_research_only(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "discovery-loop"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_discovery_loop.sh",
+            "--run-root",
+            str(run_root),
+            "--discovery-limit",
+            "10",
+            "--batch-size",
+            "4",
+            "--batch-capture-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_discovery_loop.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["discovery_limit"] == 10
+    assert plan["batch_size"] == 4
+    assert plan["batch_capture_seconds"] == 1800
+    assert "src.research.runtime_touch_discovery_batches" in plan["delegates_to"]
+    assert "scripts/run_runtime_touch_selection_probe.sh" in plan["delegates_to"]
+    assert (
+        "src.research.runtime_touch_discovery_batch_comparison"
+        in plan["delegates_to"]
+    )
+    assert "runtime_touch_discovery_batches.json" in plan["outputs"][
+        "discovery_batches"
+    ]
+    assert "runtime_touch_discovery_batch_comparison.json" in plan["outputs"][
+        "batch_comparison"
+    ]
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"
