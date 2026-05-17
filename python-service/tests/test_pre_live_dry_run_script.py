@@ -985,6 +985,46 @@ def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
     ]
 
 
+def test_runtime_touch_selection_probe_print_plan_is_research_only(
+    tmp_path: Path,
+) -> None:
+    fresh_duckdb = tmp_path / "research.duckdb"
+    baseline = tmp_path / "reports" / "baseline"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_selection_probe.sh",
+            "--skip-fresh-capture",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            "--fresh-report-root",
+            str(baseline),
+            "--fresh-capture-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_selection_probe.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["fresh_capture_seconds"] == 1800
+    assert "src.research.runtime_touch_signalability_diagnostic" in plan["delegates_to"]
+    assert "src.research.runtime_touch_candidate_expansion" in plan["delegates_to"]
+    assert "runtime_touch_signalability_diagnostic.json" in plan["outputs"][
+        "signalability_diagnostic"
+    ]
+    assert "runtime_touch_candidate_expansion.json" in plan["outputs"][
+        "candidate_expansion"
+    ]
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"

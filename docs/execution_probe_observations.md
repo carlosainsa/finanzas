@@ -788,6 +788,20 @@ or infer v11/v12 quote-policy quality from this run. Live remains blocked until
 a route can produce a comparable universe and then an A/B observation with
 observed fills, low synthetic optimism, and acceptable adverse selection.
 
+Follow-up selection-only validation on the same DuckDB:
+
+- Signalability diagnostic: `.tmp/operational/runtime-touch-selection-probe-validation/runtime_touch_signalability_diagnostic/runtime_touch_signalability_diagnostic.json`
+- Candidate expansion: `.tmp/operational/runtime-touch-selection-probe-validation/runtime_touch_candidate_expansion/runtime_touch_candidate_expansion.json`
+- Summary: `.tmp/operational/runtime-touch-selection-probe-validation/runtime_touch_selection_probe_summary.json`
+- Signalable assets: `1`
+- Candidate expansion assets: `1`
+- Dominant blockers: `19` assets failed `signalable_snapshots`, `19` failed `signalable_density`, `13` failed `touch_change_rate`, `2` failed `stale_rate`, and `1` failed `snapshots`
+- Next action: `CHANGE_MARKET_TIMING_OR_DISCOVERY`
+
+The follow-up confirms that the 2026-05-17 blocker is not simply the strict A/B
+ladder. Even a selection-only candidate expansion on the fresh DuckDB still
+finds only one asset that clears the predictor-aligned signalability floor.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal
