@@ -741,6 +741,53 @@ executor reports before changing quote aggressiveness.
 The run remains `research-only`; `can_execute_trades=false` and the go/no-go
 decision is `NO_GO`.
 
+## 2026-05-17 - Runtime-Touch Auto Route Fresh Capture 60m
+
+- Run id: `runtime-touch-ab-auto-route-20260517T180537Z`
+- Fresh data lake: `.tmp/real-dry-run-data-lake/runtime-touch-ab-auto-route-20260517T180537Z-fresh`
+- Fresh report root: `.tmp/real-dry-run-data-lake/runtime-touch-ab-auto-route-20260517T180537Z-fresh/reports/runtime-touch-ab-auto-route-20260517T180537Z-fresh`
+- Retry ladder: `.tmp/operational/runtime-touch-ab-auto-route-20260517T180537Z/runtime_touch_ab_retry_ladder/runtime_touch_ab_retry_ladder.json`
+- Mode: `EXECUTION_MODE=dry_run`
+- Route: `scripts/run_runtime_touch_ab_auto_route.sh`
+- Capture duration: 60 minutes
+- A/B execution: not launched because the ladder did not emit `next_command`
+
+Fresh capture metrics:
+
+- Market assets observed: `20`
+- Orderbook snapshots: `21541`
+- Orderbook levels: `1514326`
+- Signals: `21561`
+- Execution reports: `43124`
+- Market metadata rows: `50`
+- Deadletters: `0` orderbook, `0` signals
+- Runtime stream report status counts during capture: `21538 DELAYED`, `21526 MATCHED`, `12 UNMATCHED`
+
+Retry ladder result:
+
+- Recommendation: `COLLECT_FRESH_RUNTIME_SAMPLE_OR_CHANGE_MARKET_TIMING`
+- `selected_attempt`: `null`
+- `next_command`: `null`
+- `strict_signalable`: `insufficient_assets`, `1` asset
+- `wider_universe`: `insufficient_assets`, `1` asset
+- `lower_signalable_density`: `insufficient_assets`, `1` asset
+- `lower_signalable_snapshots`: `insufficient_assets`, `1` asset
+- `runtime_hybrid_backfill`: `insufficient_assets`, `1` asset
+
+Interpretation:
+
+The auto-route path worked operationally: preflight passed, the 60-minute
+capture produced a large clean data lake, and the retry ladder ran against the
+fresh DuckDB. The result still blocks A/B because every ladder level found only
+one signalable runtime-touch asset, below the minimum comparable universe of
+two assets.
+
+This means the next blocker is market/timing selection, not Rust execution,
+Redis durability, or A/B orchestration. Do not relax the minimum universe size
+or infer v11/v12 quote-policy quality from this run. Live remains blocked until
+a route can produce a comparable universe and then an A/B observation with
+observed fills, low synthetic optimism, and acceptable adverse selection.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal
