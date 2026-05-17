@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finanzas.local/schemas/runtime_touch_ab_retry_ladder.json",
+  "title": "RuntimeTouchAbRetryLadder",
+  "type": "object",
+  "required": [
+    "report_version",
+    "generated_at",
+    "can_execute_trades",
+    "decision_policy",
+    "fresh_duckdb",
+    "config",
+    "attempts",
+    "selected_attempt",
+    "recommendation"
+  ],
+  "properties": {
+    "report_version": {
+      "const": "runtime_touch_ab_retry_ladder_v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "can_execute_trades": {
+      "const": false
+    },
+    "decision_policy": {
+      "const": "offline_runtime_touch_ab_retry_ladder_only"
+    },
+    "fresh_duckdb": {
+      "type": "string"
+    },
+    "fresh_report_root": {
+      "type": ["string", "null"]
+    },
+    "config": {
+      "type": "object"
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attempt_result"
+      }
+    },
+    "selected_attempt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/attempt_result"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "recommendation": {
+      "enum": [
+        "RUN_RUNTIME_TOUCH_AB_WITH_SELECTED_ATTEMPT",
+        "COLLECT_FRESH_RUNTIME_SAMPLE_OR_CHANGE_MARKET_TIMING"
+      ]
+    },
+    "next_command": {
+      "type": ["string", "null"]
+    },
+    "outputs": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "attempt_result": {
+      "type": "object",
+      "required": [
+        "label",
+        "status",
+        "config",
+        "market_asset_ids_count",
+        "market_asset_ids_sha256",
+        "market_asset_ids",
+        "selection_reason",
+        "universe_selection_path"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "enum": ["ready", "insufficient_assets"]
+        },
+        "config": {
+          "type": "object"
+        },
+        "market_asset_ids_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "market_asset_ids_sha256": {
+          "type": "string"
+        },
+        "market_asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "selection_reason": {
+          "type": "string"
+        },
+        "universe_selection_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

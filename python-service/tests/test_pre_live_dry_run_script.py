@@ -899,6 +899,49 @@ def test_runtime_touch_ab_cycle_print_plan_is_research_only(tmp_path: Path) -> N
     ]
 
 
+def test_runtime_touch_ab_retry_ladder_print_plan_is_research_only(
+    tmp_path: Path,
+) -> None:
+    fresh_duckdb = tmp_path / "research.duckdb"
+    baseline = tmp_path / "reports" / "baseline"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_ab_retry_ladder.sh",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            "--fresh-report-root",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_ab_retry_ladder.sh"
+    assert plan["report_version"] == "runtime_touch_ab_retry_ladder_v1"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["fresh_duckdb"] == str(fresh_duckdb)
+    assert "src.research.execution_probe_universe_selection" in plan["delegates_to"]
+    assert "scripts/run_runtime_touch_ab_cycle.sh" in plan["delegates_to"]
+    attempts = plan["config"]["attempts"]
+    assert [attempt["label"] for attempt in attempts] == [
+        "strict_signalable",
+        "wider_universe",
+        "lower_signalable_density",
+        "lower_signalable_snapshots",
+    ]
+    assert plan["config"]["runtime_signal_min_spread"] == 0.03
+    assert "runtime_touch_ab_retry_ladder.json" in plan["outputs"]["report"]
+
+
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:
     script = (
         ROOT_DIR / "scripts" / "run_restricted_blocklist_observation.sh"
