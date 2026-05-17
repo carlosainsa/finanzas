@@ -43,6 +43,7 @@ def test_retry_ladder_selects_first_relaxed_signalable_attempt(
         "wider_universe",
         "lower_signalable_density",
         "lower_signalable_snapshots",
+        "runtime_hybrid_backfill",
     ]
     assert attempts[0]["status"] == "insufficient_assets"
     next_command = str(report["next_command"])
@@ -97,15 +98,53 @@ def test_retry_ladder_plan_payload_is_research_only(tmp_path: Path) -> None:
     assert "scripts/run_runtime_touch_ab_cycle.sh" in plan["delegates_to"]
     config = cast(dict[str, Any], plan["config"])
     attempts = cast(list[dict[str, Any]], config["attempts"])
-    assert attempts[-1]["min_runtime_signalable_snapshots"] == 1
+    assert attempts[-2]["min_runtime_signalable_snapshots"] == 1
+    assert attempts[-1]["runtime_touch_hybrid_backfill"] is True
     assert config["runtime_signal_min_spread"] == 0.03
     assert plan["outputs"]["report"].endswith("runtime_touch_ab_retry_ladder.json")
+
+
+def test_retry_ladder_can_select_hybrid_backfilled_attempt(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_retry_ladder_db(
+        tmp_path,
+        include_relaxed_asset=False,
+        include_hybrid_only_asset=True,
+    )
+
+    report = create_runtime_touch_ab_retry_ladder(
+        db_path,
+        tmp_path / "ladder",
+        None,
+        RuntimeTouchAbRetryLadderConfig(
+            observation_seconds=1800,
+            min_runtime_touch_snapshots=3,
+        ),
+    )
+
+    selected = cast(dict[str, Any], report["selected_attempt"])
+    assert selected["label"] == "runtime_hybrid_backfill"
+    assert selected["market_asset_ids_count"] == 2
+    universe_path = Path(str(selected["universe_selection_path"]))
+    universe = json.loads(universe_path.read_text(encoding="utf-8"))
+    selected_rows = cast(list[dict[str, Any]], universe["selected"])
+    assert selected_rows[1]["selection_tier"] == "runtime_hybrid_fallback"
+    assert (
+        selected_rows[1]["fallback_reason"]
+        == "runtime_touch_min_assets_backfill_signalable_market_liquidity"
+    )
+    next_run = cast(dict[str, Any], report["next_run"])
+    assert next_run["script"] == "scripts/run_runtime_touch_ab_cycle.sh"
+    assert next_run["selected_attempt_label"] == "runtime_hybrid_backfill"
+    assert next_run["can_execute_trades"] is False
 
 
 def seed_retry_ladder_db(
     tmp_path: Path,
     *,
     include_relaxed_asset: bool,
+    include_hybrid_only_asset: bool = False,
 ) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:
@@ -169,6 +208,57 @@ def seed_retry_ladder_db(
                     ("market-soft", "asset-soft", 61_000, 0.41, 0.43, 0.02, 10.0, 10.0),
                     ("market-soft", "asset-soft", 121_000, 0.42, 0.45, 0.03, 10.0, 10.0),
                 ]
+            )
+        if include_hybrid_only_asset:
+            rows.extend(
+                [
+                    (
+                        "market-hybrid",
+                        "asset-hybrid",
+                        1_000,
+                        0.40,
+                        0.43,
+                        0.03,
+                        10.0,
+                        10.0,
+                    ),
+                    (
+                        "market-hybrid",
+                        "asset-hybrid",
+                        61_000,
+                        0.40,
+                        0.43,
+                        0.03,
+                        10.0,
+                        10.0,
+                    ),
+                    (
+                        "market-hybrid",
+                        "asset-hybrid",
+                        121_000,
+                        0.40,
+                        0.43,
+                        0.03,
+                        10.0,
+                        10.0,
+                    ),
+                ]
+            )
+            metadata.append(
+                (
+                    "market-hybrid",
+                    "asset-hybrid",
+                    "YES",
+                    "Hybrid runtime question",
+                    "hybrid-runtime-question",
+                    True,
+                    False,
+                    False,
+                    True,
+                    5_000.0,
+                    8_000.0,
+                    1,
+                )
             )
             metadata.append(
                 (

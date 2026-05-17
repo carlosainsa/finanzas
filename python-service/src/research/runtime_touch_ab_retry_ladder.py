@@ -21,6 +21,7 @@ class RuntimeTouchAbRetryAttempt:
     universe_limit: int
     min_runtime_signalable_density: float
     min_runtime_signalable_snapshots: int
+    runtime_touch_hybrid_backfill: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,17 @@ class RuntimeTouchAbRetryLadderConfig:
             min_runtime_signalable_density=0.02,
             min_runtime_signalable_snapshots=1,
         ),
+        RuntimeTouchAbRetryAttempt(
+            label="runtime_hybrid_backfill",
+            universe_limit=20,
+            min_runtime_signalable_density=0.02,
+            min_runtime_signalable_snapshots=3,
+            runtime_touch_hybrid_backfill=True,
+        ),
     )
+    runtime_hybrid_min_signalable_snapshots: int = 1
+    runtime_hybrid_min_signalable_density: float = 0.0
+    runtime_hybrid_min_liquidity: float = 0.0
 
     def __post_init__(self) -> None:
         if self.profile_a not in {"execution_probe_v11", "execution_probe_v12"}:
@@ -99,6 +110,16 @@ class RuntimeTouchAbRetryLadderConfig:
                 raise ValueError(
                     "attempt min_runtime_signalable_snapshots must be non-negative"
                 )
+        if self.runtime_hybrid_min_signalable_snapshots < 0:
+            raise ValueError(
+                "runtime_hybrid_min_signalable_snapshots must be non-negative"
+            )
+        if not 0 <= self.runtime_hybrid_min_signalable_density <= 1:
+            raise ValueError(
+                "runtime_hybrid_min_signalable_density must be between 0 and 1"
+            )
+        if self.runtime_hybrid_min_liquidity < 0:
+            raise ValueError("runtime_hybrid_min_liquidity must be non-negative")
 
 
 def create_runtime_touch_ab_retry_ladder(
@@ -130,6 +151,14 @@ def create_runtime_touch_ab_retry_ladder(
                 min_runtime_signalable_density=attempt.min_runtime_signalable_density,
                 runtime_signal_min_spread=config.runtime_signal_min_spread,
                 runtime_signal_min_depth=config.runtime_signal_min_depth,
+                runtime_touch_hybrid_backfill=attempt.runtime_touch_hybrid_backfill,
+                runtime_hybrid_min_signalable_snapshots=(
+                    config.runtime_hybrid_min_signalable_snapshots
+                ),
+                runtime_hybrid_min_signalable_density=(
+                    config.runtime_hybrid_min_signalable_density
+                ),
+                runtime_hybrid_min_liquidity=config.runtime_hybrid_min_liquidity,
                 min_avg_opportunity_spread=config.min_avg_opportunity_spread,
                 max_avg_opportunity_spread=config.max_avg_opportunity_spread,
             ),
@@ -167,6 +196,14 @@ def create_runtime_touch_ab_retry_ladder(
         "selected_attempt": selected_attempt,
         "recommendation": recommendation,
         "next_command": build_next_command(
+            fresh_duckdb,
+            fresh_report_root,
+            selected_attempt,
+            config,
+        )
+        if selected_attempt is not None
+        else None,
+        "next_run": build_next_run(
             fresh_duckdb,
             fresh_report_root,
             selected_attempt,
@@ -225,6 +262,51 @@ def build_next_command(
         f"{key}={shlex.quote(str(value))}" for key, value in env.items()
     )
     return f"{env_prefix} {' '.join(shlex.quote(part) for part in command)}"
+
+
+def build_next_run(
+    fresh_duckdb: Path,
+    fresh_report_root: Path | None,
+    selected_attempt: dict[str, Any],
+    config: RuntimeTouchAbRetryLadderConfig,
+) -> dict[str, Any]:
+    attempt_config = selected_attempt["config"]
+    return {
+        "script": "scripts/run_runtime_touch_ab_cycle.sh",
+        "env": {
+            "EXECUTION_PROBE_UNIVERSE_LIMIT": attempt_config["universe_limit"],
+            "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY": attempt_config[
+                "min_runtime_signalable_density"
+            ],
+            "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS": attempt_config[
+                "min_runtime_signalable_snapshots"
+            ],
+            "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD": config.runtime_signal_min_spread,
+            "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_DEPTH": config.runtime_signal_min_depth,
+        },
+        "args": [
+            "--skip-fresh-capture",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            *(
+                ["--fresh-report-root", str(fresh_report_root)]
+                if fresh_report_root is not None
+                else []
+            ),
+            "--duration-seconds",
+            str(config.observation_seconds),
+            "--profile-a",
+            config.profile_a,
+            "--profile-b",
+            config.profile_b,
+            "--universe-limit",
+            str(attempt_config["universe_limit"]),
+            "--min-assets",
+            str(config.min_assets),
+        ],
+        "selected_attempt_label": selected_attempt["label"],
+        "can_execute_trades": False,
+    }
 
 
 def _config_payload(config: RuntimeTouchAbRetryLadderConfig) -> dict[str, Any]:

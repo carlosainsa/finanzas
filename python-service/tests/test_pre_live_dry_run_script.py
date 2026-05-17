@@ -937,9 +937,52 @@ def test_runtime_touch_ab_retry_ladder_print_plan_is_research_only(
         "wider_universe",
         "lower_signalable_density",
         "lower_signalable_snapshots",
+        "runtime_hybrid_backfill",
     ]
     assert plan["config"]["runtime_signal_min_spread"] == 0.03
     assert "runtime_touch_ab_retry_ladder.json" in plan["outputs"]["report"]
+
+
+def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
+    tmp_path: Path,
+) -> None:
+    fresh_duckdb = tmp_path / "research.duckdb"
+    baseline = tmp_path / "reports" / "baseline"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_ab_auto_route.sh",
+            "--skip-fresh-capture",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            "--fresh-report-root",
+            str(baseline),
+            "--fresh-capture-seconds",
+            "3600",
+            "--duration-seconds",
+            "1800",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_ab_auto_route.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["skip_fresh_capture"] is True
+    assert plan["fresh_capture_seconds"] == 3600
+    assert plan["observation_seconds"] == 1800
+    assert "scripts/run_pre_live_dry_run.sh" in plan["delegates_to"]
+    assert "scripts/run_runtime_touch_ab_retry_ladder.sh" in plan["delegates_to"]
+    assert "scripts/run_runtime_touch_ab_cycle.sh" in plan["delegates_to"]
+    assert "runtime_touch_ab_retry_ladder.json" in plan["outputs"][
+        "runtime_touch_ab_retry_ladder"
+    ]
 
 
 def test_restricted_blocklist_observation_requires_preflight_reports() -> None:

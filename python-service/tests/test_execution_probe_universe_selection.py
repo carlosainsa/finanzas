@@ -8,6 +8,7 @@ from src.research.execution_probe_universe_selection import (
     MARKET_METADATA_FALLBACK_REASON,
     MARKET_OPPORTUNITY_FALLBACK_REASON,
     REPORT_VERSION,
+    RUNTIME_HYBRID_FALLBACK_REASON,
     ExecutionProbeUniverseConfig,
     create_execution_probe_universe_selection,
 )
@@ -226,6 +227,42 @@ def test_execution_probe_universe_selection_filters_non_signalable_runtime_touch
 
     assert report["status"] == "insufficient_assets"
     assert report["market_asset_ids"] == []
+
+
+def test_execution_probe_universe_selection_runtime_hybrid_backfills_signalable_asset(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_hybrid_backfill_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v11",
+            selection_source="runtime_touch",
+            limit=2,
+            min_assets=2,
+            min_runtime_touch_snapshots=3,
+            min_runtime_touch_change_rate=0.10,
+            min_runtime_signalable_snapshots=3,
+            min_runtime_signalable_density=0.50,
+            runtime_signal_min_spread=0.03,
+            runtime_touch_hybrid_backfill=True,
+            runtime_hybrid_min_signalable_snapshots=1,
+        ),
+    )
+
+    assert report["status"] == "ready"
+    assert report["market_asset_ids"] == ["asset-runtime", "asset-hybrid"]
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert selected[0]["selection_tier"] == "primary"
+    assert selected[1]["selection_tier"] == "runtime_hybrid_fallback"
+    assert selected[1]["fallback_reason"] == RUNTIME_HYBRID_FALLBACK_REASON
+    fallback = cast(dict[str, Any], report["fallback"])
+    assert fallback["used"] is True
+    assert RUNTIME_HYBRID_FALLBACK_REASON in fallback["fallback_reasons"]
+    runtime_filter = cast(dict[str, Any], report["runtime_touch_filter"])
+    assert runtime_filter["hybrid_backfill_enabled"] is True
 
 
 def test_execution_probe_universe_selection_backfills_runtime_active_segments(
@@ -1378,6 +1415,88 @@ def seed_runtime_touch_universe_db(tmp_path: Path) -> Path:
             ('market-runtime', 'asset-runtime', 'YES', 'Runtime question', 'runtime-question',
              true, false, false, true, 1000.0, 2000.0, 1)
             """
+        )
+    return db_path
+
+
+def seed_runtime_touch_hybrid_backfill_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "runtime_touch_hybrid_research.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table orderbook_snapshots (
+                market_id varchar,
+                asset_id varchar,
+                event_timestamp_ms bigint,
+                best_bid double,
+                best_ask double,
+                spread double,
+                bid_depth double,
+                ask_depth double
+            )
+            """
+        )
+        conn.execute(
+            """
+            create table market_metadata (
+                market_id varchar,
+                asset_id varchar,
+                outcome varchar,
+                question varchar,
+                slug varchar,
+                active boolean,
+                closed boolean,
+                archived boolean,
+                enable_order_book boolean,
+                liquidity double,
+                volume double,
+                ingested_at_ms bigint
+            )
+            """
+        )
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-runtime", "asset-runtime", 1_000, 0.40, 0.45, 0.05, 10.0, 10.0),
+                ("market-runtime", "asset-runtime", 61_000, 0.41, 0.45, 0.04, 10.0, 10.0),
+                ("market-runtime", "asset-runtime", 121_000, 0.41, 0.44, 0.03, 10.0, 10.0),
+                ("market-hybrid", "asset-hybrid", 1_000, 0.40, 0.43, 0.03, 10.0, 10.0),
+                ("market-hybrid", "asset-hybrid", 61_000, 0.40, 0.43, 0.03, 10.0, 10.0),
+                ("market-hybrid", "asset-hybrid", 121_000, 0.40, 0.43, 0.03, 10.0, 10.0),
+            ],
+        )
+        conn.executemany(
+            "insert into market_metadata values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "market-runtime",
+                    "asset-runtime",
+                    "YES",
+                    "Runtime question",
+                    "runtime-question",
+                    True,
+                    False,
+                    False,
+                    True,
+                    1000.0,
+                    2000.0,
+                    1,
+                ),
+                (
+                    "market-hybrid",
+                    "asset-hybrid",
+                    "YES",
+                    "Hybrid runtime question",
+                    "hybrid-runtime-question",
+                    True,
+                    False,
+                    False,
+                    True,
+                    5000.0,
+                    8000.0,
+                    1,
+                ),
+            ],
         )
     return db_path
 

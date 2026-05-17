@@ -20,6 +20,10 @@ from src.research.fillability_baseline import (
 )
 from src.research.fill_toxicity import FillToxicityConfig, create_fill_toxicity_report
 from src.research.game_theory import relation_exists
+from src.research.market_opportunity_selector import (
+    MarketOpportunityConfig,
+    create_market_opportunity_views,
+)
 from src.research.segment_opportunity_ranking import (
     SegmentOpportunityRankingConfig,
     create_segment_opportunity_ranking_report,
@@ -43,6 +47,9 @@ MARKET_OPPORTUNITY_FALLBACK_REASON = (
 )
 MARKET_METADATA_FALLBACK_REASON = (
     "fillability_min_assets_backfill_market_metadata_liquidity"
+)
+RUNTIME_HYBRID_FALLBACK_REASON = (
+    "runtime_touch_min_assets_backfill_signalable_market_liquidity"
 )
 DEFAULT_RECOMMENDATIONS = (
     "PROMOTE_TO_OBSERVATION",
@@ -89,6 +96,10 @@ class ExecutionProbeUniverseConfig:
     min_runtime_signalable_density: float = 0.0
     runtime_signal_min_spread: float = 0.01
     runtime_signal_min_depth: float = 1.5
+    runtime_touch_hybrid_backfill: bool = False
+    runtime_hybrid_min_signalable_snapshots: int = 1
+    runtime_hybrid_min_signalable_density: float = 0.0
+    runtime_hybrid_min_liquidity: float = 0.0
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -154,6 +165,16 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("runtime_signal_min_spread must be non-negative")
         if self.runtime_signal_min_depth < 0:
             raise ValueError("runtime_signal_min_depth must be non-negative")
+        if self.runtime_hybrid_min_signalable_snapshots < 0:
+            raise ValueError(
+                "runtime_hybrid_min_signalable_snapshots must be non-negative"
+            )
+        if not 0 <= self.runtime_hybrid_min_signalable_density <= 1:
+            raise ValueError(
+                "runtime_hybrid_min_signalable_density must be between 0 and 1"
+            )
+        if self.runtime_hybrid_min_liquidity < 0:
+            raise ValueError("runtime_hybrid_min_liquidity must be non-negative")
         if (
             self.min_avg_opportunity_spread is not None
             and self.min_avg_opportunity_spread < 0
@@ -269,7 +290,7 @@ def create_execution_probe_universe_selection(
         "touch_probability_filter": touch_probability_payload(
             touch_probability_report
         ),
-        "runtime_touch_filter": runtime_touch_payload(runtime_touch_report),
+        "runtime_touch_filter": runtime_touch_payload(runtime_touch_report, config),
         "market_asset_ids": asset_ids,
         "market_asset_ids_count": len(asset_ids),
         "market_asset_ids_csv": ",".join(asset_ids),
@@ -828,7 +849,7 @@ def select_runtime_touch_universe(
         if spread_filters
         else ""
     )
-    return conn.execute(
+    primary = conn.execute(
         f"""
         with candidates as (
             select
@@ -899,6 +920,118 @@ def select_runtime_touch_universe(
             signals desc,
             asset_id
         limit {config.limit}
+        """
+    ).fetch_df()
+    if len(primary) >= config.min_assets or not config.runtime_touch_hybrid_backfill:
+        return primary.head(config.limit)
+    selected_assets = asset_ids_from_frame(primary)
+    missing_assets = min(config.min_assets - len(primary), config.limit - len(primary))
+    hybrid = select_runtime_touch_hybrid_fallback(
+        conn,
+        selected_assets,
+        missing_assets,
+        config,
+        spread_filter_sql,
+    )
+    return pd.concat([primary, hybrid], ignore_index=True).head(config.limit)
+
+
+def select_runtime_touch_hybrid_fallback(
+    conn: duckdb.DuckDBPyConnection,
+    selected_assets: list[str],
+    limit: int,
+    config: ExecutionProbeUniverseConfig,
+    spread_filter_sql: str,
+) -> pd.DataFrame:
+    if limit <= 0:
+        return pd.DataFrame()
+    selected_filter_sql = excluded_assets_sql(selected_assets, "runtime")
+    return conn.execute(
+        f"""
+        with candidates as (
+            select
+                runtime.rank,
+                runtime.market_id,
+                runtime.asset_id,
+                'BUY' as side,
+                'runtime_touch_hybrid' as strategy,
+                'runtime_touch_ranking_v1' as model_version,
+                runtime.snapshots as signals,
+                null::double as observed_fill_rate,
+                null::double as synthetic_fill_rate,
+                null::double as synthetic_observed_gap,
+                runtime.runtime_touch_score as avg_expected_edge,
+                runtime.avg_total_depth as avg_available_depth,
+                runtime.snapshots as runtime_opportunities,
+                runtime.active_minutes as runtime_active_minutes,
+                runtime.touch_change_rate as runtime_opportunity_density,
+                runtime.signalable_snapshots as runtime_signalable_snapshots,
+                runtime.signalable_density as runtime_signalable_density,
+                null::double as adverse_30s_rate,
+                null::double as avg_pnl_30s,
+                (
+                    {runtime_touch_quality_score_sql()}
+                    + coalesce(opportunity.opportunity_score, 0) * 0.25
+                    + least(coalesce(runtime.liquidity, 0) / 10000.0, 1.0) * 0.10
+                ) as execution_quality_score,
+                null::varchar as spread_bucket,
+                null::varchar as timing_bucket,
+                'RUNTIME_TOUCH_HYBRID_BACKFILL' as recommendation,
+                'runtime_touch_hybrid_signalable_market_activity' as allowed_reason,
+                runtime.snapshots as timing_signals,
+                'runtime_hybrid_fallback' as selection_tier,
+                '{RUNTIME_HYBRID_FALLBACK_REASON}' as fallback_reason,
+                runtime.touch_change_rate,
+                runtime.spread_opportunity_density,
+                runtime.stale_rate,
+                runtime.avg_spread,
+                runtime.avg_total_depth,
+                runtime.signalable_snapshots,
+                runtime.signalable_density,
+                {toxicity_select_columns_sql()},
+                row_number() over (
+                    partition by runtime.asset_id
+                    order by
+                        (
+                            {runtime_touch_quality_score_sql()}
+                            + coalesce(opportunity.opportunity_score, 0) * 0.25
+                            + least(coalesce(runtime.liquidity, 0) / 10000.0, 1.0) * 0.10
+                        ) desc,
+                        runtime.signalable_snapshots desc,
+                        runtime.signalable_density desc,
+                        coalesce(opportunity.opportunity_score, 0) desc,
+                        coalesce(runtime.liquidity, 0) desc,
+                        runtime.rank
+                ) as asset_rank
+            from runtime_touch_ranking runtime
+            left join market_opportunity_ranking opportunity
+              on opportunity.market_id = runtime.market_id
+             and opportunity.asset_id = runtime.asset_id
+            {adverse_join_sql("runtime", "'BUY'")}
+            {toxicity_join_sql("runtime", "'BUY'")}
+            where runtime.recommendation in ('PROMOTE_TO_OBSERVATION', 'KEEP_DIAGNOSTIC')
+              {adverse_filter_sql()}
+              {selected_filter_sql}
+              and coalesce(runtime.signalable_snapshots, 0) >= {config.runtime_hybrid_min_signalable_snapshots}
+              and coalesce(runtime.signalable_density, 0) >= {config.runtime_hybrid_min_signalable_density}
+              and coalesce(runtime.liquidity, 0) >= {config.runtime_hybrid_min_liquidity}
+              and coalesce(runtime.stale_rate, 0) <= {RuntimeTouchRankingConfig.max_stale_rate}
+              and coalesce(runtime.active, true)
+              and not coalesce(runtime.closed, false)
+              and not coalesce(runtime.archived, false)
+              and coalesce(runtime.enable_order_book, true)
+              {spread_filter_sql}
+        )
+        select * exclude (asset_rank)
+        from candidates
+        where asset_rank = 1
+        order by
+            execution_quality_score desc,
+            runtime_signalable_snapshots desc,
+            runtime_signalable_density desc,
+            coalesce(avg_available_depth, 0) desc,
+            asset_id
+        limit {limit}
         """
     ).fetch_df()
 
@@ -1099,7 +1232,7 @@ def create_runtime_touch_inputs(
 ) -> dict[str, object] | None:
     if config.selection_source != "runtime_touch":
         return None
-    return create_runtime_touch_ranking_report(
+    report = create_runtime_touch_ranking_report(
         db_path,
         output_dir / "runtime_touch_ranking",
         RuntimeTouchRankingConfig(
@@ -1120,6 +1253,24 @@ def create_runtime_touch_inputs(
             limit=max(config.limit, config.min_assets),
         ),
     )
+    if config.runtime_touch_hybrid_backfill:
+        create_market_opportunity_views(
+            db_path,
+            MarketOpportunityConfig(
+                min_spread=config.runtime_signal_min_spread,
+                min_snapshots=max(
+                    config.runtime_hybrid_min_signalable_snapshots,
+                    1,
+                ),
+                min_opportunity_density=max(
+                    config.runtime_hybrid_min_signalable_density,
+                    0.0,
+                ),
+                min_liquidity=config.runtime_hybrid_min_liquidity,
+                limit=max(config.limit, config.min_assets),
+            ),
+        )
+    return report
 
 
 def select_executable_segment_universe(
@@ -1216,6 +1367,7 @@ def fillability_fallback_summary(
             FILLABILITY_FALLBACK_REASON,
             MARKET_OPPORTUNITY_FALLBACK_REASON,
             MARKET_METADATA_FALLBACK_REASON,
+            RUNTIME_HYBRID_FALLBACK_REASON,
         }
     ]
     primary_assets = [
@@ -1224,8 +1376,13 @@ def fillability_fallback_summary(
         if row.get("selection_tier") == "primary"
     ]
     return {
-        "enabled": config.selection_source == "fillability",
-        "reason": "fillability_min_assets_backfill",
+        "enabled": config.selection_source == "fillability"
+        or config.runtime_touch_hybrid_backfill,
+        "reason": (
+            "runtime_touch_min_assets_backfill"
+            if config.runtime_touch_hybrid_backfill
+            else "fillability_min_assets_backfill"
+        ),
         "assets_added": len(fallback_assets),
         "primary_assets": len(primary_assets),
         "fallback_assets": len(fallback_assets),
@@ -1307,6 +1464,7 @@ def touch_probability_payload(
 
 def runtime_touch_payload(
     report: dict[str, object] | None,
+    config: ExecutionProbeUniverseConfig,
 ) -> dict[str, object]:
     return {
         "enabled": report is not None,
@@ -1325,6 +1483,12 @@ def runtime_touch_payload(
         "runtime_touch_ranking_path": (
             str(Path("runtime_touch_ranking") / "runtime_touch_ranking.json")
             if isinstance(report, dict)
+            else None
+        ),
+        "hybrid_backfill_enabled": config.runtime_touch_hybrid_backfill,
+        "hybrid_backfill_reason": (
+            RUNTIME_HYBRID_FALLBACK_REASON
+            if config.runtime_touch_hybrid_backfill
             else None
         ),
     }
@@ -1385,7 +1549,12 @@ def selection_reason(
             reason_text = ",".join(str(reason) for reason in reasons)
         else:
             reason_text = "unknown"
-        filter_note += f";fallback_fillability_backfill={reason_text}"
+        fallback_key = (
+            "fallback_fillability_backfill"
+            if config.selection_source == "fillability"
+            else "fallback_backfill"
+        )
+        filter_note += f";{fallback_key}={reason_text}"
     if status == "ready":
         return "ranked_multi_market_universe_meets_minimum_asset_coverage" + filter_note
     return (
@@ -1519,6 +1688,22 @@ def main() -> int:
         type=float,
         default=ExecutionProbeUniverseConfig.runtime_signal_min_depth,
     )
+    parser.add_argument("--runtime-touch-hybrid-backfill", action="store_true")
+    parser.add_argument(
+        "--runtime-hybrid-min-signalable-snapshots",
+        type=int,
+        default=ExecutionProbeUniverseConfig.runtime_hybrid_min_signalable_snapshots,
+    )
+    parser.add_argument(
+        "--runtime-hybrid-min-signalable-density",
+        type=float,
+        default=ExecutionProbeUniverseConfig.runtime_hybrid_min_signalable_density,
+    )
+    parser.add_argument(
+        "--runtime-hybrid-min-liquidity",
+        type=float,
+        default=ExecutionProbeUniverseConfig.runtime_hybrid_min_liquidity,
+    )
     parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
@@ -1555,6 +1740,14 @@ def main() -> int:
             min_runtime_signalable_density=args.min_runtime_signalable_density,
             runtime_signal_min_spread=args.runtime_signal_min_spread,
             runtime_signal_min_depth=args.runtime_signal_min_depth,
+            runtime_touch_hybrid_backfill=args.runtime_touch_hybrid_backfill,
+            runtime_hybrid_min_signalable_snapshots=(
+                args.runtime_hybrid_min_signalable_snapshots
+            ),
+            runtime_hybrid_min_signalable_density=(
+                args.runtime_hybrid_min_signalable_density
+            ),
+            runtime_hybrid_min_liquidity=args.runtime_hybrid_min_liquidity,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
