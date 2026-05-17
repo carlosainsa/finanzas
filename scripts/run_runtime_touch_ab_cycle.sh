@@ -22,6 +22,10 @@ RUNTIME_TOUCH_LOOKBACK_MS="${EXECUTION_PROBE_RUNTIME_TOUCH_LOOKBACK_MS:-900000}"
 MIN_RUNTIME_TOUCH_CHANGE_RATE="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_CHANGE_RATE:-0.01}"
 MIN_RUNTIME_TOUCH_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS:-10}"
 MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-2}"
+MIN_RUNTIME_SIGNALABLE_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS:-3}"
+MIN_RUNTIME_SIGNALABLE_DENSITY="${EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY:-0.05}"
+RUNTIME_SIGNAL_MIN_SPREAD="${EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD:-0.01}"
+RUNTIME_SIGNAL_MIN_DEPTH="${EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_DEPTH:-1.5}"
 MIN_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MIN_AVG_OPPORTUNITY_SPREAD:-0.000625}"
 MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 
@@ -138,7 +142,7 @@ PROFILE_A_REPORT_ROOT="${PROFILE_A_DATA_LAKE_ROOT}/reports/${PROFILE_A_TIMESTAMP
 PROFILE_B_REPORT_ROOT="${PROFILE_B_DATA_LAKE_ROOT}/reports/${PROFILE_B_TIMESTAMP}"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" <<'PY'
 import json
 import sys
 
@@ -156,6 +160,10 @@ import sys
     runtime_touch_ranking_dir,
     comparison_roots_csv,
     skip_fresh_capture,
+    min_runtime_signalable_snapshots,
+    min_runtime_signalable_density,
+    runtime_signal_min_spread,
+    runtime_signal_min_depth,
 ) = sys.argv[1:]
 print(json.dumps({
     "script": "scripts/run_runtime_touch_ab_cycle.sh",
@@ -166,6 +174,10 @@ print(json.dumps({
     "observation_seconds_per_profile": int(observation_seconds),
     "profile_a": profile_a,
     "profile_b": profile_b,
+    "min_runtime_signalable_snapshots": int(min_runtime_signalable_snapshots),
+    "min_runtime_signalable_density": float(min_runtime_signalable_density),
+    "runtime_signal_min_spread": float(runtime_signal_min_spread),
+    "runtime_signal_min_depth": float(runtime_signal_min_depth),
     "fresh_duckdb": fresh_duckdb,
     "fresh_report_root": fresh_report_root,
     "comparison_report_roots": [item.strip() for item in comparison_roots_csv.split(",") if item.strip()],
@@ -227,6 +239,10 @@ fi
   --min-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS" \
   --min-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES" \
   --min-touch-change-rate "$MIN_RUNTIME_TOUCH_CHANGE_RATE" \
+  --min-signalable-snapshots "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" \
+  --min-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY" \
+  --signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD" \
+  --signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH" \
   --limit "$UNIVERSE_LIMIT" \
   > "$RUN_ROOT/runtime_touch_ranking.stdout.json"
 
@@ -242,6 +258,10 @@ UNIVERSE_ARGS=(
   --min-runtime-touch-change-rate "$MIN_RUNTIME_TOUCH_CHANGE_RATE"
   --min-runtime-touch-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS"
   --min-runtime-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES"
+  --min-runtime-signalable-snapshots "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS"
+  --min-runtime-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY"
+  --runtime-signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD"
+  --runtime-signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")

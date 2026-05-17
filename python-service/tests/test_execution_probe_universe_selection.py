@@ -182,6 +182,8 @@ def test_execution_probe_universe_selection_supports_runtime_touch_source(
             min_assets=1,
             min_runtime_touch_snapshots=3,
             min_runtime_touch_change_rate=0.10,
+            min_runtime_signalable_snapshots=2,
+            min_runtime_signalable_density=0.50,
         ),
     )
 
@@ -189,6 +191,9 @@ def test_execution_probe_universe_selection_supports_runtime_touch_source(
     assert report["source_report_version"] == "runtime_touch_ranking_v1"
     assert report["status"] == "ready"
     assert report["market_asset_ids"] == ["asset-runtime"]
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert selected[0]["runtime_signalable_snapshots"] == 3
+    assert selected[0]["runtime_signalable_density"] == 1.0
     runtime_filter = cast(dict[str, Any], report["runtime_touch_filter"])
     assert runtime_filter["enabled"] is True
     assert runtime_filter["selected_assets"] == 1
@@ -198,6 +203,29 @@ def test_execution_probe_universe_selection_supports_runtime_touch_source(
         / "runtime_touch_ranking"
         / "runtime_touch_ranking.json"
     ).exists()
+
+
+def test_execution_probe_universe_selection_filters_non_signalable_runtime_touch(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_universe_db(tmp_path)
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v11",
+            selection_source="runtime_touch",
+            limit=2,
+            min_assets=1,
+            min_runtime_touch_snapshots=3,
+            min_runtime_touch_change_rate=0.10,
+            min_runtime_signalable_snapshots=4,
+        ),
+    )
+
+    assert report["status"] == "insufficient_assets"
+    assert report["market_asset_ids"] == []
 
 
 def test_execution_probe_universe_selection_backfills_runtime_active_segments(

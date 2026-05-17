@@ -45,6 +45,50 @@ def test_runtime_touch_ranking_rejects_invalid_config() -> None:
         raise AssertionError("expected ValueError")
 
 
+def test_runtime_touch_ranking_filters_non_signalable_activity(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_db(tmp_path)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-thin", "asset-thin", 1_000, 0.40, 0.405, 0.005, 10.0, 10.0),
+                ("market-thin", "asset-thin", 61_000, 0.401, 0.405, 0.004, 10.0, 10.0),
+                ("market-thin", "asset-thin", 121_000, 0.401, 0.404, 0.003, 10.0, 10.0),
+            ],
+        )
+        conn.execute(
+            """
+            insert into market_metadata values
+            ('market-thin', 'asset-thin', 'YES', 'Thin question', 'thin-question',
+             true, false, false, true, 1000.0, 2000.0, 1)
+            """
+        )
+
+    report = create_runtime_touch_ranking_report(
+        db_path,
+        tmp_path / "runtime-touch",
+        RuntimeTouchRankingConfig(
+            min_snapshots=3,
+            min_active_minutes=1,
+            min_touch_change_rate=0.10,
+            min_signalable_snapshots=2,
+            min_signalable_density=0.50,
+            signal_min_spread=0.01,
+            signal_min_depth=1.5,
+            limit=3,
+        ),
+    )
+
+    selected = cast(list[dict[str, Any]], report["selected"])
+    selected_assets = {str(row["asset_id"]) for row in selected}
+    assert "asset-active" in selected_assets
+    assert "asset-thin" not in selected_assets
+    ranked = cast(list[dict[str, Any]], report["selected"])
+    assert ranked[0]["signalable_snapshots"] >= 2
+
+
 def seed_runtime_touch_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:

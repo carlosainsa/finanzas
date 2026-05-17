@@ -885,6 +885,10 @@ def test_runtime_touch_ab_cycle_print_plan_is_research_only(tmp_path: Path) -> N
     assert plan["skip_fresh_capture"] is True
     assert plan["profile_a"] == "execution_probe_v11"
     assert plan["profile_b"] == "execution_probe_v12"
+    assert plan["min_runtime_signalable_snapshots"] == 3
+    assert plan["min_runtime_signalable_density"] == 0.05
+    assert plan["runtime_signal_min_spread"] == 0.01
+    assert plan["runtime_signal_min_depth"] == 1.5
     assert "src.research.execution_failure_diagnostics" in plan["delegates_to"]
     assert "src.research.runtime_touch_ab_decision" in plan["delegates_to"]
     assert "profile_observation_comparison.json" in plan["outputs"][

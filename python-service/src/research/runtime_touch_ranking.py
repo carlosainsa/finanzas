@@ -23,6 +23,10 @@ class RuntimeTouchRankingConfig:
     min_touch_change_rate: float = 0.01
     min_spread: float = 0.000625
     max_spread: float | None = None
+    min_signalable_snapshots: int = 0
+    min_signalable_density: float = 0.0
+    signal_min_spread: float = 0.01
+    signal_min_depth: float = 1.5
     max_stale_rate: float = 0.10
     stale_gap_ms: int = 60_000
     limit: int = 20
@@ -42,6 +46,14 @@ class RuntimeTouchRankingConfig:
             raise ValueError("max_spread must be non-negative")
         if self.max_spread is not None and self.min_spread > self.max_spread:
             raise ValueError("min_spread must be less than or equal to max_spread")
+        if self.min_signalable_snapshots < 0:
+            raise ValueError("min_signalable_snapshots must be non-negative")
+        if not 0 <= self.min_signalable_density <= 1:
+            raise ValueError("min_signalable_density must be between 0 and 1")
+        if self.signal_min_spread < 0:
+            raise ValueError("signal_min_spread must be non-negative")
+        if self.signal_min_depth < 0:
+            raise ValueError("signal_min_depth must be non-negative")
         if not 0 <= self.max_stale_rate <= 1:
             raise ValueError("max_stale_rate must be between 0 and 1")
         if self.stale_gap_ms <= 0:
@@ -191,6 +203,20 @@ def create_runtime_touch_ranking_views(
                     avg(ask_depth) as avg_ask_depth,
                     sum(best_bid_changed) as best_bid_changes,
                     sum(best_ask_changed) as best_ask_changes,
+                    sum(
+                        case
+                            when spread >= {config.signal_min_spread}
+                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                            then 1 else 0
+                        end
+                    ) as signalable_snapshots,
+                    avg(
+                        case
+                            when spread >= {config.signal_min_spread}
+                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                            then 1.0 else 0.0
+                        end
+                    ) as signalable_density,
                     case
                         when count(*) > 0
                         then (sum(best_bid_changed) + sum(best_ask_changed))::double
@@ -243,6 +269,7 @@ def create_runtime_touch_ranking_views(
                 (
                     coalesce(touch_change_rate, 0) * 100
                     + coalesce(spread_opportunity_density, 0) * 30
+                    + coalesce(signalable_density, 0) * 60
                     + least(coalesce(avg_total_depth, 0), 1000000) / 100000
                     + least(coalesce(metadata.liquidity, 0), 100000) / 25000
                     + coalesce(active_minutes, 0) * 2
@@ -255,6 +282,8 @@ def create_runtime_touch_ranking_views(
                      and touch_change_rate >= {config.min_touch_change_rate}
                      and avg_spread >= {config.min_spread}
                      {max_spread_filter}
+                     and signalable_snapshots >= {config.min_signalable_snapshots}
+                     and signalable_density >= {config.min_signalable_density}
                      and stale_rate <= {config.max_stale_rate}
                      and coalesce(metadata.active, true)
                      and not coalesce(metadata.closed, false)
@@ -263,6 +292,8 @@ def create_runtime_touch_ranking_views(
                     then 'PROMOTE_TO_OBSERVATION'
                     when snapshots < {config.min_snapshots} then 'NEEDS_RUNTIME_SAMPLE'
                     when touch_change_rate < {config.min_touch_change_rate} then 'KEEP_DIAGNOSTIC'
+                    when signalable_snapshots < {config.min_signalable_snapshots} then 'KEEP_DIAGNOSTIC'
+                    when signalable_density < {config.min_signalable_density} then 'KEEP_DIAGNOSTIC'
                     else 'KEEP_DIAGNOSTIC'
                 end as recommendation
             from grouped
@@ -278,6 +309,8 @@ def create_runtime_touch_ranking_views(
                 row_number() over (
                     order by
                         runtime_touch_score desc,
+                        signalable_density desc,
+                        signalable_snapshots desc,
                         touch_change_rate desc,
                         active_minutes desc,
                         snapshots desc,
@@ -371,6 +404,26 @@ def main() -> int:
     parser.add_argument("--min-spread", type=float, default=RuntimeTouchRankingConfig.min_spread)
     parser.add_argument("--max-spread", type=float, default=None)
     parser.add_argument(
+        "--min-signalable-snapshots",
+        type=int,
+        default=RuntimeTouchRankingConfig.min_signalable_snapshots,
+    )
+    parser.add_argument(
+        "--min-signalable-density",
+        type=float,
+        default=RuntimeTouchRankingConfig.min_signalable_density,
+    )
+    parser.add_argument(
+        "--signal-min-spread",
+        type=float,
+        default=RuntimeTouchRankingConfig.signal_min_spread,
+    )
+    parser.add_argument(
+        "--signal-min-depth",
+        type=float,
+        default=RuntimeTouchRankingConfig.signal_min_depth,
+    )
+    parser.add_argument(
         "--max-stale-rate",
         type=float,
         default=RuntimeTouchRankingConfig.max_stale_rate,
@@ -387,6 +440,10 @@ def main() -> int:
             min_touch_change_rate=args.min_touch_change_rate,
             min_spread=args.min_spread,
             max_spread=args.max_spread,
+            min_signalable_snapshots=args.min_signalable_snapshots,
+            min_signalable_density=args.min_signalable_density,
+            signal_min_spread=args.signal_min_spread,
+            signal_min_depth=args.signal_min_depth,
             max_stale_rate=args.max_stale_rate,
             limit=args.limit,
         ),

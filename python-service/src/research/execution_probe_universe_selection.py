@@ -85,6 +85,10 @@ class ExecutionProbeUniverseConfig:
     runtime_touch_lookback_ms: int = 900_000
     min_runtime_touch_change_rate: float = 0.01
     min_runtime_touch_snapshots: int = 10
+    min_runtime_signalable_snapshots: int = 0
+    min_runtime_signalable_density: float = 0.0
+    runtime_signal_min_spread: float = 0.01
+    runtime_signal_min_depth: float = 1.5
 
     def __post_init__(self) -> None:
         if self.profile not in {
@@ -140,6 +144,16 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("min_runtime_touch_change_rate must be between 0 and 1")
         if self.min_runtime_touch_snapshots <= 0:
             raise ValueError("min_runtime_touch_snapshots must be positive")
+        if self.min_runtime_signalable_snapshots < 0:
+            raise ValueError("min_runtime_signalable_snapshots must be non-negative")
+        if not 0 <= self.min_runtime_signalable_density <= 1:
+            raise ValueError(
+                "min_runtime_signalable_density must be between 0 and 1"
+            )
+        if self.runtime_signal_min_spread < 0:
+            raise ValueError("runtime_signal_min_spread must be non-negative")
+        if self.runtime_signal_min_depth < 0:
+            raise ValueError("runtime_signal_min_depth must be non-negative")
         if (
             self.min_avg_opportunity_spread is not None
             and self.min_avg_opportunity_spread < 0
@@ -833,6 +847,8 @@ def select_runtime_touch_universe(
                 runtime.snapshots as runtime_opportunities,
                 runtime.active_minutes as runtime_active_minutes,
                 runtime.touch_change_rate as runtime_opportunity_density,
+                runtime.signalable_snapshots as runtime_signalable_snapshots,
+                runtime.signalable_density as runtime_signalable_density,
                 null::double as adverse_30s_rate,
                 null::double as avg_pnl_30s,
                 {runtime_touch_quality_score_sql()} as execution_quality_score,
@@ -848,12 +864,16 @@ def select_runtime_touch_universe(
                 runtime.stale_rate,
                 runtime.avg_spread,
                 runtime.avg_total_depth,
+                runtime.signalable_snapshots,
+                runtime.signalable_density,
                 {toxicity_select_columns_sql()},
                 row_number() over (
                     partition by runtime.asset_id
                     order by
                         {runtime_touch_quality_score_sql()} desc,
                         runtime.runtime_touch_score desc,
+                        runtime.signalable_density desc,
+                        runtime.signalable_snapshots desc,
                         runtime.touch_change_rate desc,
                         runtime.snapshots desc,
                         runtime.rank
@@ -865,6 +885,8 @@ def select_runtime_touch_universe(
               {adverse_filter_sql()}
               and runtime.snapshots >= {config.min_runtime_touch_snapshots}
               and coalesce(runtime.touch_change_rate, 0) >= {config.min_runtime_touch_change_rate}
+              and coalesce(runtime.signalable_snapshots, 0) >= {config.min_runtime_signalable_snapshots}
+              and coalesce(runtime.signalable_density, 0) >= {config.min_runtime_signalable_density}
               {spread_filter_sql}
         )
         select * exclude (asset_rank)
@@ -1085,6 +1107,10 @@ def create_runtime_touch_inputs(
             min_snapshots=config.min_runtime_touch_snapshots,
             min_active_minutes=config.min_runtime_active_minutes,
             min_touch_change_rate=config.min_runtime_touch_change_rate,
+            min_signalable_snapshots=config.min_runtime_signalable_snapshots,
+            min_signalable_density=config.min_runtime_signalable_density,
+            signal_min_spread=config.runtime_signal_min_spread,
+            signal_min_depth=config.runtime_signal_min_depth,
             min_spread=(
                 config.min_avg_opportunity_spread
                 if config.min_avg_opportunity_spread is not None
@@ -1474,6 +1500,26 @@ def main() -> int:
         default=ExecutionProbeUniverseConfig.min_runtime_touch_snapshots,
     )
     parser.add_argument(
+        "--min-runtime-signalable-snapshots",
+        type=int,
+        default=ExecutionProbeUniverseConfig.min_runtime_signalable_snapshots,
+    )
+    parser.add_argument(
+        "--min-runtime-signalable-density",
+        type=float,
+        default=ExecutionProbeUniverseConfig.min_runtime_signalable_density,
+    )
+    parser.add_argument(
+        "--runtime-signal-min-spread",
+        type=float,
+        default=ExecutionProbeUniverseConfig.runtime_signal_min_spread,
+    )
+    parser.add_argument(
+        "--runtime-signal-min-depth",
+        type=float,
+        default=ExecutionProbeUniverseConfig.runtime_signal_min_depth,
+    )
+    parser.add_argument(
         "--recommendations",
         default=",".join(DEFAULT_RECOMMENDATIONS),
         help="Comma-separated candidate_market_ranking recommendations to include.",
@@ -1505,6 +1551,10 @@ def main() -> int:
             runtime_touch_lookback_ms=args.runtime_touch_lookback_ms,
             min_runtime_touch_change_rate=args.min_runtime_touch_change_rate,
             min_runtime_touch_snapshots=args.min_runtime_touch_snapshots,
+            min_runtime_signalable_snapshots=args.min_runtime_signalable_snapshots,
+            min_runtime_signalable_density=args.min_runtime_signalable_density,
+            runtime_signal_min_spread=args.runtime_signal_min_spread,
+            runtime_signal_min_depth=args.runtime_signal_min_depth,
         ),
     )
     print(json.dumps(report, indent=2, sort_keys=True))

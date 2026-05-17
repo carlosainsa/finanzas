@@ -22,6 +22,10 @@ RUNTIME_TOUCH_LOOKBACK_MS="${EXECUTION_PROBE_RUNTIME_TOUCH_LOOKBACK_MS:-900000}"
 MIN_RUNTIME_TOUCH_CHANGE_RATE="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_CHANGE_RATE:-0.01}"
 MIN_RUNTIME_TOUCH_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS:-10}"
 MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-2}"
+MIN_RUNTIME_SIGNALABLE_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS:-0}"
+MIN_RUNTIME_SIGNALABLE_DENSITY="${EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY:-0}"
+RUNTIME_SIGNAL_MIN_SPREAD="${EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD:-0.01}"
+RUNTIME_SIGNAL_MIN_DEPTH="${EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_DEPTH:-1.5}"
 MIN_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MIN_AVG_OPPORTUNITY_SPREAD:-0.000625}"
 MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 
@@ -140,7 +144,7 @@ UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_
 RUNTIME_TOUCH_RANKING_DIR="$RUN_ROOT/runtime_touch_ranking"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$OBSERVATION_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$COMPARISON_REPORT_ROOTS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$RUNTIME_TOUCH_LOOKBACK_MS" "$MIN_RUNTIME_TOUCH_CHANGE_RATE" "$MIN_RUNTIME_TOUCH_SNAPSHOTS" "$MIN_RUNTIME_ACTIVE_MINUTES" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SKIP_FRESH_CAPTURE" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$OBSERVATION_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$COMPARISON_REPORT_ROOTS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$UNIVERSE_LIMIT" "$UNIVERSE_MIN_ASSETS" "$RUNTIME_TOUCH_LOOKBACK_MS" "$MIN_RUNTIME_TOUCH_CHANGE_RATE" "$MIN_RUNTIME_TOUCH_SNAPSHOTS" "$MIN_RUNTIME_ACTIVE_MINUTES" "$MIN_AVG_OPPORTUNITY_SPREAD" "$MAX_AVG_OPPORTUNITY_SPREAD" "$SKIP_FRESH_CAPTURE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" <<'PY'
 import json
 import sys
 
@@ -163,6 +167,10 @@ import sys
     min_avg_opportunity_spread,
     max_avg_opportunity_spread,
     skip_fresh_capture,
+    min_runtime_signalable_snapshots,
+    min_runtime_signalable_density,
+    runtime_signal_min_spread,
+    runtime_signal_min_depth,
 ) = sys.argv[1:]
 comparison_roots = [item.strip() for item in comparison_roots_csv.split(",") if item.strip()]
 print(json.dumps({
@@ -182,6 +190,10 @@ print(json.dumps({
     "min_runtime_touch_change_rate": float(min_runtime_touch_change_rate),
     "min_runtime_touch_snapshots": int(min_runtime_touch_snapshots),
     "min_runtime_active_minutes": int(min_runtime_active_minutes),
+    "min_runtime_signalable_snapshots": int(min_runtime_signalable_snapshots),
+    "min_runtime_signalable_density": float(min_runtime_signalable_density),
+    "runtime_signal_min_spread": float(runtime_signal_min_spread),
+    "runtime_signal_min_depth": float(runtime_signal_min_depth),
     "min_avg_opportunity_spread": float(min_avg_opportunity_spread) if min_avg_opportunity_spread else None,
     "max_avg_opportunity_spread": float(max_avg_opportunity_spread) if max_avg_opportunity_spread else None,
     "delegates_to": [
@@ -239,6 +251,10 @@ fi
   --min-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS" \
   --min-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES" \
   --min-touch-change-rate "$MIN_RUNTIME_TOUCH_CHANGE_RATE" \
+  --min-signalable-snapshots "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" \
+  --min-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY" \
+  --signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD" \
+  --signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH" \
   --limit "$UNIVERSE_LIMIT" \
   > "$RUN_ROOT/runtime_touch_ranking.stdout.json"
 
@@ -254,6 +270,10 @@ UNIVERSE_ARGS=(
   --min-runtime-touch-change-rate "$MIN_RUNTIME_TOUCH_CHANGE_RATE"
   --min-runtime-touch-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS"
   --min-runtime-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES"
+  --min-runtime-signalable-snapshots "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS"
+  --min-runtime-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY"
+  --runtime-signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD"
+  --runtime-signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
