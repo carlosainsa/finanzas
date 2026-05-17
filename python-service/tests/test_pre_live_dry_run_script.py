@@ -1017,11 +1017,15 @@ def test_runtime_touch_selection_probe_print_plan_is_research_only(
     assert plan["fresh_capture_seconds"] == 1800
     assert "src.research.runtime_touch_signalability_diagnostic" in plan["delegates_to"]
     assert "src.research.runtime_touch_candidate_expansion" in plan["delegates_to"]
+    assert "src.research.runtime_touch_opportunity_windows" in plan["delegates_to"]
     assert "runtime_touch_signalability_diagnostic.json" in plan["outputs"][
         "signalability_diagnostic"
     ]
     assert "runtime_touch_candidate_expansion.json" in plan["outputs"][
         "candidate_expansion"
+    ]
+    assert "runtime_touch_opportunity_windows.json" in plan["outputs"][
+        "opportunity_windows"
     ]
 
 

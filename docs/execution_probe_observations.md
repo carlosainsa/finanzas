@@ -795,12 +795,29 @@ Follow-up selection-only validation on the same DuckDB:
 - Summary: `.tmp/operational/runtime-touch-selection-probe-validation/runtime_touch_selection_probe_summary.json`
 - Signalable assets: `1`
 - Candidate expansion assets: `1`
+- Opportunity-window assets: `1`
+- Opportunity-window windows evaluated: `76`
 - Dominant blockers: `19` assets failed `signalable_snapshots`, `19` failed `signalable_density`, `13` failed `touch_change_rate`, `2` failed `stale_rate`, and `1` failed `snapshots`
 - Next action: `CHANGE_MARKET_TIMING_OR_DISCOVERY`
 
 The follow-up confirms that the 2026-05-17 blocker is not simply the strict A/B
 ladder. Even a selection-only candidate expansion on the fresh DuckDB still
 finds only one asset that clears the predictor-aligned signalability floor.
+
+Follow-up opportunity-window validation on the same DuckDB:
+
+- Opportunity windows: `.tmp/operational/runtime-touch-selection-probe-window-validation/runtime_touch_opportunity_windows/runtime_touch_opportunity_windows.json`
+- Summary: `.tmp/operational/runtime-touch-selection-probe-window-validation/runtime_touch_selection_probe_summary.json`
+- Windows evaluated: `76`
+- Ranked assets: `20`
+- Selected opportunity-window assets: `1`
+- Status: `insufficient_assets`
+- Next action: `CHANGE_MARKET_TIMING_OR_DISCOVERY`
+
+This adds a stricter timing view: the selector now requires recent signalable
+windows, not just isolated snapshots. The outcome is unchanged, so the next
+implementation should improve market discovery/timing coverage before any
+manual A/B retry ladder.
 
 ## Current Diagnostic Loop
 

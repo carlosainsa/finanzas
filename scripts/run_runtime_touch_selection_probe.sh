@@ -14,13 +14,14 @@ SKIP_FRESH_CAPTURE=0
 MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
 DIAGNOSTIC_OUTPUT_DIR="${DIAGNOSTIC_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_signalability_diagnostic}"
 EXPANSION_OUTPUT_DIR="${EXPANSION_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_candidate_expansion}"
+OPPORTUNITY_WINDOW_OUTPUT_DIR="${OPPORTUNITY_WINDOW_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_opportunity_windows}"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/run_runtime_touch_selection_probe.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--fresh-capture-seconds N] [--print-plan]
 
 Runs a research-only short selection probe:
-fresh data-lake capture -> signalability diagnostic -> candidate expansion.
+fresh data-lake capture -> signalability diagnostic -> candidate expansion -> opportunity-window selection.
 It does not launch A/B, does not execute live trades, and does not modify risk.
 EOF
 }
@@ -47,6 +48,7 @@ while [[ $# -gt 0 ]]; do
       RUN_ROOT="$2"
       DIAGNOSTIC_OUTPUT_DIR="$2/runtime_touch_signalability_diagnostic"
       EXPANSION_OUTPUT_DIR="$2/runtime_touch_candidate_expansion"
+      OPPORTUNITY_WINDOW_OUTPUT_DIR="$2/runtime_touch_opportunity_windows"
       shift 2
       ;;
     --min-assets)
@@ -87,7 +89,7 @@ if [[ "$PRINT_PLAN" != "1" && "$SKIP_FRESH_CAPTURE" == "1" && ! -f "$FRESH_DUCKD
 fi
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" "$SKIP_FRESH_CAPTURE" "$MIN_ASSETS" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" "$OPPORTUNITY_WINDOW_OUTPUT_DIR" "$SKIP_FRESH_CAPTURE" "$MIN_ASSETS" <<'PY'
 import json
 import sys
 
@@ -98,6 +100,7 @@ import sys
     fresh_capture_seconds,
     diagnostic_output_dir,
     expansion_output_dir,
+    opportunity_window_output_dir,
     skip_fresh_capture,
     min_assets,
 ) = sys.argv[1:]
@@ -112,6 +115,7 @@ print(json.dumps({
         "scripts/run_pre_live_dry_run.sh",
         "src.research.runtime_touch_signalability_diagnostic",
         "src.research.runtime_touch_candidate_expansion",
+        "src.research.runtime_touch_opportunity_windows",
     ],
     "outputs": {
         "run_root": run_root,
@@ -119,6 +123,7 @@ print(json.dumps({
         "fresh_report_root": fresh_report_root,
         "signalability_diagnostic": f"{diagnostic_output_dir}/runtime_touch_signalability_diagnostic.json",
         "candidate_expansion": f"{expansion_output_dir}/runtime_touch_candidate_expansion.json",
+        "opportunity_windows": f"{opportunity_window_output_dir}/runtime_touch_opportunity_windows.json",
         "selection_probe_summary": f"{run_root}/runtime_touch_selection_probe_summary.json",
     },
 }, indent=2, sort_keys=True))
@@ -150,7 +155,13 @@ PYTHONPATH=python-service python3 -m src.research.runtime_touch_candidate_expans
   --min-assets "$MIN_ASSETS" \
   > "$RUN_ROOT/runtime_touch_candidate_expansion.stdout.json"
 
-python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" <<'PY'
+PYTHONPATH=python-service python3 -m src.research.runtime_touch_opportunity_windows \
+  --duckdb "$FRESH_DUCKDB" \
+  --output-dir "$OPPORTUNITY_WINDOW_OUTPUT_DIR" \
+  --min-assets "$MIN_ASSETS" \
+  > "$RUN_ROOT/runtime_touch_opportunity_windows.stdout.json"
+
+python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$DIAGNOSTIC_OUTPUT_DIR" "$EXPANSION_OUTPUT_DIR" "$OPPORTUNITY_WINDOW_OUTPUT_DIR" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -158,8 +169,14 @@ from pathlib import Path
 run_root = Path(sys.argv[1])
 diagnostic_path = Path(sys.argv[4]) / "runtime_touch_signalability_diagnostic.json"
 expansion_path = Path(sys.argv[5]) / "runtime_touch_candidate_expansion.json"
+opportunity_window_path = Path(sys.argv[6]) / "runtime_touch_opportunity_windows.json"
 diagnostic = json.loads(diagnostic_path.read_text(encoding="utf-8"))
 expansion = json.loads(expansion_path.read_text(encoding="utf-8"))
+opportunity_windows = json.loads(opportunity_window_path.read_text(encoding="utf-8"))
+ready = (
+    expansion.get("status") == "ready"
+    and opportunity_windows.get("status") == "ready"
+)
 payload = {
     "report_version": "runtime_touch_selection_probe_summary_v1",
     "can_execute_trades": False,
@@ -170,14 +187,17 @@ payload = {
     "signalable_assets_count": diagnostic.get("signalable_assets_count"),
     "candidate_expansion_status": expansion.get("status"),
     "candidate_expansion_assets": expansion.get("market_asset_ids_count"),
+    "opportunity_window_status": opportunity_windows.get("status"),
+    "opportunity_window_assets": opportunity_windows.get("market_asset_ids_count"),
     "next_action": (
-        "RUN_RUNTIME_TOUCH_AB_RETRY_LADDER_ON_THIS_DUCKDB"
-        if expansion.get("status") == "ready"
+        "READY_FOR_MANUAL_RUNTIME_TOUCH_AB_RETRY_LADDER"
+        if ready
         else "CHANGE_MARKET_TIMING_OR_DISCOVERY"
     ),
     "outputs": {
         "signalability_diagnostic": str(diagnostic_path),
         "candidate_expansion": str(expansion_path),
+        "opportunity_windows": str(opportunity_window_path),
     },
 }
 (run_root / "runtime_touch_selection_probe_summary.json").write_text(
