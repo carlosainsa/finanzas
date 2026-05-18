@@ -7,6 +7,7 @@ RUN_ROOT="${RUN_ROOT:-${ROOT_DIR}/.tmp/operational/${LOOP_TIMESTAMP}}"
 DISCOVERY_OUTPUT_DIR="${DISCOVERY_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_discovery_batches}"
 BATCH_RESULTS_ROOT="${BATCH_RESULTS_ROOT:-${RUN_ROOT}/batches}"
 COMPARISON_OUTPUT_DIR="${COMPARISON_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_discovery_batch_comparison}"
+DIAGNOSTICS_OUTPUT_DIR="${DIAGNOSTICS_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_discovery_batch_diagnostics}"
 DISCOVERY_LIMIT="${DISCOVERY_LIMIT:-50}"
 BATCH_SIZE="${DISCOVERY_BATCH_SIZE:-20}"
 BATCH_CAPTURE_SECONDS="${BATCH_CAPTURE_SECONDS:-1800}"
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
       DISCOVERY_OUTPUT_DIR="$2/runtime_touch_discovery_batches"
       BATCH_RESULTS_ROOT="$2/batches"
       COMPARISON_OUTPUT_DIR="$2/runtime_touch_discovery_batch_comparison"
+      DIAGNOSTICS_OUTPUT_DIR="$2/runtime_touch_discovery_batch_diagnostics"
       shift 2
       ;;
     --discovery-limit)
@@ -130,11 +132,12 @@ fi
 
 DISCOVERY_BATCHES_JSON="${DISCOVERY_OUTPUT_DIR}/runtime_touch_discovery_batches.json"
 COMPARISON_JSON="${COMPARISON_OUTPUT_DIR}/runtime_touch_discovery_batch_comparison.json"
+DIAGNOSTICS_JSON="${DIAGNOSTICS_OUTPUT_DIR}/runtime_touch_discovery_batch_diagnostics.json"
 EARLY_STOP_DECISION_JSON="${RUN_ROOT}/runtime_touch_early_stop_decision.json"
 PROCESSED_BATCHES_FILE="${RUN_ROOT}/processed_discovery_batches.txt"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DISCOVERY_LIMIT" "$BATCH_SIZE" "$BATCH_CAPTURE_SECONDS" "$MIN_ASSETS" "$MAX_BATCHES" "$MARKET_FILLABILITY_SCORE_PATH" "$MARKET_FAMILY_MEMORY_PATH" "$DISCOVERY_EXPLORATION_RATE" "$EARLY_STOP_ON_READY" <<'PY'
+  python3 - "$RUN_ROOT" "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DIAGNOSTICS_OUTPUT_DIR" "$DISCOVERY_LIMIT" "$BATCH_SIZE" "$BATCH_CAPTURE_SECONDS" "$MIN_ASSETS" "$MAX_BATCHES" "$MARKET_FILLABILITY_SCORE_PATH" "$MARKET_FAMILY_MEMORY_PATH" "$DISCOVERY_EXPLORATION_RATE" "$EARLY_STOP_ON_READY" <<'PY'
 import json
 import sys
 
@@ -143,6 +146,7 @@ import sys
     discovery_output_dir,
     batch_results_root,
     comparison_output_dir,
+    diagnostics_output_dir,
     discovery_limit,
     batch_size,
     batch_capture_seconds,
@@ -171,6 +175,7 @@ print(json.dumps({
         "scripts/run_runtime_touch_selection_probe.sh",
         "src.research.runtime_touch_discovery_loop_control",
         "src.research.runtime_touch_discovery_batch_comparison",
+        "src.research.runtime_touch_discovery_batch_diagnostics",
     ],
     "outputs": {
         "run_root": run_root,
@@ -178,6 +183,7 @@ print(json.dumps({
         "batch_results_root": batch_results_root,
         "early_stop_decision": f"{run_root}/runtime_touch_early_stop_decision.json",
         "batch_comparison": f"{comparison_output_dir}/runtime_touch_discovery_batch_comparison.json",
+        "batch_diagnostics": f"{diagnostics_output_dir}/runtime_touch_discovery_batch_diagnostics.json",
         "loop_summary": f"{run_root}/runtime_touch_discovery_loop_summary.json",
     },
 }, indent=2, sort_keys=True))
@@ -185,7 +191,7 @@ PY
   exit 0
 fi
 
-mkdir -p "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR"
+mkdir -p "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DIAGNOSTICS_OUTPUT_DIR"
 : > "$PROCESSED_BATCHES_FILE"
 cat > "$EARLY_STOP_DECISION_JSON" <<'JSON'
 {
@@ -271,7 +277,15 @@ PYTHONPATH=python-service python3 -m src.research.runtime_touch_discovery_batch_
   --min-assets "$MIN_ASSETS" \
   > "$RUN_ROOT/runtime_touch_discovery_batch_comparison.stdout.json"
 
-python3 - "$RUN_ROOT" "$DISCOVERY_BATCHES_JSON" "$COMPARISON_JSON" "$EARLY_STOP_DECISION_JSON" "$PROCESSED_BATCHES_FILE" "$EARLY_STOP_ON_READY" "$MAX_BATCHES" <<'PY'
+PYTHONPATH=python-service python3 -m src.research.runtime_touch_discovery_batch_diagnostics \
+  --discovery-batches "$DISCOVERY_BATCHES_JSON" \
+  --batch-results-root "$BATCH_RESULTS_ROOT" \
+  --comparison "$COMPARISON_JSON" \
+  --output-dir "$DIAGNOSTICS_OUTPUT_DIR" \
+  --min-assets "$MIN_ASSETS" \
+  > "$RUN_ROOT/runtime_touch_discovery_batch_diagnostics.stdout.json"
+
+python3 - "$RUN_ROOT" "$DISCOVERY_BATCHES_JSON" "$COMPARISON_JSON" "$DIAGNOSTICS_JSON" "$EARLY_STOP_DECISION_JSON" "$PROCESSED_BATCHES_FILE" "$EARLY_STOP_ON_READY" "$MAX_BATCHES" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -279,10 +293,11 @@ from pathlib import Path
 run_root = Path(sys.argv[1])
 discovery_batches_path = Path(sys.argv[2])
 comparison_path = Path(sys.argv[3])
-early_stop_path = Path(sys.argv[4])
-processed_path = Path(sys.argv[5])
-early_stop_enabled = sys.argv[6] == "1"
-max_batches = int(sys.argv[7])
+diagnostics_path = Path(sys.argv[4])
+early_stop_path = Path(sys.argv[5])
+processed_path = Path(sys.argv[6])
+early_stop_enabled = sys.argv[7] == "1"
+max_batches = int(sys.argv[8])
 
 def read_json(path: Path) -> dict[str, object]:
     try:
@@ -293,6 +308,7 @@ def read_json(path: Path) -> dict[str, object]:
 
 discovery = read_json(discovery_batches_path)
 comparison = read_json(comparison_path)
+diagnostics = read_json(diagnostics_path)
 early_stop = read_json(early_stop_path)
 processed = [
     line.strip()
@@ -317,12 +333,14 @@ summary = {
     "skipped_batch_ids": [batch_id for batch_id in all_batch_ids if batch_id not in set(processed)],
     "comparison_status": comparison.get("status"),
     "comparison_next_action": comparison.get("next_action"),
+    "recommended_selector_adjustment": diagnostics.get("recommended_selector_adjustment"),
     "selected_batch": comparison.get("selected_batch"),
     "recommended_next_run": comparison.get("recommended_next_run"),
     "outputs": {
         "discovery_batches": str(discovery_batches_path),
         "early_stop_decision": str(early_stop_path),
         "batch_comparison": str(comparison_path),
+        "batch_diagnostics": str(diagnostics_path),
     },
 }
 (run_root / "runtime_touch_discovery_loop_summary.json").write_text(

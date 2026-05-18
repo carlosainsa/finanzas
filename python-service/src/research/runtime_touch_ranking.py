@@ -373,6 +373,8 @@ def normalize_records(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 def normalize_value(value: object) -> object:
+    if isinstance(value, (dict, list, tuple)):
+        return value
     try:
         if pd.isna(value):
             return None

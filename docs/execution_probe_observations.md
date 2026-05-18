@@ -32,6 +32,57 @@ dry-run over that universe, and writes `execution_probe_touch_comparison.json`.
 This keeps the predictor profile explicit while changing only market/timing
 selection.
 
+## 2026-05-18 - Runtime-Touch Diversified Discovery Loop
+
+- Run root: `.tmp/operational/runtime-touch-diversified-discovery-loop-20260518115017`
+- Mode: `EXECUTION_MODE=dry_run`
+- Discovery limit: `10`
+- Batch size: `4`
+- Max processed batches: `2`
+- Batch capture window: `1800` seconds
+- Fillability input:
+  `.tmp/operational/fillability-large-bounded-20260518T014732Z/market_fillability_score/market_fillability_score.json`
+- Family-memory input:
+  `.tmp/operational/fillability-large-bounded-20260518T014732Z/market_family_memory/market_family_memory.json`
+
+Result:
+
+- Processed batches: `batch-01`, `batch-02`
+- Skipped batches: `batch-03`, `batch-04`, `batch-05`
+- Batch comparison status: `no_ready_batch`
+- Selected batch: none
+- Recommended next run: none
+- Next action: `EXPAND_MARKET_DISCOVERY`
+- Live remains blocked.
+
+Batch evidence:
+
+- `batch-01`: `0` signalable assets, candidate expansion selected `0`
+  assets, opportunity windows selected `0` assets.
+- `batch-02`: `1` signalable asset, candidate expansion selected `1`
+  asset, opportunity windows selected `1` asset.
+- Both processed batches failed the minimum comparable universe requirement of
+  `2` signalable assets.
+
+Diagnostic decision:
+
+- New artifact:
+  `runtime_touch_discovery_batch_diagnostics_v1`
+- Dominant blocker: `signalability_signalable_density`
+- Recommended selector adjustment:
+  `EXPAND_DISCOVERY_WITH_SIGNALABILITY_AWARE_FILTER`
+- Selector config recommendation: keep diversified batches, increase max
+  batches, and do not relax `min_assets`.
+
+Interpretation:
+
+The diversified discovery loop is working as an operational selector, but the
+sample still did not find enough assets that can actually emit predictor
+signals under current spread/depth rules. This is not an executor failure and
+not evidence for live trading. The next implementation should make discovery
+more signalability-aware across a broader market set before another A/B retry
+ladder or quote-policy observation.
+
 ## Prior Variant: execution_probe_v10
 
 `execution_probe_v10` is the next research-only variant after the corrected
