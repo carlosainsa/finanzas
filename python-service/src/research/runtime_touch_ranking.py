@@ -27,6 +27,8 @@ class RuntimeTouchRankingConfig:
     min_signalable_density: float = 0.0
     signal_min_spread: float = 0.01
     signal_min_depth: float = 1.5
+    recent_signalable_window_ms: int = 180_000
+    freshness_ordering: str = "score_first"
     max_stale_rate: float = 0.10
     stale_gap_ms: int = 60_000
     limit: int = 20
@@ -54,6 +56,10 @@ class RuntimeTouchRankingConfig:
             raise ValueError("signal_min_spread must be non-negative")
         if self.signal_min_depth < 0:
             raise ValueError("signal_min_depth must be non-negative")
+        if self.recent_signalable_window_ms <= 0:
+            raise ValueError("recent_signalable_window_ms must be positive")
+        if self.freshness_ordering not in {"score_first", "freshest_first"}:
+            raise ValueError("freshness_ordering must be score_first or freshest_first")
         if not 0 <= self.max_stale_rate <= 1:
             raise ValueError("max_stale_rate must be between 0 and 1")
         if self.stale_gap_ms <= 0:
@@ -132,6 +138,31 @@ def create_runtime_touch_ranking_views(
             if config.max_spread is not None
             else ""
         )
+        recent_min_timestamp_ms = max(
+            0,
+            max_timestamp_ms - config.recent_signalable_window_ms,
+        )
+        ranking_order_sql = (
+            """
+                        current_is_signalable desc,
+                        last_signalable_timestamp_ms desc nulls last,
+                        recent_signalable_density desc,
+                        book_age_ms asc,
+                        stale_rate asc,
+                        runtime_touch_score desc,
+                        asset_id
+            """
+            if config.freshness_ordering == "freshest_first"
+            else """
+                        runtime_touch_score desc,
+                        signalable_density desc,
+                        signalable_snapshots desc,
+                        touch_change_rate desc,
+                        active_minutes desc,
+                        snapshots desc,
+                        asset_id
+            """
+        )
         conn.execute(
             f"""
             create or replace view runtime_touch_recent_books as
@@ -195,9 +226,22 @@ def create_runtime_touch_ranking_views(
                     count(distinct floor(event_timestamp_ms / 60000)) as active_minutes,
                     min(event_timestamp_ms) as first_timestamp_ms,
                     max(event_timestamp_ms) as last_timestamp_ms,
+                    {max_timestamp_ms} - max(event_timestamp_ms) as book_age_ms,
                     avg(spread) as avg_spread,
                     min(spread) as min_spread,
                     max(spread) as max_spread,
+                    arg_max(spread, event_timestamp_ms) as current_spread,
+                    arg_max(bid_depth, event_timestamp_ms) as current_bid_depth,
+                    arg_max(ask_depth, event_timestamp_ms) as current_ask_depth,
+                    arg_max(bid_depth + ask_depth, event_timestamp_ms) as current_total_depth,
+                    case
+                        when arg_max(spread, event_timestamp_ms) >= {config.signal_min_spread}
+                         and least(
+                             arg_max(bid_depth, event_timestamp_ms),
+                             arg_max(ask_depth, event_timestamp_ms)
+                         ) >= {config.signal_min_depth}
+                        then true else false
+                    end as current_is_signalable,
                     avg(bid_depth + ask_depth) as avg_total_depth,
                     avg(bid_depth) as avg_bid_depth,
                     avg(ask_depth) as avg_ask_depth,
@@ -210,6 +254,55 @@ def create_runtime_touch_ranking_views(
                             then 1 else 0
                         end
                     ) as signalable_snapshots,
+                    max(
+                        case
+                            when spread >= {config.signal_min_spread}
+                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                            then event_timestamp_ms else null
+                        end
+                    ) as last_signalable_timestamp_ms,
+                    case
+                        when max(
+                            case
+                                when spread >= {config.signal_min_spread}
+                                 and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                                then event_timestamp_ms else null
+                            end
+                        ) is not null
+                        then {max_timestamp_ms} - max(
+                            case
+                                when spread >= {config.signal_min_spread}
+                                 and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                                then event_timestamp_ms else null
+                            end
+                        )
+                        else null
+                    end as last_signalable_age_ms,
+                    sum(
+                        case
+                            when event_timestamp_ms >= {recent_min_timestamp_ms}
+                            then 1 else 0
+                        end
+                    ) as recent_snapshots,
+                    sum(
+                        case
+                            when event_timestamp_ms >= {recent_min_timestamp_ms}
+                             and spread >= {config.signal_min_spread}
+                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                            then 1 else 0
+                        end
+                    ) as recent_signalable_snapshots,
+                    avg(
+                        case
+                            when event_timestamp_ms >= {recent_min_timestamp_ms}
+                            then case
+                                when spread >= {config.signal_min_spread}
+                                 and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                                then 1.0 else 0.0
+                            end
+                            else null
+                        end
+                    ) as recent_signalable_density,
                     avg(
                         case
                             when spread >= {config.signal_min_spread}
@@ -267,6 +360,22 @@ def create_runtime_touch_ranking_views(
                 metadata.archived,
                 metadata.enable_order_book,
                 (
+                    case when coalesce(current_is_signalable, false) then 100 else 0 end
+                    + coalesce(recent_signalable_density, 0) * 50
+                    + coalesce(signalable_density, 0) * 20
+                    - least(
+                        coalesce(last_signalable_age_ms, {config.lookback_ms})::double
+                        / {config.recent_signalable_window_ms},
+                        4
+                    ) * 15
+                    - least(
+                        coalesce(book_age_ms, {config.lookback_ms})::double
+                        / {config.recent_signalable_window_ms},
+                        4
+                    ) * 10
+                    - coalesce(stale_rate, 0) * 25
+                ) as freshness_score,
+                (
                     coalesce(touch_change_rate, 0) * 100
                     + coalesce(spread_opportunity_density, 0) * 30
                     + coalesce(signalable_density, 0) * 60
@@ -303,18 +412,12 @@ def create_runtime_touch_ranking_views(
             """
         )
         conn.execute(
-            """
+            f"""
             create or replace view runtime_touch_ranking as
             select
                 row_number() over (
                     order by
-                        runtime_touch_score desc,
-                        signalable_density desc,
-                        signalable_snapshots desc,
-                        touch_change_rate desc,
-                        active_minutes desc,
-                        snapshots desc,
-                        asset_id
+                        {ranking_order_sql}
                 ) as rank,
                 *
             from runtime_touch_features
@@ -426,6 +529,16 @@ def main() -> int:
         default=RuntimeTouchRankingConfig.signal_min_depth,
     )
     parser.add_argument(
+        "--recent-signalable-window-ms",
+        type=int,
+        default=RuntimeTouchRankingConfig.recent_signalable_window_ms,
+    )
+    parser.add_argument(
+        "--freshness-ordering",
+        choices=("score_first", "freshest_first"),
+        default=RuntimeTouchRankingConfig.freshness_ordering,
+    )
+    parser.add_argument(
         "--max-stale-rate",
         type=float,
         default=RuntimeTouchRankingConfig.max_stale_rate,
@@ -446,6 +559,8 @@ def main() -> int:
             min_signalable_density=args.min_signalable_density,
             signal_min_spread=args.signal_min_spread,
             signal_min_depth=args.signal_min_depth,
+            recent_signalable_window_ms=args.recent_signalable_window_ms,
+            freshness_ordering=args.freshness_ordering,
             max_stale_rate=args.max_stale_rate,
             limit=args.limit,
         ),

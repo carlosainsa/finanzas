@@ -31,6 +31,10 @@ def test_runtime_touch_ranking_selects_fresh_top_of_book_activity(
     selected = cast(list[dict[str, Any]], report["selected"])
     assert selected[0]["asset_id"] == "asset-active"
     assert selected[0]["recommendation"] == "PROMOTE_TO_OBSERVATION"
+    assert selected[0]["current_is_signalable"] is True
+    assert selected[0]["last_signalable_timestamp_ms"] == 121_000
+    assert selected[0]["recent_signalable_density"] == 1.0
+    assert selected[0]["current_spread"] == 0.03
     assert (
         tmp_path / "runtime-touch" / "selected_runtime_touch_markets.parquet"
     ).exists()
@@ -87,6 +91,47 @@ def test_runtime_touch_ranking_filters_non_signalable_activity(
     assert "asset-thin" not in selected_assets
     ranked = cast(list[dict[str, Any]], report["selected"])
     assert ranked[0]["signalable_snapshots"] >= 2
+
+
+def test_runtime_touch_ranking_can_order_freshest_signalable_asset_first(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_db(tmp_path)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-fresh", "asset-fresh", 301_000, 0.30, 0.33, 0.03, 5.0, 5.0),
+                ("market-fresh", "asset-fresh", 361_000, 0.31, 0.34, 0.03, 5.0, 5.0),
+                ("market-fresh", "asset-fresh", 421_000, 0.32, 0.35, 0.03, 5.0, 5.0),
+            ],
+        )
+        conn.execute(
+            """
+            insert into market_metadata values
+            ('market-fresh', 'asset-fresh', 'YES', 'Fresh question', 'fresh-question',
+             true, false, false, true, 1000.0, 2000.0, 1)
+            """
+        )
+
+    report = create_runtime_touch_ranking_report(
+        db_path,
+        tmp_path / "runtime-touch",
+        RuntimeTouchRankingConfig(
+            min_snapshots=3,
+            min_active_minutes=1,
+            min_touch_change_rate=0.10,
+            freshness_ordering="freshest_first",
+            recent_signalable_window_ms=180_000,
+            limit=2,
+        ),
+    )
+
+    selected = cast(list[dict[str, Any]], report["selected"])
+    assert selected[0]["asset_id"] == "asset-fresh"
+    assert selected[0]["current_is_signalable"] is True
+    assert selected[0]["last_signalable_age_ms"] == 0
+    assert selected[0]["book_age_ms"] == 0
 
 
 def seed_runtime_touch_db(tmp_path: Path) -> Path:

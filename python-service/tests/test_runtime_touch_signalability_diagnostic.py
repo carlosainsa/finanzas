@@ -32,6 +32,11 @@ def test_signalability_diagnostic_identifies_signalable_shortfall(
     assert report["can_execute_trades"] is False
     assert report["status"] == "insufficient_signalable_assets"
     assert report["signalable_assets_count"] == 1
+    top_candidates = cast(list[dict[str, Any]], report["top_candidates"])
+    assert top_candidates[0]["asset_id"] == "asset-good"
+    assert top_candidates[0]["current_is_signalable"] is True
+    assert top_candidates[0]["last_signalable_timestamp_ms"] == 121_000
+    assert top_candidates[0]["recent_signalable_density"] == 1.0
     blocker_counts = cast(dict[str, int], report["blocker_counts"])
     assert blocker_counts["signalable_snapshots"] == 1
     assert blocker_counts["signalable_density"] == 1

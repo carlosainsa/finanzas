@@ -96,6 +96,8 @@ class ExecutionProbeUniverseConfig:
     min_runtime_signalable_density: float = 0.0
     runtime_signal_min_spread: float = 0.01
     runtime_signal_min_depth: float = 1.5
+    runtime_recent_signalable_window_ms: int = 180_000
+    runtime_touch_freshness_ordering: str = "score_first"
     runtime_touch_hybrid_backfill: bool = False
     runtime_hybrid_min_signalable_snapshots: int = 1
     runtime_hybrid_min_signalable_density: float = 0.0
@@ -165,6 +167,15 @@ class ExecutionProbeUniverseConfig:
             raise ValueError("runtime_signal_min_spread must be non-negative")
         if self.runtime_signal_min_depth < 0:
             raise ValueError("runtime_signal_min_depth must be non-negative")
+        if self.runtime_recent_signalable_window_ms <= 0:
+            raise ValueError("runtime_recent_signalable_window_ms must be positive")
+        if self.runtime_touch_freshness_ordering not in {
+            "score_first",
+            "freshest_first",
+        }:
+            raise ValueError(
+                "runtime_touch_freshness_ordering must be score_first or freshest_first"
+            )
         if self.runtime_hybrid_min_signalable_snapshots < 0:
             raise ValueError(
                 "runtime_hybrid_min_signalable_snapshots must be non-negative"
@@ -822,6 +833,7 @@ def runtime_touch_quality_score_sql() -> str:
     return """
         (
             coalesce(runtime.runtime_touch_score, 0)
+            + coalesce(runtime.freshness_score, 0) * 0.35
             + coalesce(runtime.touch_change_rate, 0) * 20
             + coalesce(runtime.spread_opportunity_density, 0) * 10
             + least(coalesce(runtime.avg_total_depth, 0) / 10000.0, 1.0)
@@ -870,6 +882,18 @@ def select_runtime_touch_universe(
                 runtime.touch_change_rate as runtime_opportunity_density,
                 runtime.signalable_snapshots as runtime_signalable_snapshots,
                 runtime.signalable_density as runtime_signalable_density,
+                runtime.last_timestamp_ms as runtime_last_book_timestamp_ms,
+                runtime.book_age_ms as runtime_book_age_ms,
+                runtime.last_signalable_timestamp_ms as runtime_last_signalable_timestamp_ms,
+                runtime.last_signalable_age_ms as runtime_last_signalable_age_ms,
+                runtime.recent_signalable_snapshots as runtime_recent_signalable_snapshots,
+                runtime.recent_signalable_density as runtime_recent_signalable_density,
+                runtime.current_spread as runtime_current_spread,
+                runtime.current_bid_depth as runtime_current_bid_depth,
+                runtime.current_ask_depth as runtime_current_ask_depth,
+                runtime.current_total_depth as runtime_current_total_depth,
+                runtime.current_is_signalable as runtime_current_is_signalable,
+                runtime.freshness_score as runtime_freshness_score,
                 null::double as adverse_30s_rate,
                 null::double as avg_pnl_30s,
                 {runtime_touch_quality_score_sql()} as execution_quality_score,
@@ -892,6 +916,9 @@ def select_runtime_touch_universe(
                     partition by runtime.asset_id
                     order by
                         {runtime_touch_quality_score_sql()} desc,
+                        runtime.current_is_signalable desc,
+                        runtime.last_signalable_timestamp_ms desc nulls last,
+                        runtime.recent_signalable_density desc,
                         runtime.runtime_touch_score desc,
                         runtime.signalable_density desc,
                         runtime.signalable_snapshots desc,
@@ -916,6 +943,8 @@ def select_runtime_touch_universe(
         order by
             execution_quality_score desc,
             avg_expected_edge desc,
+            runtime_current_is_signalable desc,
+            runtime_last_signalable_timestamp_ms desc nulls last,
             touch_change_rate desc,
             signals desc,
             asset_id
@@ -967,6 +996,18 @@ def select_runtime_touch_hybrid_fallback(
                 runtime.touch_change_rate as runtime_opportunity_density,
                 runtime.signalable_snapshots as runtime_signalable_snapshots,
                 runtime.signalable_density as runtime_signalable_density,
+                runtime.last_timestamp_ms as runtime_last_book_timestamp_ms,
+                runtime.book_age_ms as runtime_book_age_ms,
+                runtime.last_signalable_timestamp_ms as runtime_last_signalable_timestamp_ms,
+                runtime.last_signalable_age_ms as runtime_last_signalable_age_ms,
+                runtime.recent_signalable_snapshots as runtime_recent_signalable_snapshots,
+                runtime.recent_signalable_density as runtime_recent_signalable_density,
+                runtime.current_spread as runtime_current_spread,
+                runtime.current_bid_depth as runtime_current_bid_depth,
+                runtime.current_ask_depth as runtime_current_ask_depth,
+                runtime.current_total_depth as runtime_current_total_depth,
+                runtime.current_is_signalable as runtime_current_is_signalable,
+                runtime.freshness_score as runtime_freshness_score,
                 null::double as adverse_30s_rate,
                 null::double as avg_pnl_30s,
                 (
@@ -997,6 +1038,9 @@ def select_runtime_touch_hybrid_fallback(
                             + coalesce(opportunity.opportunity_score, 0) * 0.25
                             + least(coalesce(runtime.liquidity, 0) / 10000.0, 1.0) * 0.10
                         ) desc,
+                        runtime.current_is_signalable desc,
+                        runtime.last_signalable_timestamp_ms desc nulls last,
+                        runtime.recent_signalable_density desc,
                         runtime.signalable_snapshots desc,
                         runtime.signalable_density desc,
                         coalesce(opportunity.opportunity_score, 0) desc,
@@ -1027,6 +1071,8 @@ def select_runtime_touch_hybrid_fallback(
         where asset_rank = 1
         order by
             execution_quality_score desc,
+            runtime_current_is_signalable desc,
+            runtime_last_signalable_timestamp_ms desc nulls last,
             runtime_signalable_snapshots desc,
             runtime_signalable_density desc,
             coalesce(avg_available_depth, 0) desc,
@@ -1244,6 +1290,8 @@ def create_runtime_touch_inputs(
             min_signalable_density=config.min_runtime_signalable_density,
             signal_min_spread=config.runtime_signal_min_spread,
             signal_min_depth=config.runtime_signal_min_depth,
+            recent_signalable_window_ms=config.runtime_recent_signalable_window_ms,
+            freshness_ordering=config.runtime_touch_freshness_ordering,
             min_spread=(
                 config.min_avg_opportunity_spread
                 if config.min_avg_opportunity_spread is not None
@@ -1688,6 +1736,16 @@ def main() -> int:
         type=float,
         default=ExecutionProbeUniverseConfig.runtime_signal_min_depth,
     )
+    parser.add_argument(
+        "--runtime-recent-signalable-window-ms",
+        type=int,
+        default=ExecutionProbeUniverseConfig.runtime_recent_signalable_window_ms,
+    )
+    parser.add_argument(
+        "--runtime-touch-freshness-ordering",
+        choices=("score_first", "freshest_first"),
+        default=ExecutionProbeUniverseConfig.runtime_touch_freshness_ordering,
+    )
     parser.add_argument("--runtime-touch-hybrid-backfill", action="store_true")
     parser.add_argument(
         "--runtime-hybrid-min-signalable-snapshots",
@@ -1740,6 +1798,10 @@ def main() -> int:
             min_runtime_signalable_density=args.min_runtime_signalable_density,
             runtime_signal_min_spread=args.runtime_signal_min_spread,
             runtime_signal_min_depth=args.runtime_signal_min_depth,
+            runtime_recent_signalable_window_ms=(
+                args.runtime_recent_signalable_window_ms
+            ),
+            runtime_touch_freshness_ordering=args.runtime_touch_freshness_ordering,
             runtime_touch_hybrid_backfill=args.runtime_touch_hybrid_backfill,
             runtime_hybrid_min_signalable_snapshots=(
                 args.runtime_hybrid_min_signalable_snapshots

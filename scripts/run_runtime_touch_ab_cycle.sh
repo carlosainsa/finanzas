@@ -16,9 +16,12 @@ OBSERVATION_SECONDS="${REAL_DRY_RUN_SECONDS:-3600}"
 COMPARISON_REPORT_ROOTS="${PROFILE_OBSERVATION_COMPARISON_REPORT_ROOTS:-}"
 PRINT_PLAN=0
 SKIP_FRESH_CAPTURE=0
+SKIP_SIGNALABILITY_GATE="${EXECUTION_PROBE_SKIP_SIGNALABILITY_GATE:-0}"
 UNIVERSE_LIMIT="${EXECUTION_PROBE_UNIVERSE_LIMIT:-10}"
 UNIVERSE_MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
 RUNTIME_TOUCH_LOOKBACK_MS="${EXECUTION_PROBE_RUNTIME_TOUCH_LOOKBACK_MS:-900000}"
+RUNTIME_TOUCH_FRESHNESS_ORDERING="${EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING:-freshest_first}"
+RECENT_SIGNALABLE_WINDOW_MS="${EXECUTION_PROBE_RECENT_SIGNALABLE_WINDOW_MS:-180000}"
 MIN_RUNTIME_TOUCH_CHANGE_RATE="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_CHANGE_RATE:-0.01}"
 MIN_RUNTIME_TOUCH_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS:-10}"
 MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-2}"
@@ -31,7 +34,7 @@ MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_runtime_touch_ab_cycle.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--duration-seconds N] [--print-plan]
+Usage: scripts/run_runtime_touch_ab_cycle.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--skip-signalability-gate] [--duration-seconds N] [--print-plan]
 
 Runs a research-only A/B cycle over one runtime-touch universe:
 fresh dry-run capture -> runtime-touch universe -> profile A observation
@@ -45,6 +48,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-fresh-capture)
       SKIP_FRESH_CAPTURE=1
+      shift
+      ;;
+    --skip-signalability-gate)
+      SKIP_SIGNALABILITY_GATE=1
       shift
       ;;
     --fresh-duckdb|--universe-duckdb)
@@ -79,6 +86,10 @@ while [[ $# -gt 0 ]]; do
       UNIVERSE_LIMIT="$2"
       shift 2
       ;;
+    --freshness-ordering)
+      RUNTIME_TOUCH_FRESHNESS_ORDERING="$2"
+      shift 2
+      ;;
     --min-assets)
       UNIVERSE_MIN_ASSETS="$2"
       shift 2
@@ -111,6 +122,14 @@ if [[ "$PROFILE_A" == "$PROFILE_B" ]]; then
   echo "A/B profiles must be different" >&2
   exit 64
 fi
+if [[ "$SKIP_SIGNALABILITY_GATE" != "0" && "$SKIP_SIGNALABILITY_GATE" != "1" ]]; then
+  echo "EXECUTION_PROBE_SKIP_SIGNALABILITY_GATE must be 0 or 1" >&2
+  exit 64
+fi
+if [[ "$RUNTIME_TOUCH_FRESHNESS_ORDERING" != "score_first" && "$RUNTIME_TOUCH_FRESHNESS_ORDERING" != "freshest_first" ]]; then
+  echo "freshness ordering must be score_first or freshest_first" >&2
+  exit 64
+fi
 if ! [[ "$FRESH_CAPTURE_SECONDS" =~ ^[0-9]+$ ]] || (( FRESH_CAPTURE_SECONDS < 1800 || FRESH_CAPTURE_SECONDS > 5400 )); then
   echo "fresh capture duration must be an integer between 1800 and 5400 seconds" >&2
   exit 64
@@ -134,6 +153,8 @@ fi
 
 UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_probe_universe_selection.json"
 RUNTIME_TOUCH_RANKING_DIR="$RUN_ROOT/runtime_touch_ranking"
+SIGNALABILITY_GATE_DIR="$RUN_ROOT/runtime_touch_signalability_gate"
+SIGNALABILITY_GATE_PATH="$SIGNALABILITY_GATE_DIR/runtime_touch_signalability_diagnostic.json"
 PROFILE_A_TIMESTAMP="${CYCLE_TIMESTAMP}-${PROFILE_A}"
 PROFILE_B_TIMESTAMP="${CYCLE_TIMESTAMP}-${PROFILE_B}"
 PROFILE_A_DATA_LAKE_ROOT="${ROOT_DIR}/.tmp/real-dry-run-data-lake/${PROFILE_A_TIMESTAMP}"
@@ -142,7 +163,7 @@ PROFILE_A_REPORT_ROOT="${PROFILE_A_DATA_LAKE_ROOT}/reports/${PROFILE_A_TIMESTAMP
 PROFILE_B_REPORT_ROOT="${PROFILE_B_DATA_LAKE_ROOT}/reports/${PROFILE_B_TIMESTAMP}"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$SIGNALABILITY_GATE_PATH" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$SKIP_SIGNALABILITY_GATE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" "$RUNTIME_TOUCH_FRESHNESS_ORDERING" "$RECENT_SIGNALABLE_WINDOW_MS" <<'PY'
 import json
 import sys
 
@@ -158,18 +179,23 @@ import sys
     observation_seconds,
     universe_selection_path,
     runtime_touch_ranking_dir,
+    signalability_gate_path,
     comparison_roots_csv,
     skip_fresh_capture,
+    skip_signalability_gate,
     min_runtime_signalable_snapshots,
     min_runtime_signalable_density,
     runtime_signal_min_spread,
     runtime_signal_min_depth,
+    runtime_touch_freshness_ordering,
+    recent_signalable_window_ms,
 ) = sys.argv[1:]
 print(json.dumps({
     "script": "scripts/run_runtime_touch_ab_cycle.sh",
     "can_execute_trades": False,
     "execution_mode": "dry_run",
     "skip_fresh_capture": skip_fresh_capture == "1",
+    "signalability_gate_enabled": skip_signalability_gate != "1",
     "fresh_capture_seconds": int(fresh_capture_seconds),
     "observation_seconds_per_profile": int(observation_seconds),
     "profile_a": profile_a,
@@ -178,11 +204,14 @@ print(json.dumps({
     "min_runtime_signalable_density": float(min_runtime_signalable_density),
     "runtime_signal_min_spread": float(runtime_signal_min_spread),
     "runtime_signal_min_depth": float(runtime_signal_min_depth),
+    "runtime_touch_freshness_ordering": runtime_touch_freshness_ordering,
+    "recent_signalable_window_ms": int(recent_signalable_window_ms),
     "fresh_duckdb": fresh_duckdb,
     "fresh_report_root": fresh_report_root,
     "comparison_report_roots": [item.strip() for item in comparison_roots_csv.split(",") if item.strip()],
     "delegates_to": [
         "scripts/run_pre_live_dry_run.sh",
+        "src.research.runtime_touch_signalability_diagnostic",
         "src.research.runtime_touch_ranking",
         "src.research.execution_probe_universe_selection",
         "scripts/run_runtime_touch_observation.sh",
@@ -193,6 +222,7 @@ print(json.dumps({
     ],
     "outputs": {
         "run_root": run_root,
+        "signalability_gate": signalability_gate_path,
         "runtime_touch_ranking": f"{runtime_touch_ranking_dir}/runtime_touch_ranking.json",
         "execution_probe_universe_selection": universe_selection_path,
         "profile_a_report_root": profile_a_report_root,
@@ -232,6 +262,53 @@ if [[ ! -f "$FRESH_DUCKDB" ]]; then
   exit 65
 fi
 
+if [[ "$SKIP_SIGNALABILITY_GATE" != "1" ]]; then
+  PYTHONPATH=python-service python3 -m src.research.runtime_touch_signalability_diagnostic \
+    --duckdb "$FRESH_DUCKDB" \
+    --output-dir "$SIGNALABILITY_GATE_DIR" \
+    --min-assets "$UNIVERSE_MIN_ASSETS" \
+    --limit "$UNIVERSE_LIMIT" \
+    --min-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS" \
+    --min-active-minutes "$MIN_RUNTIME_ACTIVE_MINUTES" \
+    --min-touch-change-rate "$MIN_RUNTIME_TOUCH_CHANGE_RATE" \
+    --signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD" \
+    --signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH" \
+    --recent-signalable-window-ms "$RECENT_SIGNALABLE_WINDOW_MS" \
+    --min-signalable-snapshots "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" \
+    --min-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY" \
+    > "$RUN_ROOT/runtime_touch_signalability_gate.stdout.json"
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$SIGNALABILITY_GATE_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+run_root = Path(sys.argv[1])
+fresh_duckdb = Path(sys.argv[2])
+fresh_report_root = Path(sys.argv[3])
+gate_path = Path(sys.argv[4])
+
+gate = json.loads(gate_path.read_text(encoding="utf-8"))
+if gate.get("status") == "ready":
+    raise SystemExit(0)
+
+summary = {
+    "can_execute_trades": False,
+    "decision_policy": "runtime_touch_ab_cycle_research_only",
+    "status": "blocked",
+    "blocker": "runtime_touch_signalability_gate",
+    "fresh_duckdb": str(fresh_duckdb),
+    "fresh_report_root": str(fresh_report_root),
+    "signalability_gate": gate,
+}
+(run_root / "runtime_touch_ab_cycle_summary.json").write_text(
+    json.dumps(summary, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+print(json.dumps(summary, indent=2, sort_keys=True))
+raise SystemExit(20)
+PY
+fi
+
 "$ROOT_DIR/scripts/rank_runtime_touch_assets.sh" \
   --duckdb "$FRESH_DUCKDB" \
   --output-dir "$RUNTIME_TOUCH_RANKING_DIR" \
@@ -243,6 +320,8 @@ fi
   --min-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY" \
   --signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD" \
   --signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH" \
+  --recent-signalable-window-ms "$RECENT_SIGNALABLE_WINDOW_MS" \
+  --freshness-ordering "$RUNTIME_TOUCH_FRESHNESS_ORDERING" \
   --limit "$UNIVERSE_LIMIT" \
   > "$RUN_ROOT/runtime_touch_ranking.stdout.json"
 
@@ -262,6 +341,8 @@ UNIVERSE_ARGS=(
   --min-runtime-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY"
   --runtime-signal-min-spread "$RUNTIME_SIGNAL_MIN_SPREAD"
   --runtime-signal-min-depth "$RUNTIME_SIGNAL_MIN_DEPTH"
+  --runtime-recent-signalable-window-ms "$RECENT_SIGNALABLE_WINDOW_MS"
+  --runtime-touch-freshness-ordering "$RUNTIME_TOUCH_FRESHNESS_ORDERING"
 )
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")

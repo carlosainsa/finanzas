@@ -3,6 +3,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import duckdb
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
@@ -889,14 +891,75 @@ def test_runtime_touch_ab_cycle_print_plan_is_research_only(tmp_path: Path) -> N
     assert plan["min_runtime_signalable_density"] == 0.05
     assert plan["runtime_signal_min_spread"] == 0.01
     assert plan["runtime_signal_min_depth"] == 1.5
+    assert plan["signalability_gate_enabled"] is True
+    assert plan["runtime_touch_freshness_ordering"] == "freshest_first"
+    assert "src.research.runtime_touch_signalability_diagnostic" in plan["delegates_to"]
     assert "src.research.execution_failure_diagnostics" in plan["delegates_to"]
     assert "src.research.runtime_touch_ab_decision" in plan["delegates_to"]
+    assert "runtime_touch_signalability_diagnostic.json" in plan["outputs"][
+        "signalability_gate"
+    ]
     assert "profile_observation_comparison.json" in plan["outputs"][
         "profile_observation_comparison"
     ]
     assert "runtime_touch_ab_decision.json" in plan["outputs"][
         "runtime_touch_ab_decision"
     ]
+
+
+def test_runtime_touch_ab_cycle_blocks_before_observation_when_gate_fails(
+    tmp_path: Path,
+) -> None:
+    fresh_duckdb = seed_runtime_touch_gate_db(tmp_path)
+    run_root = tmp_path / "runtime-touch-ab"
+    baseline = tmp_path / "reports" / "baseline"
+    baseline.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_ab_cycle.sh",
+            "--skip-fresh-capture",
+            "--fresh-duckdb",
+            str(fresh_duckdb),
+            "--fresh-report-root",
+            str(baseline),
+            "--duration-seconds",
+            "1800",
+        ],
+        cwd=ROOT_DIR,
+        env={
+            **os.environ,
+            "RUN_ROOT": str(run_root),
+            "EXECUTION_PROBE_UNIVERSE_MIN_ASSETS": "2",
+            "EXECUTION_PROBE_UNIVERSE_LIMIT": "2",
+            "EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS": "3",
+            "EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES": "1",
+            "EXECUTION_PROBE_MIN_RUNTIME_TOUCH_CHANGE_RATE": "0.10",
+            "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS": "3",
+            "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY": "0.50",
+            "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD": "0.01",
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 20
+    gate_path = (
+        run_root
+        / "runtime_touch_signalability_gate"
+        / "runtime_touch_signalability_diagnostic.json"
+    )
+    summary_path = run_root / "runtime_touch_ab_cycle_summary.json"
+    assert gate_path.exists()
+    assert summary_path.exists()
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert gate["status"] == "insufficient_signalable_assets"
+    assert gate["signalable_assets_count"] == 1
+    assert summary["status"] == "blocked"
+    assert summary["blocker"] == "runtime_touch_signalability_gate"
+    assert not (run_root / "runtime_touch_ranking").exists()
 
 
 def test_runtime_touch_ab_retry_ladder_print_plan_is_research_only(
@@ -1370,3 +1433,85 @@ def test_restricted_blocklist_observation_finalizes_decision() -> None:
     assert "src.research.run_manifest" in script
     assert "restricted_blocklist_observation" in script
     assert "--observation-root \"$OUTPUT_DIR\"" in script
+
+
+def seed_runtime_touch_gate_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "runtime_touch_gate.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table orderbook_snapshots (
+                market_id varchar,
+                asset_id varchar,
+                event_timestamp_ms bigint,
+                best_bid double,
+                best_ask double,
+                spread double,
+                bid_depth double,
+                ask_depth double
+            )
+            """
+        )
+        conn.execute(
+            """
+            create table market_metadata (
+                market_id varchar,
+                asset_id varchar,
+                outcome varchar,
+                question varchar,
+                slug varchar,
+                active boolean,
+                closed boolean,
+                archived boolean,
+                enable_order_book boolean,
+                liquidity double,
+                volume double,
+                ingested_at_ms bigint
+            )
+            """
+        )
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-good", "asset-good", 1_000, 0.40, 0.45, 0.05, 10.0, 10.0),
+                ("market-good", "asset-good", 61_000, 0.41, 0.45, 0.04, 10.0, 10.0),
+                ("market-good", "asset-good", 121_000, 0.41, 0.44, 0.03, 10.0, 10.0),
+                ("market-thin", "asset-thin", 1_000, 0.40, 0.405, 0.005, 10.0, 10.0),
+                ("market-thin", "asset-thin", 61_000, 0.401, 0.405, 0.004, 10.0, 10.0),
+                ("market-thin", "asset-thin", 121_000, 0.401, 0.404, 0.003, 10.0, 10.0),
+            ],
+        )
+        conn.executemany(
+            "insert into market_metadata values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "market-good",
+                    "asset-good",
+                    "YES",
+                    "Good question",
+                    "good-question",
+                    True,
+                    False,
+                    False,
+                    True,
+                    1000.0,
+                    2000.0,
+                    1,
+                ),
+                (
+                    "market-thin",
+                    "asset-thin",
+                    "YES",
+                    "Thin question",
+                    "thin-question",
+                    True,
+                    False,
+                    False,
+                    True,
+                    1000.0,
+                    2000.0,
+                    1,
+                ),
+            ],
+        )
+    return db_path

@@ -195,6 +195,10 @@ def test_execution_probe_universe_selection_supports_runtime_touch_source(
     selected = cast(list[dict[str, Any]], report["selected"])
     assert selected[0]["runtime_signalable_snapshots"] == 3
     assert selected[0]["runtime_signalable_density"] == 1.0
+    assert selected[0]["runtime_current_is_signalable"] is True
+    assert selected[0]["runtime_last_signalable_timestamp_ms"] == 121_000
+    assert selected[0]["runtime_recent_signalable_density"] == 1.0
+    assert selected[0]["runtime_current_spread"] == 0.03
     runtime_filter = cast(dict[str, Any], report["runtime_touch_filter"])
     assert runtime_filter["enabled"] is True
     assert runtime_filter["selected_assets"] == 1
@@ -258,6 +262,8 @@ def test_execution_probe_universe_selection_runtime_hybrid_backfills_signalable_
     assert selected[0]["selection_tier"] == "primary"
     assert selected[1]["selection_tier"] == "runtime_hybrid_fallback"
     assert selected[1]["fallback_reason"] == RUNTIME_HYBRID_FALLBACK_REASON
+    assert selected[1]["runtime_current_is_signalable"] is True
+    assert selected[1]["runtime_last_signalable_timestamp_ms"] == 121_000
     fallback = cast(dict[str, Any], report["fallback"])
     assert fallback["used"] is True
     assert RUNTIME_HYBRID_FALLBACK_REASON in fallback["fallback_reasons"]

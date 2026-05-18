@@ -27,6 +27,7 @@ class RuntimeTouchSignalabilityDiagnosticConfig:
     min_spread: float = 0.000625
     signal_min_spread: float = 0.03
     signal_min_depth: float = 1.5
+    recent_signalable_window_ms: int = 180_000
     min_signalable_snapshots: int = 3
     min_signalable_density: float = 0.05
     max_stale_rate: float = 0.10
@@ -48,6 +49,8 @@ class RuntimeTouchSignalabilityDiagnosticConfig:
             raise ValueError("signal_min_spread must be non-negative")
         if self.signal_min_depth < 0:
             raise ValueError("signal_min_depth must be non-negative")
+        if self.recent_signalable_window_ms <= 0:
+            raise ValueError("recent_signalable_window_ms must be positive")
         if self.min_signalable_snapshots < 0:
             raise ValueError("min_signalable_snapshots must be non-negative")
         if not 0 <= self.min_signalable_density <= 1:
@@ -81,6 +84,8 @@ def create_runtime_touch_signalability_diagnostic(
             min_signalable_density=config.min_signalable_density,
             signal_min_spread=config.signal_min_spread,
             signal_min_depth=config.signal_min_depth,
+            recent_signalable_window_ms=config.recent_signalable_window_ms,
+            freshness_ordering="freshest_first",
             max_stale_rate=config.max_stale_rate,
             limit=config.limit,
         ),
@@ -102,6 +107,18 @@ def create_runtime_touch_signalability_diagnostic(
                     touch_change_rate,
                     avg_spread,
                     avg_total_depth,
+                    current_spread,
+                    current_bid_depth,
+                    current_ask_depth,
+                    current_total_depth,
+                    current_is_signalable,
+                    book_age_ms,
+                    last_signalable_timestamp_ms,
+                    last_signalable_age_ms,
+                    recent_snapshots,
+                    recent_signalable_snapshots,
+                    recent_signalable_density,
+                    freshness_score,
                     signalable_snapshots,
                     signalable_density,
                     stale_rate,
@@ -156,6 +173,9 @@ def create_runtime_touch_signalability_diagnostic(
             from diagnostic
             order by
                 signalable_for_ab desc,
+                current_is_signalable desc,
+                last_signalable_timestamp_ms desc nulls last,
+                recent_signalable_density desc,
                 signalable_density desc,
                 signalable_snapshots desc,
                 touch_change_rate desc,
@@ -216,6 +236,7 @@ def main() -> int:
     parser.add_argument("--min-touch-change-rate", type=float, default=0.01)
     parser.add_argument("--signal-min-spread", type=float, default=0.03)
     parser.add_argument("--signal-min-depth", type=float, default=1.5)
+    parser.add_argument("--recent-signalable-window-ms", type=int, default=180_000)
     parser.add_argument("--min-signalable-snapshots", type=int, default=3)
     parser.add_argument("--min-signalable-density", type=float, default=0.05)
     args = parser.parse_args()
@@ -230,6 +251,7 @@ def main() -> int:
             min_touch_change_rate=args.min_touch_change_rate,
             signal_min_spread=args.signal_min_spread,
             signal_min_depth=args.signal_min_depth,
+            recent_signalable_window_ms=args.recent_signalable_window_ms,
             min_signalable_snapshots=args.min_signalable_snapshots,
             min_signalable_density=args.min_signalable_density,
         ),
