@@ -14,10 +14,11 @@ LADDER_OUTPUT_DIR="${LADDER_OUTPUT_DIR:-${RUN_ROOT}/runtime_touch_ab_retry_ladde
 PRINT_PLAN=0
 SKIP_FRESH_CAPTURE=0
 RUN_SELECTED_AB=0
+ALLOW_GATE_BYPASS="${RUNTIME_TOUCH_AB_ALLOW_GATE_BYPASS:-0}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_runtime_touch_ab_auto_route.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--fresh-capture-seconds N] [--duration-seconds N] [--run-selected-ab] [--print-plan]
+Usage: scripts/run_runtime_touch_ab_auto_route.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--fresh-capture-seconds N] [--duration-seconds N] [--run-selected-ab] [--allow-gate-bypass] [--print-plan]
 
 Research-only route:
 fresh runtime capture -> runtime-touch A/B retry ladder -> optional selected A/B.
@@ -56,6 +57,10 @@ while [[ $# -gt 0 ]]; do
       RUN_SELECTED_AB=1
       shift
       ;;
+    --allow-gate-bypass)
+      ALLOW_GATE_BYPASS=1
+      shift
+      ;;
     --print-plan)
       PRINT_PLAN=1
       shift
@@ -84,13 +89,17 @@ if [[ "${EXECUTION_MODE:-dry_run}" != "dry_run" ]]; then
   echo "Refusing to run: EXECUTION_MODE must be dry_run or unset." >&2
   exit 64
 fi
+if [[ "$ALLOW_GATE_BYPASS" != "0" && "$ALLOW_GATE_BYPASS" != "1" ]]; then
+  echo "RUNTIME_TOUCH_AB_ALLOW_GATE_BYPASS must be 0 or 1" >&2
+  exit 64
+fi
 if [[ "$PRINT_PLAN" != "1" && "$SKIP_FRESH_CAPTURE" == "1" && ! -f "$FRESH_DUCKDB" ]]; then
   echo "--skip-fresh-capture requires --fresh-duckdb to exist" >&2
   exit 64
 fi
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$LADDER_OUTPUT_DIR" "$SKIP_FRESH_CAPTURE" "$RUN_SELECTED_AB" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$LADDER_OUTPUT_DIR" "$SKIP_FRESH_CAPTURE" "$RUN_SELECTED_AB" "$ALLOW_GATE_BYPASS" <<'PY'
 import json
 import sys
 
@@ -103,6 +112,7 @@ import sys
     ladder_output_dir,
     skip_fresh_capture,
     run_selected_ab,
+    allow_gate_bypass,
 ) = sys.argv[1:]
 print(json.dumps({
     "script": "scripts/run_runtime_touch_ab_auto_route.sh",
@@ -110,6 +120,8 @@ print(json.dumps({
     "execution_mode": "dry_run",
     "skip_fresh_capture": skip_fresh_capture == "1",
     "run_selected_ab": run_selected_ab == "1",
+    "strict_signalability_gate_required": allow_gate_bypass != "1",
+    "allow_gate_bypass": allow_gate_bypass == "1",
     "fresh_capture_seconds": int(fresh_capture_seconds),
     "observation_seconds": int(observation_seconds),
     "delegates_to": [
@@ -122,6 +134,8 @@ print(json.dumps({
         "fresh_duckdb": fresh_duckdb,
         "fresh_report_root": fresh_report_root,
         "runtime_touch_ab_retry_ladder": f"{ladder_output_dir}/runtime_touch_ab_retry_ladder.json",
+        "selected_ab_cycle_summary": f"{run_root}/runtime_touch_ab_cycle_summary.json",
+        "selected_ab_root_cause": f"{run_root}/runtime_touch_ab_root_cause.json",
     },
 }, indent=2, sort_keys=True))
 PY
@@ -173,6 +187,29 @@ PY
 if [[ -z "$NEXT_COMMAND" ]]; then
   echo "No selected A/B command; inspect $LADDER_OUTPUT_DIR/runtime_touch_ab_retry_ladder.json" >&2
   exit 20
+fi
+
+if [[ "$ALLOW_GATE_BYPASS" != "1" ]]; then
+  if ! python3 - "$LADDER_OUTPUT_DIR/runtime_touch_ab_retry_ladder.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+next_run = report.get("next_run") if isinstance(report, dict) else None
+if not isinstance(next_run, dict):
+    raise SystemExit("missing next_run in retry ladder report")
+args = [str(item) for item in next_run.get("args", []) if isinstance(item, str)]
+env = next_run.get("env") if isinstance(next_run.get("env"), dict) else {}
+if "--runtime-touch-hybrid-backfill" in args or "--skip-signalability-gate" in args:
+    raise SystemExit("selected A/B command bypasses signalability gate")
+if str(env.get("EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL") or "0") == "1":
+    raise SystemExit("selected A/B env bypasses signalability gate")
+PY
+  then
+    echo "Selected A/B command bypasses the strict signalability gate; rerun with --allow-gate-bypass only for explicit research diagnostics." >&2
+    exit 20
+  fi
 fi
 
 bash -lc "$NEXT_COMMAND"

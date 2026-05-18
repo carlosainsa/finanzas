@@ -167,6 +167,7 @@ UNIVERSE_SELECTION_PATH="$RUN_ROOT/execution_probe_universe_selection/execution_
 RUNTIME_TOUCH_RANKING_DIR="$RUN_ROOT/runtime_touch_ranking"
 SIGNALABILITY_GATE_DIR="$RUN_ROOT/runtime_touch_signalability_gate"
 SIGNALABILITY_GATE_PATH="$SIGNALABILITY_GATE_DIR/runtime_touch_signalability_diagnostic.json"
+ROOT_CAUSE_PATH="$RUN_ROOT/runtime_touch_ab_root_cause.json"
 PROFILE_A_TIMESTAMP="${CYCLE_TIMESTAMP}-${PROFILE_A}"
 PROFILE_B_TIMESTAMP="${CYCLE_TIMESTAMP}-${PROFILE_B}"
 PROFILE_A_DATA_LAKE_ROOT="${ROOT_DIR}/.tmp/real-dry-run-data-lake/${PROFILE_A_TIMESTAMP}"
@@ -175,7 +176,7 @@ PROFILE_A_REPORT_ROOT="${PROFILE_A_DATA_LAKE_ROOT}/reports/${PROFILE_A_TIMESTAMP
 PROFILE_B_REPORT_ROOT="${PROFILE_B_DATA_LAKE_ROOT}/reports/${PROFILE_B_TIMESTAMP}"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$SIGNALABILITY_GATE_PATH" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$SKIP_SIGNALABILITY_GATE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" "$RUNTIME_TOUCH_FRESHNESS_ORDERING" "$RECENT_SIGNALABLE_WINDOW_MS" "$RUNTIME_TOUCH_HYBRID_BACKFILL" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$SIGNALABILITY_GATE_PATH" "$ROOT_CAUSE_PATH" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$SKIP_SIGNALABILITY_GATE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" "$RUNTIME_TOUCH_FRESHNESS_ORDERING" "$RECENT_SIGNALABLE_WINDOW_MS" "$RUNTIME_TOUCH_HYBRID_BACKFILL" <<'PY'
 import json
 import sys
 
@@ -192,6 +193,7 @@ import sys
     universe_selection_path,
     runtime_touch_ranking_dir,
     signalability_gate_path,
+    root_cause_path,
     comparison_roots_csv,
     skip_fresh_capture,
     skip_signalability_gate,
@@ -251,6 +253,7 @@ print(json.dumps({
         "profile_observation_comparison": f"{run_root}/profile_observation_comparison.json",
         "execution_probe_touch_comparison": f"{run_root}/execution_probe_touch_comparison.json",
         "runtime_touch_ab_decision": f"{run_root}/runtime_touch_ab_decision.json",
+        "runtime_touch_ab_root_cause": root_cause_path,
         "cycle_summary": f"{run_root}/runtime_touch_ab_cycle_summary.json",
     },
 }, indent=2, sort_keys=True))
@@ -302,6 +305,7 @@ if [[ "$SKIP_SIGNALABILITY_GATE" != "1" && "$RUNTIME_TOUCH_HYBRID_BACKFILL" != "
     --signalability-gate-failure "$SIGNALABILITY_GATE_PATH" \
     --output "$RUN_ROOT/runtime_touch_ab_decision.json" \
     > "$RUN_ROOT/runtime_touch_ab_decision.stdout.json"
+  set +e
   python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$SIGNALABILITY_GATE_PATH" <<'PY'
 import json
 import sys
@@ -343,6 +347,16 @@ summary = {
 print(json.dumps(summary, indent=2, sort_keys=True))
 raise SystemExit(20)
 PY
+  gate_status=$?
+  set -e
+  if [[ "$gate_status" != "0" ]]; then
+    PYTHONPATH=python-service python3 -m src.research.runtime_touch_ab_root_cause \
+      --cycle-summary "$RUN_ROOT/runtime_touch_ab_cycle_summary.json" \
+      --runtime-touch-ab-decision "$RUN_ROOT/runtime_touch_ab_decision.json" \
+      --output "$ROOT_CAUSE_PATH" \
+      > "$RUN_ROOT/runtime_touch_ab_root_cause.stdout.json"
+    exit "$gate_status"
+  fi
 fi
 
 "$ROOT_DIR/scripts/rank_runtime_touch_assets.sh" \
@@ -435,6 +449,11 @@ run_observation() {
         --output "$RUN_ROOT/runtime_touch_ab_decision.json" \
         > "$RUN_ROOT/runtime_touch_ab_decision.stdout.json"
       write_failure_summary "$profile" "$status" "$report_root" "$preflight_path"
+      PYTHONPATH=python-service python3 -m src.research.runtime_touch_ab_root_cause \
+        --cycle-summary "$RUN_ROOT/runtime_touch_ab_cycle_summary.json" \
+        --runtime-touch-ab-decision "$RUN_ROOT/runtime_touch_ab_decision.json" \
+        --output "$ROOT_CAUSE_PATH" \
+        > "$RUN_ROOT/runtime_touch_ab_root_cause.stdout.json"
     fi
     echo "$profile observation failed with status $status" >&2
     exit "$status"
@@ -574,3 +593,11 @@ summary = {
 )
 print(json.dumps(summary, indent=2, sort_keys=True))
 PY
+
+PYTHONPATH=python-service python3 -m src.research.runtime_touch_ab_root_cause \
+  --cycle-summary "$RUN_ROOT/runtime_touch_ab_cycle_summary.json" \
+  --profile-observation-comparison "$RUN_ROOT/profile_observation_comparison.json" \
+  --touch-comparison "$RUN_ROOT/execution_probe_touch_comparison.json" \
+  --runtime-touch-ab-decision "$RUN_ROOT/runtime_touch_ab_decision.json" \
+  --output "$ROOT_CAUSE_PATH" \
+  > "$RUN_ROOT/runtime_touch_ab_root_cause.stdout.json"

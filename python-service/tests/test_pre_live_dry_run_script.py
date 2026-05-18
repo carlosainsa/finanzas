@@ -906,6 +906,9 @@ def test_runtime_touch_ab_cycle_print_plan_is_research_only(tmp_path: Path) -> N
     assert "runtime_touch_ab_decision.json" in plan["outputs"][
         "runtime_touch_ab_decision"
     ]
+    assert "runtime_touch_ab_root_cause.json" in plan["outputs"][
+        "runtime_touch_ab_root_cause"
+    ]
 
 
 def test_runtime_touch_ab_cycle_blocks_before_observation_when_gate_fails(
@@ -953,15 +956,19 @@ def test_runtime_touch_ab_cycle_blocks_before_observation_when_gate_fails(
     )
     summary_path = run_root / "runtime_touch_ab_cycle_summary.json"
     decision_path = run_root / "runtime_touch_ab_decision.json"
+    root_cause_path = run_root / "runtime_touch_ab_root_cause.json"
     assert gate_path.exists()
     assert summary_path.exists()
     assert decision_path.exists()
+    assert root_cause_path.exists()
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    root_cause = json.loads(root_cause_path.read_text(encoding="utf-8"))
     assert gate["status"] == "insufficient_signalable_assets"
     assert gate["signalable_assets_count"] == 1
     assert decision["recommendation"] == "RERANK_RUNTIME_TOUCH_UNIVERSE"
+    assert root_cause["root_cause_category"] == "NO_SIGNALABLE_ASSETS"
     assert summary["status"] == "blocked"
     assert summary["blocker"] == "runtime_touch_signalability_gate"
     assert summary["runtime_touch_ab_decision"]["recommendation"] == (
@@ -1047,6 +1054,8 @@ def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
     assert plan["can_execute_trades"] is False
     assert plan["execution_mode"] == "dry_run"
     assert plan["skip_fresh_capture"] is True
+    assert plan["strict_signalability_gate_required"] is True
+    assert plan["allow_gate_bypass"] is False
     assert plan["fresh_capture_seconds"] == 3600
     assert plan["observation_seconds"] == 1800
     assert "runtime_touch_ab_retry_ladder" in plan["outputs"]
@@ -1056,12 +1065,17 @@ def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
     assert "runtime_touch_ab_retry_ladder.json" in plan["outputs"][
         "runtime_touch_ab_retry_ladder"
     ]
+    assert "runtime_touch_ab_root_cause.json" in plan["outputs"][
+        "selected_ab_root_cause"
+    ]
     script = (ROOT_DIR / "scripts" / "run_runtime_touch_ab_auto_route.sh").read_text(
         encoding="utf-8"
     )
     assert 'fresh_status=$?' in script
     assert '"$fresh_status" != "0" && "$fresh_status" != "20"' in script
     assert '--fresh-capture-seconds "$FRESH_CAPTURE_SECONDS"' in script
+    assert "selected A/B command bypasses signalability gate" in script
+    assert "--allow-gate-bypass" in script
 
 
 def test_runtime_touch_selection_probe_print_plan_is_research_only(
