@@ -199,6 +199,10 @@ report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 next_run = report.get("next_run") if isinstance(report, dict) else None
 if not isinstance(next_run, dict):
     raise SystemExit("missing next_run in retry ladder report")
+if next_run.get("script") != "scripts/run_runtime_touch_ab_cycle.sh":
+    raise SystemExit("selected A/B script is not the runtime touch A/B cycle")
+if next_run.get("selected_attempt_label") != "strict_signalable":
+    raise SystemExit("selected A/B attempt is not strict_signalable")
 args = [str(item) for item in next_run.get("args", []) if isinstance(item, str)]
 env = next_run.get("env") if isinstance(next_run.get("env"), dict) else {}
 if "--runtime-touch-hybrid-backfill" in args or "--skip-signalability-gate" in args:

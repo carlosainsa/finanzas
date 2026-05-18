@@ -55,6 +55,36 @@ def test_retry_ladder_selects_first_relaxed_signalable_attempt(
     assert (tmp_path / "ladder" / "runtime_touch_ab_retry_ladder.json").exists()
 
 
+def test_retry_ladder_selects_strict_signalable_attempt(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_retry_ladder_db(
+        tmp_path,
+        include_relaxed_asset=False,
+        include_strict_pair=True,
+    )
+
+    report = create_runtime_touch_ab_retry_ladder(
+        db_path,
+        tmp_path / "ladder",
+        None,
+        RuntimeTouchAbRetryLadderConfig(
+            observation_seconds=1800,
+            min_runtime_touch_snapshots=3,
+        ),
+    )
+
+    selected = cast(dict[str, Any], report["selected_attempt"])
+    assert selected["label"] == "strict_signalable"
+    assert selected["market_asset_ids_count"] == 2
+    next_run = cast(dict[str, Any], report["next_run"])
+    assert next_run["selected_attempt_label"] == "strict_signalable"
+    assert "--runtime-touch-hybrid-backfill" not in next_run["args"]
+    env = cast(dict[str, Any], next_run["env"])
+    assert env["EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY"] == 0.05
+    assert env["EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS"] == 3
+
+
 def test_retry_ladder_keeps_live_blocked_when_no_attempt_is_ready(
     tmp_path: Path,
 ) -> None:
@@ -154,6 +184,7 @@ def seed_retry_ladder_db(
     *,
     include_relaxed_asset: bool,
     include_hybrid_only_asset: bool = False,
+    include_strict_pair: bool = False,
 ) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:
@@ -210,6 +241,57 @@ def seed_retry_ladder_db(
                 1,
             )
         ]
+        if include_strict_pair:
+            rows.extend(
+                [
+                    (
+                        "market-strong-2",
+                        "asset-strong-2",
+                        1_000,
+                        0.50,
+                        0.54,
+                        0.04,
+                        10.0,
+                        10.0,
+                    ),
+                    (
+                        "market-strong-2",
+                        "asset-strong-2",
+                        61_000,
+                        0.50,
+                        0.55,
+                        0.05,
+                        10.0,
+                        10.0,
+                    ),
+                    (
+                        "market-strong-2",
+                        "asset-strong-2",
+                        121_000,
+                        0.51,
+                        0.55,
+                        0.04,
+                        10.0,
+                        10.0,
+                    ),
+                ]
+            )
+            metadata.append(
+                (
+                    "market-strong-2",
+                    "asset-strong-2",
+                    "YES",
+                    "Second strong runtime question",
+                    "second-strong-runtime-question",
+                    True,
+                    False,
+                    False,
+                    True,
+                    1200.0,
+                    2200.0,
+                    1,
+                )
+            )
         if include_relaxed_asset:
             rows.extend(
                 [

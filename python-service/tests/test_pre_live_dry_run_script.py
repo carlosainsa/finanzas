@@ -1074,6 +1074,8 @@ def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
     assert 'fresh_status=$?' in script
     assert '"$fresh_status" != "0" && "$fresh_status" != "20"' in script
     assert '--fresh-capture-seconds "$FRESH_CAPTURE_SECONDS"' in script
+    assert "selected A/B attempt is not strict_signalable" in script
+    assert 'next_run.get("selected_attempt_label") != "strict_signalable"' in script
     assert "selected A/B command bypasses signalability gate" in script
     assert "--allow-gate-bypass" in script
 
