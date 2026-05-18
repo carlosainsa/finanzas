@@ -875,6 +875,26 @@ Discovery loop control upgrade:
 - A/B continuation contract: `runtime_touch_discovery_batch_comparison_v1` now emits a structured `recommended_next_run` only for `READY_FOR_AB_RETRY`, targeting `scripts/run_runtime_touch_ab_retry_ladder.sh` in `dry_run`.
 - Live status: blocked. The recommended command is research-only and still requires the retry ladder to select a valid A/B cycle.
 
+Large-DuckDB fillability validation:
+
+- Artifact root: `.tmp/operational/fillability-large-bounded-20260518T014732Z`
+- DuckDB source: `.tmp/real-dry-run-data-lake/runtime-touch-ab-auto-route-20260517T180537Z-fresh/research.duckdb`
+- Bounded input: `5000` candidate signals, `7221` candidate snapshots.
+- Fillability result: `20` ranked assets, `20` selected assets.
+- Family memory result: `20` observations, `10` families, `10` exploitable families.
+
+Discovery loop real run:
+
+- Run root: `.tmp/operational/runtime-touch-discovery-loop-20260518T014847Z`
+- Processed batches: `batch-01`
+- Batch-01 data lake: `4713` signals, `9426` execution reports, `4700` orderbook snapshots.
+- Selection result: `0` signalable assets, `1` candidate-expansion asset, `1` opportunity-window asset.
+- Route decision: `EXPAND_MARKET_DISCOVERY`
+- Comparator status: `no_ready_batch`
+- `recommended_next_run`: `null`
+- Retry ladder: not run, because the comparator did not emit a research-only continuation command.
+- Live status: blocked.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal

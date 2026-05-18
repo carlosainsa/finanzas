@@ -42,6 +42,25 @@ def test_market_fillability_score_config_rejects_invalid_limit() -> None:
         raise AssertionError("expected invalid limit to fail")
 
 
+def test_market_fillability_score_bounds_candidate_rows(tmp_path: Path) -> None:
+    db_path = seed_fillability_db(tmp_path)
+
+    report = create_market_fillability_score_report(
+        db_path,
+        tmp_path / "fillability",
+        MarketFillabilityScoreConfig(
+            min_signals=1,
+            limit=10,
+            max_candidate_signals=1,
+            max_candidate_snapshots=3,
+        ),
+    )
+
+    assert report["counts"]["candidate_signals"] == 1
+    assert report["counts"]["candidate_snapshots"] == 3
+    assert report["counts"]["ranked_assets"] == 1
+
+
 def seed_fillability_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:

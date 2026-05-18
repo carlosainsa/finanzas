@@ -1052,6 +1052,8 @@ def test_runtime_touch_discovery_loop_print_plan_is_research_only(
             "4",
             "--batch-capture-seconds",
             "1800",
+            "--max-batches",
+            "1",
             "--market-fillability-score",
             str(tmp_path / "fillability.json"),
             "--market-family-memory",
@@ -1073,6 +1075,7 @@ def test_runtime_touch_discovery_loop_print_plan_is_research_only(
     assert plan["discovery_limit"] == 10
     assert plan["batch_size"] == 4
     assert plan["batch_capture_seconds"] == 1800
+    assert plan["max_batches"] == 1
     assert plan["market_fillability_score"].endswith("fillability.json")
     assert plan["market_family_memory"].endswith("family-memory.json")
     assert plan["exploration_rate"] == 0.25

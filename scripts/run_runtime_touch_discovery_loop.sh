@@ -11,6 +11,7 @@ DISCOVERY_LIMIT="${DISCOVERY_LIMIT:-50}"
 BATCH_SIZE="${DISCOVERY_BATCH_SIZE:-20}"
 BATCH_CAPTURE_SECONDS="${BATCH_CAPTURE_SECONDS:-1800}"
 MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
+MAX_BATCHES="${DISCOVERY_MAX_BATCHES:-0}"
 MARKET_FILLABILITY_SCORE_PATH="${MARKET_FILLABILITY_SCORE_PATH:-}"
 MARKET_FAMILY_MEMORY_PATH="${MARKET_FAMILY_MEMORY_PATH:-}"
 DISCOVERY_EXPLORATION_RATE="${DISCOVERY_EXPLORATION_RATE:-0.20}"
@@ -19,7 +20,7 @@ PRINT_PLAN=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_runtime_touch_discovery_loop.sh [--print-plan] [--discovery-limit N] [--batch-size N] [--batch-capture-seconds N] [--no-early-stop]
+Usage: scripts/run_runtime_touch_discovery_loop.sh [--print-plan] [--discovery-limit N] [--batch-size N] [--batch-capture-seconds N] [--max-batches N] [--no-early-stop]
 
 Runs the research-only discovery -> scout -> selection loop:
 Gamma discovery batches -> per-batch runtime-touch selection probe -> batch comparison.
@@ -54,6 +55,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --min-assets)
       MIN_ASSETS="$2"
+      shift 2
+      ;;
+    --max-batches)
+      MAX_BATCHES="$2"
       shift 2
       ;;
     --market-fillability-score)
@@ -104,6 +109,10 @@ if ! [[ "$MIN_ASSETS" =~ ^[0-9]+$ ]] || (( MIN_ASSETS < 2 )); then
   echo "min assets must be an integer >= 2" >&2
   exit 64
 fi
+if ! [[ "$MAX_BATCHES" =~ ^[0-9]+$ ]]; then
+  echo "max batches must be a non-negative integer" >&2
+  exit 64
+fi
 if [[ "${EXECUTION_MODE:-dry_run}" != "dry_run" ]]; then
   echo "Refusing to run: EXECUTION_MODE must be dry_run or unset." >&2
   exit 64
@@ -125,7 +134,7 @@ EARLY_STOP_DECISION_JSON="${RUN_ROOT}/runtime_touch_early_stop_decision.json"
 PROCESSED_BATCHES_FILE="${RUN_ROOT}/processed_discovery_batches.txt"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DISCOVERY_LIMIT" "$BATCH_SIZE" "$BATCH_CAPTURE_SECONDS" "$MIN_ASSETS" "$MARKET_FILLABILITY_SCORE_PATH" "$MARKET_FAMILY_MEMORY_PATH" "$DISCOVERY_EXPLORATION_RATE" "$EARLY_STOP_ON_READY" <<'PY'
+  python3 - "$RUN_ROOT" "$DISCOVERY_OUTPUT_DIR" "$BATCH_RESULTS_ROOT" "$COMPARISON_OUTPUT_DIR" "$DISCOVERY_LIMIT" "$BATCH_SIZE" "$BATCH_CAPTURE_SECONDS" "$MIN_ASSETS" "$MAX_BATCHES" "$MARKET_FILLABILITY_SCORE_PATH" "$MARKET_FAMILY_MEMORY_PATH" "$DISCOVERY_EXPLORATION_RATE" "$EARLY_STOP_ON_READY" <<'PY'
 import json
 import sys
 
@@ -138,6 +147,7 @@ import sys
     batch_size,
     batch_capture_seconds,
     min_assets,
+    max_batches,
     market_fillability_score,
     market_family_memory,
     exploration_rate,
@@ -151,6 +161,7 @@ print(json.dumps({
     "batch_size": int(batch_size),
     "batch_capture_seconds": int(batch_capture_seconds),
     "min_assets": int(min_assets),
+    "max_batches": int(max_batches),
     "market_fillability_score": market_fillability_score or None,
     "market_family_memory": market_family_memory or None,
     "exploration_rate": float(exploration_rate),
@@ -203,9 +214,13 @@ PYTHONPATH=python-service python3 -m src.research.runtime_touch_discovery_batche
   "${DISCOVERY_ARGS[@]}" \
   > "$RUN_ROOT/runtime_touch_discovery_batches.stdout.json"
 
+processed_batches=0
 while IFS=$'\t' read -r batch_id asset_ids_csv; do
   if [[ -z "$batch_id" || -z "$asset_ids_csv" ]]; then
     continue
+  fi
+  if (( MAX_BATCHES > 0 && processed_batches >= MAX_BATCHES )); then
+    break
   fi
   MARKET_ASSET_IDS="$asset_ids_csv" \
     PROBE_TIMESTAMP="${LOOP_TIMESTAMP}-${batch_id}" \
@@ -214,6 +229,7 @@ while IFS=$'\t' read -r batch_id asset_ids_csv; do
       --fresh-capture-seconds "$BATCH_CAPTURE_SECONDS" \
       --min-assets "$MIN_ASSETS"
   printf '%s\n' "$batch_id" >> "$PROCESSED_BATCHES_FILE"
+  processed_batches=$((processed_batches + 1))
   PYTHONPATH=python-service python3 -m src.research.runtime_touch_discovery_loop_control \
     --batch-root "$BATCH_RESULTS_ROOT/$batch_id" \
     --output "$EARLY_STOP_DECISION_JSON" \
@@ -255,7 +271,7 @@ PYTHONPATH=python-service python3 -m src.research.runtime_touch_discovery_batch_
   --min-assets "$MIN_ASSETS" \
   > "$RUN_ROOT/runtime_touch_discovery_batch_comparison.stdout.json"
 
-python3 - "$RUN_ROOT" "$DISCOVERY_BATCHES_JSON" "$COMPARISON_JSON" "$EARLY_STOP_DECISION_JSON" "$PROCESSED_BATCHES_FILE" "$EARLY_STOP_ON_READY" <<'PY'
+python3 - "$RUN_ROOT" "$DISCOVERY_BATCHES_JSON" "$COMPARISON_JSON" "$EARLY_STOP_DECISION_JSON" "$PROCESSED_BATCHES_FILE" "$EARLY_STOP_ON_READY" "$MAX_BATCHES" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -266,6 +282,7 @@ comparison_path = Path(sys.argv[3])
 early_stop_path = Path(sys.argv[4])
 processed_path = Path(sys.argv[5])
 early_stop_enabled = sys.argv[6] == "1"
+max_batches = int(sys.argv[7])
 
 def read_json(path: Path) -> dict[str, object]:
     try:
@@ -293,6 +310,8 @@ summary = {
     "decision_policy": "runtime_touch_discovery_loop_research_only",
     "early_stop_enabled": early_stop_enabled,
     "early_stop_triggered": early_stop_enabled and early_stop.get("should_stop") is True,
+    "max_batches": max_batches,
+    "max_batches_reached": max_batches > 0 and len(processed) >= max_batches,
     "early_stop_decision": early_stop,
     "processed_batch_ids": processed,
     "skipped_batch_ids": [batch_id for batch_id in all_batch_ids if batch_id not in set(processed)],
