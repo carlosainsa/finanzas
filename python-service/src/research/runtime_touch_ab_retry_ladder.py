@@ -37,6 +37,8 @@ class RuntimeTouchAbRetryLadderConfig:
     min_runtime_active_minutes: int = 2
     runtime_signal_min_spread: float = 0.03
     runtime_signal_min_depth: float = 1.5
+    runtime_recent_signalable_window_ms: int = 180_000
+    runtime_touch_freshness_ordering: str = "freshest_first"
     min_avg_opportunity_spread: float | None = 0.000625
     max_avg_opportunity_spread: float | None = None
     attempts: tuple[RuntimeTouchAbRetryAttempt, ...] = (
@@ -97,6 +99,15 @@ class RuntimeTouchAbRetryLadderConfig:
             raise ValueError("min_runtime_touch_snapshots must be positive")
         if self.min_runtime_active_minutes <= 0:
             raise ValueError("min_runtime_active_minutes must be positive")
+        if self.runtime_recent_signalable_window_ms <= 0:
+            raise ValueError("runtime_recent_signalable_window_ms must be positive")
+        if self.runtime_touch_freshness_ordering not in {
+            "score_first",
+            "freshest_first",
+        }:
+            raise ValueError(
+                "runtime_touch_freshness_ordering must be score_first or freshest_first"
+            )
         if not self.attempts:
             raise ValueError("attempts cannot be empty")
         for attempt in self.attempts:
@@ -151,6 +162,12 @@ def create_runtime_touch_ab_retry_ladder(
                 min_runtime_signalable_density=attempt.min_runtime_signalable_density,
                 runtime_signal_min_spread=config.runtime_signal_min_spread,
                 runtime_signal_min_depth=config.runtime_signal_min_depth,
+                runtime_recent_signalable_window_ms=(
+                    config.runtime_recent_signalable_window_ms
+                ),
+                runtime_touch_freshness_ordering=(
+                    config.runtime_touch_freshness_ordering
+                ),
                 runtime_touch_hybrid_backfill=attempt.runtime_touch_hybrid_backfill,
                 runtime_hybrid_min_signalable_snapshots=(
                     config.runtime_hybrid_min_signalable_snapshots
@@ -239,7 +256,28 @@ def build_next_command(
         ],
         "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD": config.runtime_signal_min_spread,
         "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_DEPTH": config.runtime_signal_min_depth,
+        "EXECUTION_PROBE_RECENT_SIGNALABLE_WINDOW_MS": (
+            config.runtime_recent_signalable_window_ms
+        ),
+        "EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING": (
+            config.runtime_touch_freshness_ordering
+        ),
     }
+    if attempt_config["runtime_touch_hybrid_backfill"]:
+        env.update(
+            {
+                "EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL": "1",
+                "EXECUTION_PROBE_RUNTIME_HYBRID_MIN_SIGNALABLE_SNAPSHOTS": (
+                    config.runtime_hybrid_min_signalable_snapshots
+                ),
+                "EXECUTION_PROBE_RUNTIME_HYBRID_MIN_SIGNALABLE_DENSITY": (
+                    config.runtime_hybrid_min_signalable_density
+                ),
+                "EXECUTION_PROBE_RUNTIME_HYBRID_MIN_LIQUIDITY": (
+                    config.runtime_hybrid_min_liquidity
+                ),
+            }
+        )
     command = [
         "scripts/run_runtime_touch_ab_cycle.sh",
         "--skip-fresh-capture",
@@ -255,9 +293,13 @@ def build_next_command(
         str(attempt_config["universe_limit"]),
         "--min-assets",
         str(config.min_assets),
+        "--freshness-ordering",
+        config.runtime_touch_freshness_ordering,
     ]
     if fresh_report_root is not None:
         command.extend(["--fresh-report-root", str(fresh_report_root)])
+    if attempt_config["runtime_touch_hybrid_backfill"]:
+        command.append("--runtime-touch-hybrid-backfill")
     env_prefix = " ".join(
         f"{key}={shlex.quote(str(value))}" for key, value in env.items()
     )
@@ -271,19 +313,41 @@ def build_next_run(
     config: RuntimeTouchAbRetryLadderConfig,
 ) -> dict[str, Any]:
     attempt_config = selected_attempt["config"]
+    env = {
+        "EXECUTION_PROBE_UNIVERSE_LIMIT": attempt_config["universe_limit"],
+        "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY": attempt_config[
+            "min_runtime_signalable_density"
+        ],
+        "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS": attempt_config[
+            "min_runtime_signalable_snapshots"
+        ],
+        "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD": config.runtime_signal_min_spread,
+        "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_DEPTH": config.runtime_signal_min_depth,
+        "EXECUTION_PROBE_RECENT_SIGNALABLE_WINDOW_MS": (
+            config.runtime_recent_signalable_window_ms
+        ),
+        "EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING": (
+            config.runtime_touch_freshness_ordering
+        ),
+    }
+    if attempt_config["runtime_touch_hybrid_backfill"]:
+        env.update(
+            {
+                "EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL": "1",
+                "EXECUTION_PROBE_RUNTIME_HYBRID_MIN_SIGNALABLE_SNAPSHOTS": (
+                    config.runtime_hybrid_min_signalable_snapshots
+                ),
+                "EXECUTION_PROBE_RUNTIME_HYBRID_MIN_SIGNALABLE_DENSITY": (
+                    config.runtime_hybrid_min_signalable_density
+                ),
+                "EXECUTION_PROBE_RUNTIME_HYBRID_MIN_LIQUIDITY": (
+                    config.runtime_hybrid_min_liquidity
+                ),
+            }
+        )
     return {
         "script": "scripts/run_runtime_touch_ab_cycle.sh",
-        "env": {
-            "EXECUTION_PROBE_UNIVERSE_LIMIT": attempt_config["universe_limit"],
-            "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_DENSITY": attempt_config[
-                "min_runtime_signalable_density"
-            ],
-            "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS": attempt_config[
-                "min_runtime_signalable_snapshots"
-            ],
-            "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD": config.runtime_signal_min_spread,
-            "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_DEPTH": config.runtime_signal_min_depth,
-        },
+        "env": env,
         "args": [
             "--skip-fresh-capture",
             "--fresh-duckdb",
@@ -303,6 +367,13 @@ def build_next_run(
             str(attempt_config["universe_limit"]),
             "--min-assets",
             str(config.min_assets),
+            "--freshness-ordering",
+            config.runtime_touch_freshness_ordering,
+            *(
+                ["--runtime-touch-hybrid-backfill"]
+                if attempt_config["runtime_touch_hybrid_backfill"]
+                else []
+            ),
         ],
         "selected_attempt_label": selected_attempt["label"],
         "can_execute_trades": False,
@@ -352,6 +423,16 @@ def main() -> int:
     parser.add_argument("--profile-a", default="execution_probe_v11")
     parser.add_argument("--profile-b", default="execution_probe_v12")
     parser.add_argument("--min-runtime-touch-snapshots", type=int, default=10)
+    parser.add_argument(
+        "--recent-signalable-window-ms",
+        type=int,
+        default=RuntimeTouchAbRetryLadderConfig.runtime_recent_signalable_window_ms,
+    )
+    parser.add_argument(
+        "--freshness-ordering",
+        choices=("score_first", "freshest_first"),
+        default=RuntimeTouchAbRetryLadderConfig.runtime_touch_freshness_ordering,
+    )
     parser.add_argument("--print-plan", action="store_true")
     args = parser.parse_args()
     config = RuntimeTouchAbRetryLadderConfig(
@@ -361,6 +442,8 @@ def main() -> int:
         observation_seconds=args.duration_seconds,
         fresh_capture_seconds=args.fresh_capture_seconds,
         min_runtime_touch_snapshots=args.min_runtime_touch_snapshots,
+        runtime_recent_signalable_window_ms=args.recent_signalable_window_ms,
+        runtime_touch_freshness_ordering=args.freshness_ordering,
     )
     fresh_duckdb = Path(args.fresh_duckdb) if args.fresh_duckdb else None
     fresh_report_root = Path(args.fresh_report_root) if args.fresh_report_root else None

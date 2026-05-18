@@ -22,6 +22,10 @@ UNIVERSE_MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
 RUNTIME_TOUCH_LOOKBACK_MS="${EXECUTION_PROBE_RUNTIME_TOUCH_LOOKBACK_MS:-900000}"
 RUNTIME_TOUCH_FRESHNESS_ORDERING="${EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING:-freshest_first}"
 RECENT_SIGNALABLE_WINDOW_MS="${EXECUTION_PROBE_RECENT_SIGNALABLE_WINDOW_MS:-180000}"
+RUNTIME_TOUCH_HYBRID_BACKFILL="${EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL:-0}"
+RUNTIME_HYBRID_MIN_SIGNALABLE_SNAPSHOTS="${EXECUTION_PROBE_RUNTIME_HYBRID_MIN_SIGNALABLE_SNAPSHOTS:-1}"
+RUNTIME_HYBRID_MIN_SIGNALABLE_DENSITY="${EXECUTION_PROBE_RUNTIME_HYBRID_MIN_SIGNALABLE_DENSITY:-0}"
+RUNTIME_HYBRID_MIN_LIQUIDITY="${EXECUTION_PROBE_RUNTIME_HYBRID_MIN_LIQUIDITY:-0}"
 MIN_RUNTIME_TOUCH_CHANGE_RATE="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_CHANGE_RATE:-0.01}"
 MIN_RUNTIME_TOUCH_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS:-10}"
 MIN_RUNTIME_ACTIVE_MINUTES="${EXECUTION_PROBE_MIN_RUNTIME_ACTIVE_MINUTES:-2}"
@@ -34,7 +38,7 @@ MAX_AVG_OPPORTUNITY_SPREAD="${EXECUTION_PROBE_MAX_AVG_OPPORTUNITY_SPREAD:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_runtime_touch_ab_cycle.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--skip-signalability-gate] [--duration-seconds N] [--print-plan]
+Usage: scripts/run_runtime_touch_ab_cycle.sh [--skip-fresh-capture --fresh-duckdb PATH --fresh-report-root PATH] [--skip-signalability-gate] [--runtime-touch-hybrid-backfill] [--duration-seconds N] [--print-plan]
 
 Runs a research-only A/B cycle over one runtime-touch universe:
 fresh dry-run capture -> runtime-touch universe -> profile A observation
@@ -90,6 +94,10 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_TOUCH_FRESHNESS_ORDERING="$2"
       shift 2
       ;;
+    --runtime-touch-hybrid-backfill)
+      RUNTIME_TOUCH_HYBRID_BACKFILL=1
+      shift
+      ;;
     --min-assets)
       UNIVERSE_MIN_ASSETS="$2"
       shift 2
@@ -130,6 +138,10 @@ if [[ "$RUNTIME_TOUCH_FRESHNESS_ORDERING" != "score_first" && "$RUNTIME_TOUCH_FR
   echo "freshness ordering must be score_first or freshest_first" >&2
   exit 64
 fi
+if [[ "$RUNTIME_TOUCH_HYBRID_BACKFILL" != "0" && "$RUNTIME_TOUCH_HYBRID_BACKFILL" != "1" ]]; then
+  echo "EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL must be 0 or 1" >&2
+  exit 64
+fi
 if ! [[ "$FRESH_CAPTURE_SECONDS" =~ ^[0-9]+$ ]] || (( FRESH_CAPTURE_SECONDS < 1800 || FRESH_CAPTURE_SECONDS > 5400 )); then
   echo "fresh capture duration must be an integer between 1800 and 5400 seconds" >&2
   exit 64
@@ -163,7 +175,7 @@ PROFILE_A_REPORT_ROOT="${PROFILE_A_DATA_LAKE_ROOT}/reports/${PROFILE_A_TIMESTAMP
 PROFILE_B_REPORT_ROOT="${PROFILE_B_DATA_LAKE_ROOT}/reports/${PROFILE_B_TIMESTAMP}"
 
 if [[ "$PRINT_PLAN" == "1" ]]; then
-  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$SIGNALABILITY_GATE_PATH" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$SKIP_SIGNALABILITY_GATE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" "$RUNTIME_TOUCH_FRESHNESS_ORDERING" "$RECENT_SIGNALABLE_WINDOW_MS" <<'PY'
+  python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$PROFILE_A" "$PROFILE_B" "$PROFILE_A_REPORT_ROOT" "$PROFILE_B_REPORT_ROOT" "$FRESH_CAPTURE_SECONDS" "$OBSERVATION_SECONDS" "$UNIVERSE_SELECTION_PATH" "$RUNTIME_TOUCH_RANKING_DIR" "$SIGNALABILITY_GATE_PATH" "$COMPARISON_REPORT_ROOTS" "$SKIP_FRESH_CAPTURE" "$SKIP_SIGNALABILITY_GATE" "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" "$MIN_RUNTIME_SIGNALABLE_DENSITY" "$RUNTIME_SIGNAL_MIN_SPREAD" "$RUNTIME_SIGNAL_MIN_DEPTH" "$RUNTIME_TOUCH_FRESHNESS_ORDERING" "$RECENT_SIGNALABLE_WINDOW_MS" "$RUNTIME_TOUCH_HYBRID_BACKFILL" <<'PY'
 import json
 import sys
 
@@ -189,13 +201,21 @@ import sys
     runtime_signal_min_depth,
     runtime_touch_freshness_ordering,
     recent_signalable_window_ms,
+    runtime_touch_hybrid_backfill,
 ) = sys.argv[1:]
 print(json.dumps({
     "script": "scripts/run_runtime_touch_ab_cycle.sh",
     "can_execute_trades": False,
     "execution_mode": "dry_run",
     "skip_fresh_capture": skip_fresh_capture == "1",
-    "signalability_gate_enabled": skip_signalability_gate != "1",
+    "signalability_gate_enabled": (
+        skip_signalability_gate != "1" and runtime_touch_hybrid_backfill != "1"
+    ),
+    "signalability_gate_bypass_reason": (
+        "runtime_touch_hybrid_backfill"
+        if runtime_touch_hybrid_backfill == "1"
+        else None
+    ),
     "fresh_capture_seconds": int(fresh_capture_seconds),
     "observation_seconds_per_profile": int(observation_seconds),
     "profile_a": profile_a,
@@ -206,6 +226,7 @@ print(json.dumps({
     "runtime_signal_min_depth": float(runtime_signal_min_depth),
     "runtime_touch_freshness_ordering": runtime_touch_freshness_ordering,
     "recent_signalable_window_ms": int(recent_signalable_window_ms),
+    "runtime_touch_hybrid_backfill": runtime_touch_hybrid_backfill == "1",
     "fresh_duckdb": fresh_duckdb,
     "fresh_report_root": fresh_report_root,
     "comparison_report_roots": [item.strip() for item in comparison_roots_csv.split(",") if item.strip()],
@@ -262,7 +283,7 @@ if [[ ! -f "$FRESH_DUCKDB" ]]; then
   exit 65
 fi
 
-if [[ "$SKIP_SIGNALABILITY_GATE" != "1" ]]; then
+if [[ "$SKIP_SIGNALABILITY_GATE" != "1" && "$RUNTIME_TOUCH_HYBRID_BACKFILL" != "1" ]]; then
   PYTHONPATH=python-service python3 -m src.research.runtime_touch_signalability_diagnostic \
     --duckdb "$FRESH_DUCKDB" \
     --output-dir "$SIGNALABILITY_GATE_DIR" \
@@ -277,6 +298,10 @@ if [[ "$SKIP_SIGNALABILITY_GATE" != "1" ]]; then
     --min-signalable-snapshots "$MIN_RUNTIME_SIGNALABLE_SNAPSHOTS" \
     --min-signalable-density "$MIN_RUNTIME_SIGNALABLE_DENSITY" \
     > "$RUN_ROOT/runtime_touch_signalability_gate.stdout.json"
+  PYTHONPATH=python-service python3 -m src.research.runtime_touch_ab_decision \
+    --signalability-gate-failure "$SIGNALABILITY_GATE_PATH" \
+    --output "$RUN_ROOT/runtime_touch_ab_decision.json" \
+    > "$RUN_ROOT/runtime_touch_ab_decision.stdout.json"
   python3 - "$RUN_ROOT" "$FRESH_DUCKDB" "$FRESH_REPORT_ROOT" "$SIGNALABILITY_GATE_PATH" <<'PY'
 import json
 import sys
@@ -289,7 +314,17 @@ gate_path = Path(sys.argv[4])
 
 gate = json.loads(gate_path.read_text(encoding="utf-8"))
 if gate.get("status") == "ready":
+    decision_path = run_root / "runtime_touch_ab_decision.json"
+    if decision_path.exists():
+        decision_path.unlink()
     raise SystemExit(0)
+
+def read_json(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 summary = {
     "can_execute_trades": False,
@@ -299,6 +334,7 @@ summary = {
     "fresh_duckdb": str(fresh_duckdb),
     "fresh_report_root": str(fresh_report_root),
     "signalability_gate": gate,
+    "runtime_touch_ab_decision": read_json(run_root / "runtime_touch_ab_decision.json"),
 }
 (run_root / "runtime_touch_ab_cycle_summary.json").write_text(
     json.dumps(summary, indent=2, sort_keys=True) + "\n",
@@ -344,6 +380,14 @@ UNIVERSE_ARGS=(
   --runtime-recent-signalable-window-ms "$RECENT_SIGNALABLE_WINDOW_MS"
   --runtime-touch-freshness-ordering "$RUNTIME_TOUCH_FRESHNESS_ORDERING"
 )
+if [[ "$RUNTIME_TOUCH_HYBRID_BACKFILL" == "1" ]]; then
+  UNIVERSE_ARGS+=(
+    --runtime-touch-hybrid-backfill
+    --runtime-hybrid-min-signalable-snapshots "$RUNTIME_HYBRID_MIN_SIGNALABLE_SNAPSHOTS"
+    --runtime-hybrid-min-signalable-density "$RUNTIME_HYBRID_MIN_SIGNALABLE_DENSITY"
+    --runtime-hybrid-min-liquidity "$RUNTIME_HYBRID_MIN_LIQUIDITY"
+  )
+fi
 if [[ -n "$MIN_AVG_OPPORTUNITY_SPREAD" ]]; then
   UNIVERSE_ARGS+=(--min-avg-opportunity-spread "$MIN_AVG_OPPORTUNITY_SPREAD")
 fi

@@ -4,6 +4,7 @@ from src.research.runtime_touch_ab_decision import (
     REPORT_VERSION,
     create_runtime_touch_ab_decision,
     create_runtime_touch_ab_preflight_failure_decision,
+    create_runtime_touch_ab_signalability_gate_failure_decision,
 )
 
 
@@ -113,6 +114,32 @@ def test_runtime_touch_ab_preflight_failure_reranks_no_signal_universe() -> None
     assert report["recommendation"] == "RERANK_RUNTIME_TOUCH_UNIVERSE"
     assert report["can_promote_live"] is False
     assert "missing_signals_stream_progress" in cast(list[str], report["rationale"])
+
+
+def test_runtime_touch_ab_signalability_gate_failure_reranks_universe() -> None:
+    report = create_runtime_touch_ab_signalability_gate_failure_decision(
+        {
+            "report_version": "runtime_touch_signalability_diagnostic_v1",
+            "can_execute_trades": False,
+            "status": "insufficient_signalable_assets",
+            "signalable_assets_count": 1,
+            "min_assets": 2,
+            "assets_analyzed": 8,
+            "blocker_counts": {"signalable_density": 2, "signalable_snapshots": 1},
+        }
+    )
+
+    assert report["report_version"] == REPORT_VERSION
+    assert report["can_execute_trades"] is False
+    assert report["can_promote_live"] is False
+    assert report["recommendation"] == "RERANK_RUNTIME_TOUCH_UNIVERSE"
+    checks = {
+        item["check_name"]: item["status"]
+        for item in cast(list[dict[str, Any]], report["checks"])
+    }
+    assert checks["signalability_gate_status_ready"] == "FAIL"
+    assert checks["minimum_signalable_assets"] == "FAIL"
+    assert "signalable_density=2" in cast(list[str], report["rationale"])
 
 
 def profile_comparison(

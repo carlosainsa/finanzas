@@ -50,6 +50,8 @@ def test_retry_ladder_selects_first_relaxed_signalable_attempt(
     assert "scripts/run_runtime_touch_ab_cycle.sh" in next_command
     assert "EXECUTION_PROBE_MIN_RUNTIME_SIGNALABLE_SNAPSHOTS=1" in next_command
     assert "EXECUTION_PROBE_RUNTIME_SIGNAL_MIN_SPREAD=0.03" in next_command
+    assert "EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING=freshest_first" in next_command
+    assert "--freshness-ordering freshest_first" in next_command
     assert (tmp_path / "ladder" / "runtime_touch_ab_retry_ladder.json").exists()
 
 
@@ -101,6 +103,8 @@ def test_retry_ladder_plan_payload_is_research_only(tmp_path: Path) -> None:
     assert attempts[-2]["min_runtime_signalable_snapshots"] == 1
     assert attempts[-1]["runtime_touch_hybrid_backfill"] is True
     assert config["runtime_signal_min_spread"] == 0.03
+    assert config["runtime_touch_freshness_ordering"] == "freshest_first"
+    assert config["runtime_recent_signalable_window_ms"] == 180_000
     assert plan["outputs"]["report"].endswith("runtime_touch_ab_retry_ladder.json")
 
 
@@ -138,6 +142,11 @@ def test_retry_ladder_can_select_hybrid_backfilled_attempt(
     assert next_run["script"] == "scripts/run_runtime_touch_ab_cycle.sh"
     assert next_run["selected_attempt_label"] == "runtime_hybrid_backfill"
     assert next_run["can_execute_trades"] is False
+    assert "--runtime-touch-hybrid-backfill" in next_run["args"]
+    env = cast(dict[str, Any], next_run["env"])
+    assert env["EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL"] == "1"
+    assert env["EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING"] == "freshest_first"
+    assert "--runtime-touch-hybrid-backfill" in str(report["next_command"])
 
 
 def seed_retry_ladder_db(

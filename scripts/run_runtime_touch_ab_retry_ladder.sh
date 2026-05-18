@@ -12,11 +12,13 @@ MIN_ASSETS="${EXECUTION_PROBE_UNIVERSE_MIN_ASSETS:-2}"
 PROFILE_A="${PROFILE_A:-execution_probe_v11}"
 PROFILE_B="${PROFILE_B:-execution_probe_v12}"
 MIN_RUNTIME_TOUCH_SNAPSHOTS="${EXECUTION_PROBE_MIN_RUNTIME_TOUCH_SNAPSHOTS:-10}"
+RECENT_SIGNALABLE_WINDOW_MS="${EXECUTION_PROBE_RECENT_SIGNALABLE_WINDOW_MS:-180000}"
+FRESHNESS_ORDERING="${EXECUTION_PROBE_RUNTIME_TOUCH_FRESHNESS_ORDERING:-freshest_first}"
 PRINT_PLAN=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_runtime_touch_ab_retry_ladder.sh --fresh-duckdb PATH [--fresh-report-root PATH] [--duration-seconds N] [--print-plan]
+Usage: scripts/run_runtime_touch_ab_retry_ladder.sh --fresh-duckdb PATH [--fresh-report-root PATH] [--duration-seconds N] [--freshness-ordering score_first|freshest_first] [--print-plan]
 
 Evaluates a research-only retry ladder for runtime-touch v11/v12 A/B.
 It does not start services and does not execute trades. The selected output
@@ -48,6 +50,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --min-assets)
       MIN_ASSETS="$2"
+      shift 2
+      ;;
+    --recent-signalable-window-ms)
+      RECENT_SIGNALABLE_WINDOW_MS="$2"
+      shift 2
+      ;;
+    --freshness-ordering)
+      FRESHNESS_ORDERING="$2"
       shift 2
       ;;
     --profile-a)
@@ -86,6 +96,14 @@ if ! [[ "$MIN_ASSETS" =~ ^[0-9]+$ ]] || (( MIN_ASSETS < 2 )); then
   echo "min assets must be an integer >= 2 for runtime-touch A/B" >&2
   exit 64
 fi
+if ! [[ "$RECENT_SIGNALABLE_WINDOW_MS" =~ ^[0-9]+$ ]] || (( RECENT_SIGNALABLE_WINDOW_MS <= 0 )); then
+  echo "recent signalable window must be a positive integer" >&2
+  exit 64
+fi
+if [[ "$FRESHNESS_ORDERING" != "score_first" && "$FRESHNESS_ORDERING" != "freshest_first" ]]; then
+  echo "freshness ordering must be score_first or freshest_first" >&2
+  exit 64
+fi
 if [[ "$PRINT_PLAN" != "1" && ( -z "$FRESH_DUCKDB" || ! -f "$FRESH_DUCKDB" ) ]]; then
   echo "--fresh-duckdb must exist unless --print-plan is used" >&2
   exit 64
@@ -100,6 +118,8 @@ ARGS=(
   --profile-a "$PROFILE_A"
   --profile-b "$PROFILE_B"
   --min-runtime-touch-snapshots "$MIN_RUNTIME_TOUCH_SNAPSHOTS"
+  --recent-signalable-window-ms "$RECENT_SIGNALABLE_WINDOW_MS"
+  --freshness-ordering "$FRESHNESS_ORDERING"
 )
 if [[ -n "$FRESH_DUCKDB" ]]; then
   ARGS+=(--fresh-duckdb "$FRESH_DUCKDB")

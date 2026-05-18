@@ -124,6 +124,69 @@ def create_runtime_touch_ab_preflight_failure_decision(
     }
 
 
+def create_runtime_touch_ab_signalability_gate_failure_decision(
+    gate: dict[str, object],
+) -> dict[str, object]:
+    signalable_assets = numeric_or_none(gate.get("signalable_assets_count"))
+    min_assets = numeric_or_none(gate.get("min_assets"))
+    blocker_counts = typed_dict(gate.get("blocker_counts"))
+    dominant_blockers = sorted(
+        (
+            (str(blocker), numeric_or_none(count) or 0.0)
+            for blocker, count in blocker_counts.items()
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+    rationale = [
+        f"{blocker}={int(count) if count.is_integer() else count}"
+        for blocker, count in dominant_blockers[:3]
+    ] or [str(gate.get("status") or "unknown")]
+    return {
+        "report_version": REPORT_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "can_execute_trades": False,
+        "can_promote_live": False,
+        "decision_policy": "offline_runtime_touch_ab_signalability_gate_failure_only",
+        "source_report_versions": {
+            "runtime_touch_signalability_diagnostic": gate.get("report_version"),
+        },
+        "thresholds": asdict(RuntimeTouchAbDecisionThresholds()),
+        "baseline": {},
+        "candidate": {
+            "signalable_assets_count": gate.get("signalable_assets_count"),
+            "min_assets": gate.get("min_assets"),
+            "assets_analyzed": gate.get("assets_analyzed"),
+        },
+        "touch_diagnosis": {},
+        "comparability_checks": [
+            check_equals(
+                "signalability_gate_can_execute_trades_false",
+                gate.get("can_execute_trades"),
+                False,
+            )
+        ],
+        "recommendation": "RERANK_RUNTIME_TOUCH_UNIVERSE",
+        "next_step": (
+            "Fresh runtime data did not produce enough signalable assets; rerank, "
+            "widen, or change market/timing selection before retrying A/B."
+        ),
+        "rationale": rationale,
+        "checks": [
+            check_equals(
+                "signalability_gate_status_ready",
+                gate.get("status"),
+                "ready",
+            ),
+            check_at_least(
+                "minimum_signalable_assets",
+                signalable_assets,
+                min_assets or 0,
+            ),
+        ],
+        "next_command_templates": command_templates("RERANK_RUNTIME_TOUCH_UNIVERSE"),
+    }
+
+
 def classify_preflight_failure(
     blockers: list[str],
     failed_profile: str,
@@ -497,6 +560,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--profile-observation-comparison", type=Path)
     parser.add_argument("--touch-comparison", type=Path)
     parser.add_argument("--preflight-failure", type=Path)
+    parser.add_argument("--signalability-gate-failure", type=Path)
     parser.add_argument("--failed-profile")
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
@@ -504,7 +568,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.preflight_failure:
+    if args.signalability_gate_failure:
+        report = create_runtime_touch_ab_signalability_gate_failure_decision(
+            read_json(args.signalability_gate_failure),
+        )
+    elif args.preflight_failure:
         if not args.failed_profile:
             raise SystemExit("--failed-profile is required with --preflight-failure")
         report = create_runtime_touch_ab_preflight_failure_decision(

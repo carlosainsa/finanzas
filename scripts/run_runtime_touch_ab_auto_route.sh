@@ -131,6 +131,7 @@ fi
 mkdir -p "$RUN_ROOT"
 
 if [[ "$SKIP_FRESH_CAPTURE" != "1" ]]; then
+  set +e
   REPORT_TIMESTAMP="$FRESH_TIMESTAMP" \
     DATA_LAKE_ROOT="$FRESH_DATA_LAKE_ROOT" \
     RESEARCH_REPORT_ROOT="$FRESH_REPORT_ROOT" \
@@ -138,6 +139,12 @@ if [[ "$SKIP_FRESH_CAPTURE" != "1" ]]; then
     REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS="${REAL_DRY_RUN_PREFLIGHT_ALLOW_ZERO_SIGNALS:-1}" \
     REAL_DRY_RUN_ALLOW_EMPTY_SIGNALS="${REAL_DRY_RUN_ALLOW_EMPTY_SIGNALS:-1}" \
     "$ROOT_DIR/scripts/run_pre_live_dry_run.sh" --duration-seconds "$FRESH_CAPTURE_SECONDS"
+  fresh_status=$?
+  set -e
+  if [[ "$fresh_status" != "0" && "$fresh_status" != "20" ]]; then
+    echo "fresh runtime capture failed with status $fresh_status" >&2
+    exit "$fresh_status"
+  fi
 fi
 
 "$ROOT_DIR/scripts/run_runtime_touch_ab_retry_ladder.sh" \
@@ -145,6 +152,7 @@ fi
   --fresh-report-root "$FRESH_REPORT_ROOT" \
   --output-dir "$LADDER_OUTPUT_DIR" \
   --duration-seconds "$OBSERVATION_SECONDS" \
+  --fresh-capture-seconds "$FRESH_CAPTURE_SECONDS" \
   > "$RUN_ROOT/runtime_touch_ab_retry_ladder.stdout.json"
 
 if [[ "$RUN_SELECTED_AB" != "1" ]]; then
