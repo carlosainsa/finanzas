@@ -93,10 +93,58 @@ def test_discovery_batches_use_fillability_and_family_memory(
         ),
     )
 
-    assert report["selection_policy"] == "epsilon_family_fillability_explore_exploit_v1"
+    assert (
+        report["selection_policy"]
+        == "epsilon_family_fillability_diversified_batches_v2"
+    )
     assert report["markets"][0]["market_id"] == "market-b"
     assert report["markets"][0]["selection_mode"] == "exploit"
     assert report["markets"][1]["selection_mode"] == "explore"
+    assert report["batches"][0]["families_count"] == 2
+    assert report["batches"][0]["fillability_covered_assets_count"] == 1
+
+
+def test_discovery_batches_diversify_families_within_batch(
+    tmp_path: Path,
+) -> None:
+    markets = [
+        score_market(candidate("market-a", score_hint=30_000, tags=["Politics"])),
+        score_market(candidate("market-b", score_hint=29_000, tags=["Politics"])),
+        score_market(candidate("market-c", score_hint=10_000, tags=["Sports"])),
+    ]
+
+    report = write_runtime_touch_discovery_batches(
+        tmp_path / "discovery",
+        markets,
+        RuntimeTouchDiscoveryBatchConfig(discovery_limit=3, batch_size=4),
+    )
+
+    assert report["batches"][0]["market_ids"] == ["market-a", "market-c"]
+    assert report["batches"][0]["families_count"] == 2
+    assert report["batches"][1]["market_ids"] == ["market-b"]
+
+
+def test_discovery_batches_can_disable_diversification(
+    tmp_path: Path,
+) -> None:
+    markets = [
+        score_market(candidate("market-a", score_hint=30_000, tags=["Politics"])),
+        score_market(candidate("market-b", score_hint=29_000, tags=["Politics"])),
+        score_market(candidate("market-c", score_hint=10_000, tags=["Sports"])),
+    ]
+
+    report = write_runtime_touch_discovery_batches(
+        tmp_path / "discovery",
+        markets,
+        RuntimeTouchDiscoveryBatchConfig(
+            discovery_limit=3,
+            batch_size=4,
+            diversify_batches=False,
+        ),
+    )
+
+    assert report["batches"][0]["market_ids"] == ["market-a", "market-b"]
+    assert report["batches"][0]["families_count"] == 1
 
 
 def test_discovery_batch_config_rejects_invalid_batch_size() -> None:

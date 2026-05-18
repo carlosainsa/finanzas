@@ -30,6 +30,8 @@ class RuntimeTouchDiscoveryBatchConfig:
     fillability_weight: float = 1.0
     family_memory_weight: float = 1.0
     min_family_observations_for_exploit: int = 1
+    diversify_batches: bool = True
+    max_markets_per_family_per_batch: int = 1
 
     def __post_init__(self) -> None:
         if self.discovery_limit <= 0:
@@ -48,6 +50,8 @@ class RuntimeTouchDiscoveryBatchConfig:
             raise ValueError("family_memory_weight must be non-negative")
         if self.min_family_observations_for_exploit <= 0:
             raise ValueError("min_family_observations_for_exploit must be positive")
+        if self.max_markets_per_family_per_batch <= 0:
+            raise ValueError("max_markets_per_family_per_batch must be positive")
 
 
 async def create_runtime_touch_discovery_batches(
@@ -71,7 +75,7 @@ def write_runtime_touch_discovery_batches(
     output_dir.mkdir(parents=True, exist_ok=True)
     market_rows = [market_to_record(scored) for scored in markets]
     market_rows = apply_explore_exploit_policy(market_rows, config)
-    batches = build_batches(market_rows, config.batch_size)
+    batches = build_batches(market_rows, config)
     payload: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -79,7 +83,7 @@ def write_runtime_touch_discovery_batches(
         "can_promote_live": False,
         "decision_policy": "offline_runtime_touch_discovery_batching_only",
         "selection_source": "gamma_discovery_ranked_batches",
-        "selection_policy": "epsilon_family_fillability_explore_exploit_v1",
+        "selection_policy": "epsilon_family_fillability_diversified_batches_v2",
         "risk_contract": {
             "execution_mode": "dry_run",
             "does_not_modify_quote_policy": True,
@@ -117,6 +121,15 @@ def write_runtime_touch_discovery_batches(
 
 def build_batches(
     market_rows: list[dict[str, Any]],
+    config: RuntimeTouchDiscoveryBatchConfig,
+) -> list[dict[str, Any]]:
+    if not config.diversify_batches:
+        return build_sequential_batches(market_rows, config.batch_size)
+    return build_diversified_batches(market_rows, config)
+
+
+def build_sequential_batches(
+    market_rows: list[dict[str, Any]],
     batch_size: int,
 ) -> list[dict[str, Any]]:
     batches: list[dict[str, Any]] = []
@@ -137,6 +150,87 @@ def build_batches(
     if batch_markets:
         batches.append(batch_record(len(batches) + 1, batch_markets, batch_assets))
     return batches
+
+
+def build_diversified_batches(
+    market_rows: list[dict[str, Any]],
+    config: RuntimeTouchDiscoveryBatchConfig,
+) -> list[dict[str, Any]]:
+    batches: list[dict[str, Any]] = []
+    remaining = [dict(row) for row in market_rows]
+    seen_assets: set[str] = set()
+    while remaining:
+        batch_markets: list[dict[str, Any]] = []
+        batch_assets: list[str] = []
+        family_counts: dict[str, int] = {}
+        while remaining:
+            selected_index = choose_next_market_for_batch(
+                remaining,
+                seen_assets,
+                batch_assets,
+                family_counts,
+                config,
+                enforce_family_limit=True,
+            )
+            if selected_index is None:
+                selected_index = choose_next_market_for_batch(
+                    remaining,
+                    seen_assets,
+                    batch_assets,
+                    family_counts,
+                    config,
+                    enforce_family_limit=False,
+                )
+            if selected_index is None:
+                break
+            market = remaining.pop(selected_index)
+            next_unique = unique_market_assets(market, seen_assets)
+            if not next_unique:
+                continue
+            family_key = str(market.get("market_family") or "unknown:market")
+            family_counts[family_key] = family_counts.get(family_key, 0) + 1
+            batch_markets.append(market)
+            for asset_id in next_unique:
+                seen_assets.add(asset_id)
+                batch_assets.append(asset_id)
+        if not batch_markets:
+            break
+        batches.append(batch_record(len(batches) + 1, batch_markets, batch_assets))
+    return batches
+
+
+def choose_next_market_for_batch(
+    remaining: list[dict[str, Any]],
+    seen_assets: set[str],
+    batch_assets: list[str],
+    family_counts: dict[str, int],
+    config: RuntimeTouchDiscoveryBatchConfig,
+    *,
+    enforce_family_limit: bool,
+) -> int | None:
+    for index, market in enumerate(remaining):
+        next_unique = unique_market_assets(market, seen_assets)
+        if not next_unique:
+            continue
+        if len(batch_assets) + len(next_unique) > config.batch_size:
+            continue
+        family_key = str(market.get("market_family") or "unknown:market")
+        if (
+            enforce_family_limit
+            and family_counts.get(family_key, 0)
+            >= config.max_markets_per_family_per_batch
+        ):
+            continue
+        return index
+    return None
+
+
+def unique_market_assets(market: dict[str, Any], seen_assets: set[str]) -> list[str]:
+    return [
+        str(asset_id)
+        for asset_id in market.get("clob_token_ids", [])
+        if str(asset_id) not in seen_assets
+    ]
 
 
 def apply_explore_exploit_policy(
@@ -163,6 +257,7 @@ def apply_explore_exploit_policy(
             for asset_id in row.get("clob_token_ids", [])
         ]
         best_fillability_score = max(asset_scores) if asset_scores else 0.0
+        fillability_covered_assets = sum(1 for score in asset_scores if score > 0)
         family_memory_score = float(family.get("family_memory_score") or 0.0)
         family_observations = int(family.get("observations") or 0)
         has_exploit_memory = (
@@ -174,10 +269,13 @@ def apply_explore_exploit_policy(
         row["market_family_source"] = family_source
         row["family_memory_score"] = family_memory_score
         row["family_observations"] = family_observations
+        row["asset_fillability_scores"] = asset_scores
+        row["fillability_covered_assets"] = fillability_covered_assets
         row["best_asset_fillability_score"] = best_fillability_score
         row["combined_discovery_score"] = (
             float(row.get("score") or 0.0) * 100
             + best_fillability_score * config.fillability_weight
+            + fillability_covered_assets * config.fillability_weight
             + family_memory_score * config.family_memory_weight
         )
         row["selection_mode"] = "exploit" if has_exploit_memory else "explore"
@@ -187,6 +285,7 @@ def apply_explore_exploit_policy(
         [row for row in enriched if row["selection_mode"] == "exploit"],
         key=lambda row: (
             row["combined_discovery_score"],
+            row["fillability_covered_assets"],
             row["best_asset_fillability_score"],
             row["family_memory_score"],
             -row["original_rank"],
@@ -215,11 +314,21 @@ def batch_record(
 ) -> dict[str, Any]:
     batch_id = f"batch-{index:02d}"
     asset_csv = ",".join(asset_ids)
+    families = [str(market.get("market_family") or "unknown:market") for market in markets]
+    selection_modes = [str(market.get("selection_mode") or "unknown") for market in markets]
     return {
         "batch_index": index,
         "batch_id": batch_id,
         "markets_count": len(markets),
         "asset_ids_count": len(asset_ids),
+        "families_count": len(set(families)),
+        "market_families": families,
+        "selection_modes": selection_modes,
+        "exploit_markets_count": sum(1 for mode in selection_modes if mode == "exploit"),
+        "explore_markets_count": sum(1 for mode in selection_modes if mode == "explore"),
+        "fillability_covered_assets_count": sum(
+            int(market.get("fillability_covered_assets") or 0) for market in markets
+        ),
         "market_ids": [str(market["market_id"]) for market in markets],
         "market_asset_ids": asset_ids,
         "market_asset_ids_csv": asset_csv,
@@ -271,6 +380,8 @@ def main() -> int:
     parser.add_argument("--market-fillability-score")
     parser.add_argument("--market-family-memory")
     parser.add_argument("--exploration-rate", type=float, default=0.20)
+    parser.add_argument("--no-diversify-batches", action="store_true")
+    parser.add_argument("--max-markets-per-family-per-batch", type=int, default=1)
     args = parser.parse_args()
     report = asyncio.run(
         create_runtime_touch_discovery_batches(
@@ -284,6 +395,8 @@ def main() -> int:
                 market_fillability_score_path=args.market_fillability_score,
                 market_family_memory_path=args.market_family_memory,
                 exploration_rate=args.exploration_rate,
+                diversify_batches=not args.no_diversify_batches,
+                max_markets_per_family_per_batch=args.max_markets_per_family_per_batch,
             ),
         )
     )

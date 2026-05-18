@@ -851,13 +851,16 @@ Discovery selection upgrade:
 
 - Market fillability: `market_fillability_score_v1`
 - Family memory: `market_family_memory_v1`
-- Discovery policy: `epsilon_family_fillability_explore_exploit_v1`
+- Discovery policy: `epsilon_family_fillability_diversified_batches_v2`
 
 This moves market selection away from Gamma liquidity alone. New discovery
 batches can now exploit markets/assets with prior fillability evidence, favor
 families that produced usable scout windows, and still reserve deterministic
 exploration capacity for new families with no memory. The upgrade is still
 research-only and does not change quote placement, risk gates, or live status.
+Batch formation now also avoids putting multiple markets from the same family
+in the same batch while alternatives exist, which should improve the chance
+that a 4-asset batch contains at least two independently signalable assets.
 
 Validation update:
 
