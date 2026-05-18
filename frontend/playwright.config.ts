@@ -18,7 +18,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `npm run dev -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+    command: `npm run build && npm run preview:e2e -- --host 127.0.0.1 --port ${e2ePort} --strictPort`,
     url: e2eBaseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

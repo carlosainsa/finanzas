@@ -1076,8 +1076,10 @@ def test_runtime_touch_discovery_loop_print_plan_is_research_only(
     assert plan["market_fillability_score"].endswith("fillability.json")
     assert plan["market_family_memory"].endswith("family-memory.json")
     assert plan["exploration_rate"] == 0.25
+    assert plan["early_stop_on_ready"] is True
     assert "src.research.runtime_touch_discovery_batches" in plan["delegates_to"]
     assert "scripts/run_runtime_touch_selection_probe.sh" in plan["delegates_to"]
+    assert "src.research.runtime_touch_discovery_loop_control" in plan["delegates_to"]
     assert (
         "src.research.runtime_touch_discovery_batch_comparison"
         in plan["delegates_to"]
@@ -1087,6 +1089,12 @@ def test_runtime_touch_discovery_loop_print_plan_is_research_only(
     ]
     assert "runtime_touch_discovery_batch_comparison.json" in plan["outputs"][
         "batch_comparison"
+    ]
+    assert "runtime_touch_early_stop_decision.json" in plan["outputs"][
+        "early_stop_decision"
+    ]
+    assert "runtime_touch_discovery_loop_summary.json" in plan["outputs"][
+        "loop_summary"
     ]
 
 

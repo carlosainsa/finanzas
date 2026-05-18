@@ -40,6 +40,8 @@ def test_discovery_batch_comparison_selects_best_ready_batch(
     assert report["status"] == "ready"
     assert report["next_action"] == "RUN_SELECTION_PROBE_ON_BEST_BATCH"
     assert report["selected_batch"]["batch_id"] == "batch-02"
+    assert report["recommended_next_run"] is None
+    assert report["recommended_next_command"] is None
     assert report["counts"]["ready_batches"] == 1
     assert (
         tmp_path
@@ -71,6 +73,51 @@ def test_discovery_batch_comparison_handles_missing_artifacts(
     missing = next(row for row in report["batches"] if row["batch_id"] == "batch-02")
     assert missing["route_next_action"] == "MISSING_ROUTE_DECISION"
     assert missing["batch_decision"] == "REJECT"
+    assert report["recommended_next_run"] is None
+    assert report["recommended_next_command"] is None
+
+
+def test_discovery_batch_comparison_emits_ab_retry_ladder_command(
+    tmp_path: Path,
+) -> None:
+    discovery = write_discovery_batches(tmp_path)
+    write_batch_result(
+        tmp_path,
+        "batch-01",
+        scout_assets=1,
+        eligible_windows=0,
+        route_next_action="EXPAND_MARKET_DISCOVERY",
+    )
+    write_batch_result(
+        tmp_path,
+        "batch-02",
+        scout_assets=2,
+        eligible_windows=3,
+        route_next_action="READY_FOR_AB_RETRY",
+    )
+
+    report = create_runtime_touch_discovery_batch_comparison(
+        discovery,
+        tmp_path / "batches",
+        tmp_path / "comparison",
+        RuntimeTouchDiscoveryBatchComparisonConfig(min_assets=2),
+    )
+
+    assert report["next_action"] == "RUN_RUNTIME_TOUCH_AB_RETRY_LADDER"
+    next_run = report["recommended_next_run"]
+    assert next_run["script"] == "scripts/run_runtime_touch_ab_retry_ladder.sh"
+    assert next_run["source_batch_id"] == "batch-02"
+    assert next_run["can_execute_trades"] is False
+    assert next_run["can_promote_live"] is False
+    assert next_run["env"] == {"EXECUTION_MODE": "dry_run"}
+    assert "--fresh-duckdb" in next_run["args"]
+    assert str(tmp_path / "batches" / "batch-02" / "research.duckdb") in next_run["args"]
+    assert "--fresh-report-root" in next_run["args"]
+    assert "--min-assets" in next_run["args"]
+    command = report["recommended_next_command"]
+    assert "EXECUTION_MODE=dry_run" in command
+    assert "scripts/run_runtime_touch_ab_retry_ladder.sh" in command
+    assert "EXECUTION_MODE=live" not in command
 
 
 def write_discovery_batches(tmp_path: Path) -> Path:
@@ -143,6 +190,17 @@ def write_batch_result(
                     if scout_assets >= 2
                     else "insufficient_assets",
                 },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (batch_root / "runtime_touch_selection_probe_summary.json").write_text(
+        json.dumps(
+            {
+                "can_execute_trades": False,
+                "decision_policy": "offline_runtime_touch_selection_probe_only",
+                "fresh_duckdb": str(batch_root / "research.duckdb"),
+                "fresh_report_root": str(batch_root / "reports"),
             }
         ),
         encoding="utf-8",

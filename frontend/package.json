@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "test:e2e:public": "playwright test --config playwright.public.config.ts",
     "preview": "vite preview --host 0.0.0.0",
+    "preview:e2e": "vite preview",
     "typecheck": "tsc -b"
   },
   "dependencies": {

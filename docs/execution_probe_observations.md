@@ -859,6 +859,22 @@ families that produced usable scout windows, and still reserve deterministic
 exploration capacity for new families with no memory. The upgrade is still
 research-only and does not change quote placement, risk gates, or live status.
 
+Validation update:
+
+- Artifact root: `.tmp/operational/fillability-discovery-loop-validation-small-20260518T013407Z`
+- DuckDB source: `.tmp/real-dry-run-data-lake/runtime-touch-ab-v11-v12-20260513T193058Z-fresh/research.duckdb`
+- Fillability result: `20` ranked assets, `20` selected assets.
+- Family memory result: `20` observations, `10` families, `10` exploitable families.
+- Discovery loop plan: used the generated fillability and family-memory artifacts with `early_stop_on_ready=true`.
+- Note: a first attempt on the larger 2026-05-17 DuckDB was killed by the VM during full fillability scoring. The lighter validation confirms contract wiring; the larger run should be retried later with a bounded query/window implementation before using it operationally.
+
+Discovery loop control upgrade:
+
+- Early-stop gate: `runtime_touch_discovery_loop_control_v1`
+- Loop summary: `runtime_touch_discovery_loop_summary_v1`
+- A/B continuation contract: `runtime_touch_discovery_batch_comparison_v1` now emits a structured `recommended_next_run` only for `READY_FOR_AB_RETRY`, targeting `scripts/run_runtime_touch_ab_retry_ladder.sh` in `dry_run`.
+- Live status: blocked. The recommended command is research-only and still requires the retry ladder to select a valid A/B cycle.
+
 ## Current Diagnostic Loop
 
 After the v10/v11 observations, the current blocker is not Redis, signal
