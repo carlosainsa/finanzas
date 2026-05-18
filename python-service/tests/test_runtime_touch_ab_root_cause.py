@@ -45,9 +45,39 @@ def test_root_cause_classifies_preflight_signal_and_report_failures() -> None:
     )
 
     assert signal_report["root_cause_category"] == "SIGNALS_ZERO"
-    assert signal_report["recommended_next_action"] == "RERANK_OR_CHANGE_MARKET_TIMING"
+    assert (
+        signal_report["recommended_next_action"]
+        == "CHECK_CONSUMER_OR_PREDICTOR_DECISION_TRACE"
+    )
     assert report_report["root_cause_category"] == "REPORTS_ZERO"
     assert report_report["recommended_next_action"] == "FIX_RISK_EXECUTOR_OR_REPORTING"
+
+
+def test_root_cause_uses_predictor_rejection_diagnostics_for_zero_signals() -> None:
+    report = create_runtime_touch_ab_root_cause(
+        cycle_summary={
+            "failed_profile": "execution_probe_v11",
+            "failed_preflight": {
+                "blockers": ["missing_signals_stream_progress"],
+                "predictor_decision_diagnostics": {
+                    "decisions": 10,
+                    "accepted": 0,
+                    "rejected": 10,
+                    "primary_rejection_reason": "top_rotation",
+                    "rejection_counts": {"top_rotation": 10},
+                },
+            },
+        }
+    )
+
+    assert report["root_cause_category"] == "SIGNALS_ZERO"
+    assert (
+        report["recommended_next_action"]
+        == "RERANK_OR_RETUNE_PREDICTOR_REJECTIONS:top_rotation"
+    )
+    evidence = report["evidence"]
+    assert isinstance(evidence, dict)
+    assert evidence["primary_rejection_reason"] == "top_rotation"
 
 
 def test_root_cause_classifies_completed_ab_candidate_failures() -> None:

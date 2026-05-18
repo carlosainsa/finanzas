@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     orderbook_stream: str = "orderbook:stream"
     signals_stream: str = "signals:stream"
     execution_reports_stream: str = "execution:reports:stream"
+    predictor_decisions_stream: str = "predictor:decisions:stream"
     orderbook_deadletter_stream: str = "orderbook:deadletter"
     signals_deadletter_stream: str = "signals:deadletter"
     operator_commands_stream: str = "operator:commands:stream"

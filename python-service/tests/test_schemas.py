@@ -5,6 +5,7 @@ from src.schemas import (
     ExecutionReport,
     ExternalEvidence,
     OrderBook,
+    PredictorDecisionTrace,
     SentimentFeature,
     TradeSignal,
 )
@@ -77,6 +78,31 @@ def test_trade_signal_accepts_optional_versions() -> None:
     assert signal.model_version == "model-v1"
     assert signal.data_version == "data-v1"
     assert signal.feature_version == "features-v1"
+
+
+def test_predictor_decision_trace_contract() -> None:
+    trace = PredictorDecisionTrace.model_validate(
+        {
+            "stream_id": "1-0",
+            "market_id": "0xabc",
+            "asset_id": "123",
+            "accepted": False,
+            "rejection_reason": "low_spread",
+            "strategy_profile": "execution_probe_v11",
+            "timestamp_ms": 1760000000001,
+            "source_timestamp_ms": 1760000000000,
+            "spread": 0.01,
+            "best_bid": 0.45,
+            "best_ask": 0.46,
+            "bid_depth": 10.0,
+            "ask_depth": 12.0,
+            "data_version": "redis_orderbook_v1",
+        }
+    )
+
+    assert trace.accepted is False
+    assert trace.rejection_reason == "low_spread"
+    assert trace.signal_id is None
 
 
 def test_execution_report_contract() -> None:

@@ -103,6 +103,43 @@ def test_export_validates_known_payload_schemas(tmp_path: Path) -> None:
     assert row == ("model-v1", "data-v1", "features-v1")
 
 
+def test_export_writes_predictor_decision_trace(tmp_path: Path) -> None:
+    redis = FakeRedis()
+    redis.add_payload(
+        settings.predictor_decisions_stream,
+        {
+            "stream_id": "1-0",
+            "market_id": "0xabc",
+            "asset_id": "123",
+            "accepted": False,
+            "rejection_reason": "low_spread",
+            "strategy_profile": "execution_probe_v11",
+            "timestamp_ms": 1760000000001,
+            "source_timestamp_ms": 1760000000000,
+            "spread": 0.01,
+            "best_bid": 0.45,
+            "best_ask": 0.46,
+            "bid_depth": 3.0,
+            "ask_depth": 5.0,
+            "data_version": "redis_orderbook_v1",
+        },
+    )
+
+    exported = asyncio.run(export_data_lake(redis, tmp_path, count=100))
+
+    assert exported["predictor_decisions"] == 1
+    db_path = tmp_path / "research.duckdb"
+    create_duckdb_views(tmp_path, db_path)
+    with duckdb.connect(str(db_path)) as conn:
+        row = conn.execute(
+            """
+            select accepted, rejection_reason, source_stream_id, best_bid, best_ask
+            from predictor_decisions
+            """
+        ).fetchone()
+    assert row == (False, "low_spread", "1-0", 0.45, 0.46)
+
+
 def test_incremental_export_tracks_last_stream_id(tmp_path: Path) -> None:
     redis = FakeRedis()
     redis.add_payload(

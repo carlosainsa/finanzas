@@ -13,7 +13,14 @@ from pydantic import ValidationError
 from src.config import settings
 from src.data.redis_client import get_redis
 from src.discovery.markets import MarketCandidate, fetch_gamma_markets, normalize_gamma_market
-from src.schemas import ExecutionReport, ExternalEvidence, OrderBook, SentimentFeature, TradeSignal
+from src.schemas import (
+    ExecutionReport,
+    ExternalEvidence,
+    OrderBook,
+    PredictorDecisionTrace,
+    SentimentFeature,
+    TradeSignal,
+)
 
 
 class RedisRangeReader(Protocol):
@@ -44,6 +51,7 @@ STREAM_DATASETS: tuple[StreamDataset, ...] = (
     StreamDataset(settings.orderbook_stream, "orderbook_snapshots", "orderbook"),
     StreamDataset(settings.signals_stream, "signals", "trade_signal"),
     StreamDataset(settings.execution_reports_stream, "execution_reports", "execution_report"),
+    StreamDataset(settings.predictor_decisions_stream, "predictor_decisions", "predictor_decision"),
     StreamDataset(settings.orderbook_deadletter_stream, "orderbook_deadletter", "deadletter"),
     StreamDataset(settings.signals_deadletter_stream, "signals_deadletter", "deadletter"),
     StreamDataset(settings.operator_commands_stream, "operator_commands", "operator_command"),
@@ -234,6 +242,8 @@ def normalize_payload(schema_name: str, payload: dict[str, object]) -> dict[str,
         return TradeSignal.model_validate(payload).model_dump(mode="json")
     if schema_name == "execution_report":
         return ExecutionReport.model_validate(payload).model_dump(mode="json")
+    if schema_name == "predictor_decision":
+        return PredictorDecisionTrace.model_validate(payload).model_dump(mode="json")
     return payload
 
 
@@ -282,6 +292,31 @@ def normalize_row(
             "cumulative_filled_size": payload.get("cumulative_filled_size"),
             "remaining_size": payload.get("remaining_size"),
             "error": payload.get("error"),
+        }
+    if dataset.schema_name == "predictor_decision":
+        return {
+            **base,
+            "source_stream_id": payload.get("stream_id"),
+            "market_id": payload.get("market_id"),
+            "asset_id": payload.get("asset_id"),
+            "accepted": payload.get("accepted"),
+            "rejection_reason": payload.get("rejection_reason"),
+            "strategy_profile": payload.get("strategy_profile"),
+            "source_timestamp_ms": payload.get("source_timestamp_ms"),
+            "side": payload.get("side"),
+            "signal_id": payload.get("signal_id"),
+            "price": payload.get("price"),
+            "size": payload.get("size"),
+            "confidence": payload.get("confidence"),
+            "spread": payload.get("spread"),
+            "best_bid": payload.get("best_bid"),
+            "best_ask": payload.get("best_ask"),
+            "bid_depth": payload.get("bid_depth"),
+            "ask_depth": payload.get("ask_depth"),
+            "top_change_count": payload.get("top_change_count"),
+            "model_version": payload.get("model_version"),
+            "data_version": payload.get("data_version"),
+            "feature_version": payload.get("feature_version"),
         }
     return base
 

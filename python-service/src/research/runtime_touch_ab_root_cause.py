@@ -101,10 +101,23 @@ def classify_root_cause(
     preflight = typed_dict(cycle_summary.get("failed_preflight"))
     blockers = [str(item) for item in list_values(preflight.get("blockers"))]
     if "missing_signals_stream_progress" in blockers:
+        decision_diagnostics = typed_dict(
+            preflight.get("predictor_decision_diagnostics")
+        )
         return (
             "SIGNALS_ZERO",
-            {"preflight_blockers": blockers, "failed_profile": cycle_summary.get("failed_profile")},
-            "RERANK_OR_CHANGE_MARKET_TIMING",
+            {
+                "preflight_blockers": blockers,
+                "failed_profile": cycle_summary.get("failed_profile"),
+                "predictor_decisions": decision_diagnostics.get("decisions"),
+                "predictor_accepted": decision_diagnostics.get("accepted"),
+                "predictor_rejected": decision_diagnostics.get("rejected"),
+                "primary_rejection_reason": decision_diagnostics.get(
+                    "primary_rejection_reason"
+                ),
+                "rejection_counts": decision_diagnostics.get("rejection_counts"),
+            },
+            signals_zero_next_action(decision_diagnostics),
         )
     if "missing_execution_reports_stream_progress" in blockers:
         return (
@@ -180,6 +193,17 @@ def classify_root_cause(
 
 def list_values(value: object) -> list[object]:
     return value if isinstance(value, list) else []
+
+
+def signals_zero_next_action(decision_diagnostics: dict[str, object]) -> str:
+    decisions = numeric_or_none(decision_diagnostics.get("decisions")) or 0.0
+    accepted = numeric_or_none(decision_diagnostics.get("accepted")) or 0.0
+    primary_reason = str(decision_diagnostics.get("primary_rejection_reason") or "")
+    if decisions <= 0:
+        return "CHECK_CONSUMER_OR_PREDICTOR_DECISION_TRACE"
+    if accepted <= 0 and primary_reason:
+        return f"RERANK_OR_RETUNE_PREDICTOR_REJECTIONS:{primary_reason}"
+    return "RERANK_OR_CHANGE_MARKET_TIMING"
 
 
 def write_runtime_touch_ab_root_cause(

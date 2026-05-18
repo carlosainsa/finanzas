@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PredictorDecisionTrace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stream_id",
+    "market_id",
+    "asset_id",
+    "accepted",
+    "rejection_reason",
+    "strategy_profile",
+    "timestamp_ms",
+    "source_timestamp_ms"
+  ],
+  "properties": {
+    "stream_id": { "type": "string", "minLength": 1 },
+    "market_id": { "type": "string", "minLength": 1 },
+    "asset_id": { "type": "string", "minLength": 1 },
+    "accepted": { "type": "boolean" },
+    "rejection_reason": { "type": "string", "minLength": 1 },
+    "strategy_profile": { "type": "string", "minLength": 1 },
+    "timestamp_ms": { "type": "integer", "minimum": 0 },
+    "source_timestamp_ms": { "type": "integer", "minimum": 0 },
+    "side": { "type": ["string", "null"], "enum": ["BUY", "SELL", null] },
+    "signal_id": { "type": ["string", "null"] },
+    "price": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "size": { "type": ["number", "null"], "minimum": 0 },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "spread": { "type": ["number", "null"] },
+    "best_bid": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "best_ask": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "bid_depth": { "type": ["number", "null"], "minimum": 0 },
+    "ask_depth": { "type": ["number", "null"], "minimum": 0 },
+    "top_change_count": { "type": ["integer", "null"], "minimum": 0 },
+    "model_version": { "type": ["string", "null"] },
+    "data_version": { "type": ["string", "null"] },
+    "feature_version": { "type": ["string", "null"] }
+  }
+}

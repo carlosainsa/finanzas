@@ -37,6 +37,7 @@ def managed_streams() -> list[str]:
         settings.orderbook_stream,
         settings.signals_stream,
         settings.execution_reports_stream,
+        settings.predictor_decisions_stream,
         settings.orderbook_deadletter_stream,
         settings.signals_deadletter_stream,
         settings.operator_commands_stream,

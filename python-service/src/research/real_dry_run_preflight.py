@@ -32,6 +32,7 @@ def build_preflight_report(
     check_seconds: int,
     capture_seconds: int,
     allow_zero_signals: bool = False,
+    recent_decisions: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     stream_progress = {
         name: {
@@ -41,7 +42,8 @@ def build_preflight_report(
             "delta": end_lengths.get(name, 0) - start_lengths.get(name, 0),
             "required_min_delta": 1,
         }
-        for name in ("orderbook", "signals", "reports")
+        for name in ("orderbook", "decisions", "signals", "reports")
+        if name in stream_names
     }
     dry_run_report_found = any(
         str(item.get("order_id", "")).startswith("dry-run-")
@@ -74,6 +76,9 @@ def build_preflight_report(
         "dry_run_report_found": dry_run_report_found,
         "valid_report_status_seen": valid_report_status_seen,
         "recent_report_status_counts": report_status_counts(recent_reports),
+        "predictor_decision_diagnostics": predictor_decision_diagnostics(
+            recent_decisions or []
+        ),
         "market_asset_ids_count": len(market_asset_ids),
         "market_asset_ids_sha256": hashlib.sha256(
             market_asset_ids_csv.encode("utf-8")
@@ -128,6 +133,57 @@ def report_status_counts(reports: list[dict[str, object]]) -> dict[str, int]:
     return counts
 
 
+def predictor_decision_diagnostics(
+    decisions: list[dict[str, object]],
+) -> dict[str, object]:
+    reason_counts: dict[str, int] = {}
+    accepted = 0
+    rejected = 0
+    by_asset: dict[str, dict[str, object]] = {}
+    for item in decisions:
+        accepted_item = bool(item.get("accepted"))
+        reason = str(item.get("rejection_reason") or "unknown")
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        accepted += 1 if accepted_item else 0
+        rejected += 0 if accepted_item else 1
+        asset_id = str(item.get("asset_id") or "")
+        if not asset_id:
+            continue
+        asset = by_asset.setdefault(
+            asset_id,
+            {
+                "decisions": 0,
+                "accepted": 0,
+                "rejected": 0,
+                "rejection_counts": {},
+            },
+        )
+        asset["decisions"] = int(numeric(asset["decisions"])) + 1
+        asset["accepted"] = int(numeric(asset["accepted"])) + (
+            1 if accepted_item else 0
+        )
+        asset["rejected"] = int(numeric(asset["rejected"])) + (
+            0 if accepted_item else 1
+        )
+        asset_reasons = asset["rejection_counts"]
+        if isinstance(asset_reasons, dict):
+            asset_reasons[reason] = int(asset_reasons.get(reason, 0)) + 1
+    return {
+        "decisions": len(decisions),
+        "accepted": accepted,
+        "rejected": rejected,
+        "rejection_counts": dict(sorted(reason_counts.items())),
+        "primary_rejection_reason": primary_count_key(reason_counts),
+        "assets": by_asset,
+    }
+
+
+def primary_count_key(counts: dict[str, int]) -> str | None:
+    if not counts:
+        return None
+    return max(sorted(counts), key=lambda key: counts[key])
+
+
 async def collect_stream_lengths(
     client: redis.Redis,
     stream_names: dict[str, str],
@@ -144,6 +200,26 @@ async def collect_recent_reports(
     count: int = 100,
 ) -> list[dict[str, object]]:
     rows = await client.xrevrange(reports_stream, count=count)
+    parsed: list[dict[str, object]] = []
+    for _, fields in rows:
+        payload = fields.get("payload")
+        if not isinstance(payload, str):
+            continue
+        try:
+            value = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            parsed.append(value)
+    return parsed
+
+
+async def collect_recent_payloads(
+    client: redis.Redis,
+    stream: str,
+    count: int = 100,
+) -> list[dict[str, object]]:
+    rows = await client.xrevrange(stream, count=count)
     parsed: list[dict[str, object]] = []
     for _, fields in rows:
         payload = fields.get("payload")
@@ -178,11 +254,16 @@ async def wait_for_preflight(
     start_lengths = await collect_stream_lengths(client, stream_names)
     end_lengths = start_lengths
     recent_reports: list[dict[str, object]] = []
+    recent_decisions: list[dict[str, object]] = []
     deadline = started + max(0, check_seconds)
     while True:
         await asyncio.sleep(min(max(1, poll_seconds), max(0.0, deadline - time.monotonic())))
         end_lengths = await collect_stream_lengths(client, stream_names)
         recent_reports = await collect_recent_reports(client, stream_names["reports"])
+        if "decisions" in stream_names:
+            recent_decisions = await collect_recent_payloads(
+                client, stream_names["decisions"]
+            )
         candidate = build_preflight_report(
             run_id=run_id,
             started_at=started_at,
@@ -192,6 +273,7 @@ async def wait_for_preflight(
             start_lengths=start_lengths,
             end_lengths=end_lengths,
             recent_reports=recent_reports,
+            recent_decisions=recent_decisions,
             require_reports=require_reports,
             market_asset_ids=market_asset_ids,
             blocked_segments_path=blocked_segments_path,
@@ -247,6 +329,7 @@ def main() -> int:
         "orderbook": os.getenv("ORDERBOOK_STREAM", "orderbook:stream"),
         "signals": os.getenv("SIGNALS_STREAM", "signals:stream"),
         "reports": os.getenv("EXECUTION_REPORTS_STREAM", "execution:reports:stream"),
+        "decisions": os.getenv("PREDICTOR_DECISIONS_STREAM", "predictor:decisions:stream"),
     }
     payload = asyncio.run(
         wait_for_preflight(

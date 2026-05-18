@@ -134,6 +134,66 @@ def test_runtime_touch_ranking_can_order_freshest_signalable_asset_first(
     assert selected[0]["book_age_ms"] == 0
 
 
+def test_runtime_touch_ranking_prefers_assets_with_predictor_acceptance(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_db(tmp_path)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-pass", "asset-pass", 1_000, 0.50, 0.55, 0.05, 10.0, 10.0),
+                ("market-pass", "asset-pass", 61_000, 0.51, 0.55, 0.04, 10.0, 10.0),
+                ("market-pass", "asset-pass", 121_000, 0.51, 0.54, 0.03, 10.0, 10.0),
+            ],
+        )
+        conn.execute(
+            """
+            insert into market_metadata values
+            ('market-pass', 'asset-pass', 'YES', 'Pass question', 'pass-question',
+             true, false, false, true, 1000.0, 2000.0, 1)
+            """
+        )
+        conn.execute(
+            """
+            create table predictor_decisions (
+                market_id varchar,
+                asset_id varchar,
+                accepted boolean,
+                rejection_reason varchar
+            )
+            """
+        )
+        conn.executemany(
+            "insert into predictor_decisions values (?, ?, ?, ?)",
+            [
+                ("market-active", "asset-active", False, "top_rotation"),
+                ("market-active", "asset-active", False, "top_rotation"),
+                ("market-pass", "asset-pass", True, "accepted"),
+                ("market-pass", "asset-pass", False, "rate_limited"),
+            ],
+        )
+
+    report = create_runtime_touch_ranking_report(
+        db_path,
+        tmp_path / "runtime-touch",
+        RuntimeTouchRankingConfig(
+            min_snapshots=3,
+            min_active_minutes=1,
+            min_touch_change_rate=0.10,
+            limit=2,
+        ),
+    )
+
+    selected = cast(list[dict[str, Any]], report["selected"])
+    selected_assets = {str(row["asset_id"]) for row in selected}
+    assert "asset-pass" in selected_assets
+    assert "asset-active" not in selected_assets
+    first = selected[0]
+    assert first["predictor_accepted_count"] == 1
+    assert first["predictor_accept_density"] == 0.5
+
+
 def seed_runtime_touch_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:

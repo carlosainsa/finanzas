@@ -7,6 +7,7 @@ The Rust engine and Python service exchange only schema-validated JSON over Redi
 | `orderbook:stream` | `rust-engine` WebSocket client | `python-service` consumer group `python-predictor` | `orderbook.json` |
 | `signals:stream` | `python-service` predictor | `rust-engine` consumer group `rust-executor` | `trade_signal.json` |
 | `execution:reports:stream` | `rust-engine` executor | API/monitoring service | `execution_report.json` |
+| `predictor:decisions:stream` | `python-service` predictor | research/preflight diagnostics | `predictor_decision_trace.json` |
 | `orderbook:deadletter` | `python-service` consumer | operators | invalid orderbook payload diagnostics |
 | `signals:deadletter` | `rust-engine` executor | operators | invalid trade signal diagnostics |
 
@@ -56,6 +57,7 @@ Research data lake:
 | `market_metadata` | Gamma market metadata snapshots, one row per asset/outcome |
 | `signals` | `signals:stream` |
 | `execution_reports` | `execution:reports:stream` |
+| `predictor_decisions` | `predictor:decisions:stream` |
 | `orderbook_deadletter` | `orderbook:deadletter` |
 | `signals_deadletter` | `signals:deadletter` |
 | `operator_commands` | `operator:commands:stream` |

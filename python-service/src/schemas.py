@@ -60,6 +60,33 @@ class TradeSignal(BaseModel):
     feature_version: str | None = None
 
 
+class PredictorDecisionTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stream_id: str
+    market_id: str
+    asset_id: str
+    accepted: bool
+    rejection_reason: str
+    strategy_profile: str
+    timestamp_ms: int
+    source_timestamp_ms: int
+    side: Literal["BUY", "SELL"] | None = None
+    signal_id: str | None = None
+    price: float | None = Field(default=None, ge=0, le=1)
+    size: float | None = Field(default=None, ge=0)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    spread: float | None = None
+    best_bid: float | None = Field(default=None, ge=0, le=1)
+    best_ask: float | None = Field(default=None, ge=0, le=1)
+    bid_depth: float | None = Field(default=None, ge=0)
+    ask_depth: float | None = Field(default=None, ge=0)
+    top_change_count: int | None = Field(default=None, ge=0)
+    model_version: str | None = None
+    data_version: str | None = None
+    feature_version: str | None = None
+
+
 class ExecutionReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

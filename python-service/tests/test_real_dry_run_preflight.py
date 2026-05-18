@@ -60,6 +60,23 @@ def test_preflight_report_fails_when_signals_do_not_progress() -> None:
         start_lengths={"orderbook": 1, "signals": 2, "reports": 3},
         end_lengths={"orderbook": 2, "signals": 2, "reports": 4},
         recent_reports=[{"order_id": "dry-run-1", "status": "UNMATCHED"}],
+        recent_decisions=[
+            {
+                "accepted": False,
+                "asset_id": "asset-1",
+                "rejection_reason": "low_spread",
+            },
+            {
+                "accepted": False,
+                "asset_id": "asset-1",
+                "rejection_reason": "low_spread",
+            },
+            {
+                "accepted": False,
+                "asset_id": "asset-2",
+                "rejection_reason": "top_rotation",
+            },
+        ],
         require_reports=True,
         market_asset_ids=[],
         blocked_segments_path=None,
@@ -70,6 +87,10 @@ def test_preflight_report_fails_when_signals_do_not_progress() -> None:
     assert "missing_signals_stream_progress" in cast(list[str], payload["blockers"])
     assert payload["recommendation"] == "repair_predictor_pipeline_before_repeat"
     assert payload["signals_required"] is True
+    diagnostics = cast(dict[str, object], payload["predictor_decision_diagnostics"])
+    assert diagnostics["decisions"] == 3
+    assert diagnostics["accepted"] == 0
+    assert diagnostics["primary_rejection_reason"] == "low_spread"
 
 
 def test_preflight_report_can_allow_zero_signals_for_sparse_research_probe() -> None:
@@ -100,6 +121,7 @@ def test_preflight_report_can_allow_zero_signals_for_sparse_research_probe() -> 
 def stream_names() -> dict[str, str]:
     return {
         "orderbook": "orderbook:stream",
+        "decisions": "predictor:decisions:stream",
         "signals": "signals:stream",
         "reports": "execution:reports:stream",
     }

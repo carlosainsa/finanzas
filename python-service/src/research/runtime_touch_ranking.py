@@ -125,6 +125,7 @@ def create_runtime_touch_ranking_views(
 ) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_orderbook_snapshots(conn)
+        ensure_predictor_decisions(conn)
         ensure_market_metadata(conn)
         max_ts = conn.execute(
             "select max(event_timestamp_ms) from orderbook_snapshots"
@@ -145,6 +146,7 @@ def create_runtime_touch_ranking_views(
         ranking_order_sql = (
             """
                         current_is_signalable desc,
+                        predictor_accept_density desc nulls last,
                         last_signalable_timestamp_ms desc nulls last,
                         recent_signalable_density desc,
                         book_age_ms asc,
@@ -155,6 +157,7 @@ def create_runtime_touch_ranking_views(
             if config.freshness_ordering == "freshest_first"
             else """
                         runtime_touch_score desc,
+                        predictor_accept_density desc nulls last,
                         signalable_density desc,
                         signalable_snapshots desc,
                         touch_change_rate desc,
@@ -347,9 +350,28 @@ def create_runtime_touch_ranking_views(
                     from market_metadata
                 )
                 where rn = 1
+            ),
+            predictor_decision_features as (
+                select
+                    market_id,
+                    asset_id,
+                    count(*) as predictor_decisions,
+                    sum(case when accepted then 1 else 0 end) as predictor_accepted_count,
+                    sum(case when accepted then 0 else 1 end) as predictor_rejected_count,
+                    avg(case when accepted then 1.0 else 0.0 end) as predictor_accept_density,
+                    max(rejection_reason) filter (
+                        where not accepted
+                    ) as predictor_primary_rejection_reason
+                from predictor_decisions
+                group by market_id, asset_id
             )
             select
                 grouped.*,
+                predictor.predictor_decisions,
+                predictor.predictor_accepted_count,
+                predictor.predictor_rejected_count,
+                predictor.predictor_accept_density,
+                predictor.predictor_primary_rejection_reason,
                 metadata.outcome,
                 metadata.question,
                 metadata.slug,
@@ -362,6 +384,7 @@ def create_runtime_touch_ranking_views(
                 (
                     case when coalesce(current_is_signalable, false) then 100 else 0 end
                     + coalesce(recent_signalable_density, 0) * 50
+                    + coalesce(predictor.predictor_accept_density, 0) * 60
                     + coalesce(signalable_density, 0) * 20
                     - least(
                         coalesce(last_signalable_age_ms, {config.lookback_ms})::double
@@ -379,6 +402,7 @@ def create_runtime_touch_ranking_views(
                     coalesce(touch_change_rate, 0) * 100
                     + coalesce(spread_opportunity_density, 0) * 30
                     + coalesce(signalable_density, 0) * 60
+                    + coalesce(predictor.predictor_accept_density, 0) * 80
                     + least(coalesce(avg_total_depth, 0), 1000000) / 100000
                     + least(coalesce(metadata.liquidity, 0), 100000) / 25000
                     + coalesce(active_minutes, 0) * 2
@@ -393,6 +417,10 @@ def create_runtime_touch_ranking_views(
                      {max_spread_filter}
                      and signalable_snapshots >= {config.min_signalable_snapshots}
                      and signalable_density >= {config.min_signalable_density}
+                     and (
+                         predictor.predictor_decisions is null
+                         or predictor.predictor_accepted_count > 0
+                     )
                      and stale_rate <= {config.max_stale_rate}
                      and coalesce(metadata.active, true)
                      and not coalesce(metadata.closed, false)
@@ -403,9 +431,15 @@ def create_runtime_touch_ranking_views(
                     when touch_change_rate < {config.min_touch_change_rate} then 'KEEP_DIAGNOSTIC'
                     when signalable_snapshots < {config.min_signalable_snapshots} then 'KEEP_DIAGNOSTIC'
                     when signalable_density < {config.min_signalable_density} then 'KEEP_DIAGNOSTIC'
+                    when predictor.predictor_decisions is not null
+                     and predictor.predictor_accepted_count = 0
+                    then 'KEEP_DIAGNOSTIC'
                     else 'KEEP_DIAGNOSTIC'
                 end as recommendation
             from grouped
+            left join predictor_decision_features predictor
+              on predictor.market_id = grouped.market_id
+             and predictor.asset_id = grouped.asset_id
             left join latest_metadata metadata
               on metadata.market_id = grouped.market_id
              and metadata.asset_id = grouped.asset_id
@@ -450,6 +484,22 @@ def ensure_orderbook_snapshots(conn: duckdb.DuckDBPyConnection) -> None:
             cast(null as double) as spread,
             cast(null as double) as bid_depth,
             cast(null as double) as ask_depth
+        where false
+        """
+    )
+
+
+def ensure_predictor_decisions(conn: duckdb.DuckDBPyConnection) -> None:
+    if relation_exists(conn, "predictor_decisions"):
+        return
+    conn.execute(
+        """
+        create or replace view predictor_decisions as
+        select
+            cast(null as varchar) as market_id,
+            cast(null as varchar) as asset_id,
+            cast(null as boolean) as accepted,
+            cast(null as varchar) as rejection_reason
         where false
         """
     )
