@@ -146,6 +146,43 @@ evidence step is a dry-run A/B cycle using the emitted `strict_signalable`
 command to compare `execution_probe_v11` against `execution_probe_v12` on the
 same universe.
 
+## 2026-05-18 - Runtime-Touch A/B v11 vs v12 Preflight
+
+- A/B run root:
+  `.tmp/operational/runtime-touch-ab-cycle-20260518T193457Z`
+- Source retry ladder:
+  `.tmp/operational/runtime-touch-ab-retry-ladder-20260518T173043Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Baseline profile: `execution_probe_v11`
+- Candidate profile: `execution_probe_v12`
+- Universe source: `strict_signalable`
+- Universe assets: `2`
+- Universe hash:
+  `3ee60c58228141d52193c5bd50272c1f56101da5e8d10e38c6c654a0f6ef599e`
+
+Outcome:
+
+- A/B did not reach the v12 arm.
+- `execution_probe_v11` failed preflight after `120` seconds.
+- Failure classification: `preflight_no_stream_progress`
+- Blocker: `missing_signals_stream_progress`
+- Orderbook stream progress: `123`
+- Signal stream progress: `0`
+- Execution report stream progress: `0`
+- Decision artifact: `runtime_touch_ab_decision_v1`
+- Recommendation: `RERANK_RUNTIME_TOUCH_UNIVERSE`
+- Live remains blocked.
+
+Interpretation:
+
+The selected universe was valid according to offline runtime-touch ranking, but
+it was not live-signalable during the actual v11 preflight window. This means
+the bottleneck moved from discovery coverage to runtime persistence of
+signalability. Do not compare quote policy from this run: v12 was never tested.
+The next step should re-rank or widen the runtime-touch universe before
+retrying A/B, and should prefer assets that remain signalable in the immediate
+preflight window, not only in the prior DuckDB capture.
+
 ## Prior Variant: execution_probe_v10
 
 `execution_probe_v10` is the next research-only variant after the corrected
