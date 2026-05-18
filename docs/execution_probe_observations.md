@@ -99,6 +99,53 @@ Follow-up implementation:
   actual long observation should still remain operator-triggered and
   research-only.
 
+## 2026-05-18 - Signalability-Aware Discovery Loop And Retry Ladder
+
+- Discovery run root:
+  `.tmp/operational/runtime-touch-signalability-discovery-loop-20260518152915`
+- Retry ladder root:
+  `.tmp/operational/runtime-touch-ab-retry-ladder-20260518T173043Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Discovery settings: `--discovery-limit 40`, `--batch-size 6`,
+  `--max-batches 6`, `--exploration-rate 0.35`
+- Selection policy:
+  `epsilon_family_fillability_signalability_diversified_batches_v3`
+
+Discovery result:
+
+- Processed batches: `batch-01`, `batch-02`, `batch-03`, `batch-04`
+- Skipped batches after early-stop: `batch-05` through `batch-14`
+- Ready batches: `1`
+- Selected batch: `batch-04`
+- Selected batch evidence: `2` signalable assets, `2` candidate expansion
+  assets, `2` opportunity-window assets, `1` eligible window.
+- Previous batches all failed on `signalability_signalable_density`.
+- Family memory update:
+  `market_family_memory_update/market_family_memory.json`
+- Family memory counts: `58` observations, `12` families,
+  `12` exploitable families.
+
+Retry ladder result:
+
+- Recommendation: `RUN_RUNTIME_TOUCH_AB_WITH_SELECTED_ATTEMPT`
+- Selected attempt: `strict_signalable`
+- Selected universe: `2` assets
+- Universe hash:
+  `3ee60c58228141d52193c5bd50272c1f56101da5e8d10e38c6c654a0f6ef599e`
+- Next command emitted:
+  `scripts/run_runtime_touch_ab_cycle.sh --skip-fresh-capture ...`
+- The retry ladder itself remained offline/research-only and did not execute
+  trades or promote live trading.
+
+Interpretation:
+
+The selector improvement worked: unlike prior discovery loops, the broad
+signalability-aware pass found a comparable runtime-touch universe and produced
+a deterministic retry-ladder recommendation. Live remains blocked. The next
+evidence step is a dry-run A/B cycle using the emitted `strict_signalable`
+command to compare `execution_probe_v11` against `execution_probe_v12` on the
+same universe.
+
 ## Prior Variant: execution_probe_v10
 
 `execution_probe_v10` is the next research-only variant after the corrected
