@@ -1091,6 +1091,7 @@ def test_runtime_touch_discovery_loop_print_plan_is_research_only(
         "src.research.runtime_touch_discovery_batch_diagnostics"
         in plan["delegates_to"]
     )
+    assert "src.research.market_family_memory" in plan["delegates_to"]
     assert "runtime_touch_discovery_batches.json" in plan["outputs"][
         "discovery_batches"
     ]
@@ -1100,6 +1101,7 @@ def test_runtime_touch_discovery_loop_print_plan_is_research_only(
     assert "runtime_touch_discovery_batch_diagnostics.json" in plan["outputs"][
         "batch_diagnostics"
     ]
+    assert "market_family_memory.json" in plan["outputs"]["family_memory_update"]
     assert "runtime_touch_early_stop_decision.json" in plan["outputs"][
         "early_stop_decision"
     ]

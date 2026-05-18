@@ -83,6 +83,22 @@ not evidence for live trading. The next implementation should make discovery
 more signalability-aware across a broader market set before another A/B retry
 ladder or quote-policy observation.
 
+Follow-up implementation:
+
+- Discovery batching is upgraded to
+  `epsilon_family_fillability_signalability_diversified_batches_v3`.
+- Fillability evidence is now loaded as a richer signalability prior, not only
+  as a scalar fillability score.
+- Family memory now ingests batch diagnostics and records signalability
+  failures without penalizing unprocessed batches or fillability-only evidence
+  as no-window observations.
+- The loop writes `market_family_memory_update/market_family_memory.json` so
+  no-ready-batch discovery runs become reusable selector evidence.
+- A broad dry-run plan was validated with `--discovery-limit 40`,
+  `--batch-size 6`, `--max-batches 6`, and `--exploration-rate 0.35`. The
+  actual long observation should still remain operator-triggered and
+  research-only.
+
 ## Prior Variant: execution_probe_v10
 
 `execution_probe_v10` is the next research-only variant after the corrected

@@ -10,7 +10,6 @@ from typing import Any
 
 from src.discovery.markets import ScoredMarket, discover_markets
 from src.research.market_family_memory import load_family_memory_map, market_family
-from src.research.market_fillability_score import load_asset_score_map
 from src.research.runtime_touch_ranking import normalize_records
 
 
@@ -28,7 +27,9 @@ class RuntimeTouchDiscoveryBatchConfig:
     market_family_memory_path: str | None = None
     exploration_rate: float = 0.20
     fillability_weight: float = 1.0
+    signalability_prior_weight: float = 1.0
     family_memory_weight: float = 1.0
+    family_signalability_penalty_weight: float = 1.0
     min_family_observations_for_exploit: int = 1
     diversify_batches: bool = True
     max_markets_per_family_per_batch: int = 1
@@ -46,8 +47,12 @@ class RuntimeTouchDiscoveryBatchConfig:
             raise ValueError("exploration_rate must be between 0 and 1")
         if self.fillability_weight < 0:
             raise ValueError("fillability_weight must be non-negative")
+        if self.signalability_prior_weight < 0:
+            raise ValueError("signalability_prior_weight must be non-negative")
         if self.family_memory_weight < 0:
             raise ValueError("family_memory_weight must be non-negative")
+        if self.family_signalability_penalty_weight < 0:
+            raise ValueError("family_signalability_penalty_weight must be non-negative")
         if self.min_family_observations_for_exploit <= 0:
             raise ValueError("min_family_observations_for_exploit must be positive")
         if self.max_markets_per_family_per_batch <= 0:
@@ -83,7 +88,7 @@ def write_runtime_touch_discovery_batches(
         "can_promote_live": False,
         "decision_policy": "offline_runtime_touch_discovery_batching_only",
         "selection_source": "gamma_discovery_ranked_batches",
-        "selection_policy": "epsilon_family_fillability_diversified_batches_v2",
+        "selection_policy": "epsilon_family_fillability_signalability_diversified_batches_v3",
         "risk_contract": {
             "execution_mode": "dry_run",
             "does_not_modify_quote_policy": True,
@@ -237,7 +242,7 @@ def apply_explore_exploit_policy(
     market_rows: list[dict[str, Any]],
     config: RuntimeTouchDiscoveryBatchConfig,
 ) -> list[dict[str, Any]]:
-    fillability_scores = load_asset_score_map(
+    fillability_profiles = load_asset_signalability_profiles(
         Path(config.market_fillability_score_path)
         if config.market_fillability_score_path
         else None
@@ -252,31 +257,69 @@ def apply_explore_exploit_policy(
         row = dict(market)
         family_key, family_source = market_family(row)
         family = family_memory.get(family_key, {})
-        asset_scores = [
-            fillability_scores.get(str(asset_id), 0.0)
+        asset_profiles = [
+            fillability_profiles.get(str(asset_id), {})
             for asset_id in row.get("clob_token_ids", [])
+        ]
+        asset_scores = [
+            float(profile.get("market_fillability_score") or 0.0)
+            for profile in asset_profiles
+        ]
+        asset_signalability_scores = [
+            float(profile.get("signalability_prior_score") or 0.0)
+            for profile in asset_profiles
         ]
         best_fillability_score = max(asset_scores) if asset_scores else 0.0
         fillability_covered_assets = sum(1 for score in asset_scores if score > 0)
+        best_signalability_score = (
+            max(asset_signalability_scores) if asset_signalability_scores else 0.0
+        )
+        signalability_covered_assets = sum(
+            1 for score in asset_signalability_scores if score > 0
+        )
         family_memory_score = float(family.get("family_memory_score") or 0.0)
         family_observations = int(family.get("observations") or 0)
+        family_memory_decision = str(family.get("family_memory_decision") or "")
+        family_signalability_failure_rate = float(
+            family.get("signalability_failure_rate") or 0.0
+        )
+        family_signalability_success_rate = float(
+            family.get("signalability_success_rate") or 0.0
+        )
         has_exploit_memory = (
             best_fillability_score > 0
-            or family_observations >= config.min_family_observations_for_exploit
+            or best_signalability_score > 0
+            or family_memory_decision == "EXPLOIT"
+            or (
+                family_observations >= config.min_family_observations_for_exploit
+                and family_memory_score > 0
+            )
         )
         row["original_rank"] = original_rank
         row["market_family"] = family_key
         row["market_family_source"] = family_source
         row["family_memory_score"] = family_memory_score
+        row["family_memory_decision"] = family_memory_decision
         row["family_observations"] = family_observations
         row["asset_fillability_scores"] = asset_scores
+        row["asset_signalability_prior_scores"] = asset_signalability_scores
         row["fillability_covered_assets"] = fillability_covered_assets
+        row["signalability_covered_assets"] = signalability_covered_assets
         row["best_asset_fillability_score"] = best_fillability_score
+        row["best_asset_signalability_prior_score"] = best_signalability_score
+        row["family_signalability_failure_rate"] = family_signalability_failure_rate
+        row["family_signalability_success_rate"] = family_signalability_success_rate
         row["combined_discovery_score"] = (
             float(row.get("score") or 0.0) * 100
             + best_fillability_score * config.fillability_weight
             + fillability_covered_assets * config.fillability_weight
+            + best_signalability_score * config.signalability_prior_weight
+            + signalability_covered_assets * config.signalability_prior_weight
             + family_memory_score * config.family_memory_weight
+            + family_signalability_success_rate * 25 * config.family_memory_weight
+            - family_signalability_failure_rate
+            * 50
+            * config.family_signalability_penalty_weight
         )
         row["selection_mode"] = "exploit" if has_exploit_memory else "explore"
         enriched.append(row)
@@ -285,8 +328,11 @@ def apply_explore_exploit_policy(
         [row for row in enriched if row["selection_mode"] == "exploit"],
         key=lambda row: (
             row["combined_discovery_score"],
+            row["best_asset_signalability_prior_score"],
+            row["signalability_covered_assets"],
             row["fillability_covered_assets"],
             row["best_asset_fillability_score"],
+            -row["family_signalability_failure_rate"],
             row["family_memory_score"],
             -row["original_rank"],
         ),
@@ -329,6 +375,9 @@ def batch_record(
         "fillability_covered_assets_count": sum(
             int(market.get("fillability_covered_assets") or 0) for market in markets
         ),
+        "signalability_covered_assets_count": sum(
+            int(market.get("signalability_covered_assets") or 0) for market in markets
+        ),
         "market_ids": [str(market["market_id"]) for market in markets],
         "market_asset_ids": asset_ids,
         "market_asset_ids_csv": asset_csv,
@@ -367,6 +416,60 @@ def unique_asset_ids(markets: list[dict[str, Any]]) -> list[str]:
             seen.add(str(asset_id))
             ids.append(str(asset_id))
     return ids
+
+
+def load_asset_signalability_profiles(path: Path | None) -> dict[str, dict[str, float]]:
+    if path is None or not path.exists():
+        return {}
+    payload = read_json(path)
+    rows = payload.get("selected")
+    if not isinstance(rows, list):
+        return {}
+    profiles: dict[str, dict[str, float]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("asset_id"):
+            continue
+        profiles[str(row["asset_id"])] = {
+            "market_fillability_score": float(row.get("market_fillability_score") or 0.0),
+            "signalability_prior_score": signalability_prior_score(row),
+        }
+    return profiles
+
+
+def signalability_prior_score(row: dict[str, Any]) -> float:
+    signals = max(float(row.get("signals") or 0.0), 0.0)
+    spread_density = bounded_float(row.get("spread_opportunity_density"))
+    future_touch_rate = bounded_float(row.get("future_touch_rate"))
+    observed_fill_rate = bounded_float(row.get("observed_fill_rate"))
+    synthetic_fill_rate = bounded_float(row.get("synthetic_fill_rate"))
+    stale_rate = bounded_float(row.get("stale_rate"))
+    avg_spread = max(float(row.get("avg_spread") or 0.0), 0.0)
+    avg_total_depth = max(float(row.get("avg_total_depth") or 0.0), 0.0)
+    return max(
+        0.0,
+        math.log1p(signals) * 2
+        + spread_density * 50
+        + future_touch_rate * 25
+        + observed_fill_rate * 25
+        + synthetic_fill_rate * 10
+        + min(avg_spread, 0.10) * 100
+        + math.log1p(avg_total_depth) * 0.5
+        - stale_rate * 50,
+    )
+
+
+def bounded_float(value: Any) -> float:
+    try:
+        return min(max(float(value or 0.0), 0.0), 1.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"expected JSON object: {path}")
+    return data
 
 
 def main() -> int:

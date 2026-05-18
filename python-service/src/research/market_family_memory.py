@@ -28,12 +28,14 @@ def create_market_family_memory_report(
     output_dir: Path,
     discovery_batches_path: Path | None = None,
     batch_comparison_path: Path | None = None,
+    batch_diagnostics_path: Path | None = None,
     fillability_score_path: Path | None = None,
     config: MarketFamilyMemoryConfig = MarketFamilyMemoryConfig(),
 ) -> dict[str, Any]:
     rows = build_family_rows(
         discovery_batches_path=discovery_batches_path,
         batch_comparison_path=batch_comparison_path,
+        batch_diagnostics_path=batch_diagnostics_path,
         fillability_score_path=fillability_score_path,
     )
     family_rows = aggregate_family_rows(rows, config)
@@ -63,6 +65,9 @@ def create_market_family_memory_report(
             "batch_comparison": str(batch_comparison_path)
             if batch_comparison_path
             else None,
+            "batch_diagnostics": str(batch_diagnostics_path)
+            if batch_diagnostics_path
+            else None,
             "fillability_score": str(fillability_score_path)
             if fillability_score_path
             else None,
@@ -90,34 +95,63 @@ def create_market_family_memory_report(
 def build_family_rows(
     discovery_batches_path: Path | None,
     batch_comparison_path: Path | None,
+    batch_diagnostics_path: Path | None,
     fillability_score_path: Path | None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     batch_status = load_batch_status(batch_comparison_path)
+    batch_diagnostics = load_batch_status(batch_diagnostics_path)
     if discovery_batches_path and discovery_batches_path.exists():
         discovery = read_json(discovery_batches_path)
         for batch in discovery.get("batches", []):
             if not isinstance(batch, dict):
                 continue
             status = batch_status.get(str(batch.get("batch_id") or ""), {})
+            diagnostic = batch_diagnostics.get(str(batch.get("batch_id") or ""), {})
+            is_processed = bool(diagnostic.get("is_processed", bool(status)))
+            batch_families: dict[str, dict[str, Any]] = {}
             for market in batch.get("markets", []):
                 if not isinstance(market, dict):
                     continue
                 family_key, family_source = market_family(market)
+                family_record = batch_families.setdefault(
+                    family_key,
+                    {"family_source": family_source, "market_ids": []},
+                )
+                family_record["market_ids"].append(str(market.get("market_id") or ""))
+            for family_key, family_record in batch_families.items():
                 rows.append(
                     {
                         "family_key": family_key,
-                        "family_source": family_source,
-                        "market_id": str(market.get("market_id") or ""),
+                        "family_source": str(family_record["family_source"]),
+                        "market_id": ",".join(
+                            market_id
+                            for market_id in family_record["market_ids"]
+                            if market_id
+                        ),
                         "batch_id": str(batch.get("batch_id") or ""),
                         "batch_decision": status.get("batch_decision", "UNKNOWN"),
+                        "readiness_status": diagnostic.get(
+                            "readiness_status", "UNKNOWN"
+                        ),
                         "route_next_action": status.get(
                             "route_next_action", "UNKNOWN"
+                        ),
+                        "primary_blocker": diagnostic.get(
+                            "primary_blocker", "UNKNOWN"
+                        ),
+                        "is_processed": is_processed,
+                        "signalable_assets_count": int_value(
+                            diagnostic.get("signalable_assets_count")
                         ),
                         "selected_assets": int_value(status.get("selected_assets")),
                         "eligible_windows": int_value(status.get("eligible_windows")),
                         "market_fillability_score": 0.0,
-                        "observation_source": "discovery_batch",
+                        "observation_source": (
+                            "runtime_touch_discovery_batch_diagnostics"
+                            if diagnostic
+                            else "discovery_batch"
+                        ),
                     }
                 )
     if fillability_score_path and fillability_score_path.exists():
@@ -135,7 +169,11 @@ def build_family_rows(
                     "batch_decision": "READY"
                     if str(row.get("recommendation")) == "PROMOTE_TO_DISCOVERY_BATCH"
                     else "REJECT",
+                    "readiness_status": "FILLABILITY_EVIDENCE",
                     "route_next_action": "FILLABILITY_EVIDENCE",
+                    "primary_blocker": "",
+                    "is_processed": True,
+                    "signalable_assets_count": 1,
                     "selected_assets": 1,
                     "eligible_windows": 0,
                     "market_fillability_score": float(
@@ -156,19 +194,39 @@ def aggregate_family_rows(
         families.setdefault(str(row["family_key"]), []).append(row)
     output: list[dict[str, Any]] = []
     for family_key, family_rows in families.items():
+        family_rows = [row for row in family_rows if bool(row.get("is_processed", True))]
+        if not family_rows:
+            continue
         observations = len(family_rows)
         ready = sum(1 for row in family_rows if row["batch_decision"] == "READY")
         blocked = sum(
             1 for row in family_rows if row["route_next_action"] == "BLOCK_LIVE"
         )
+        signalability_failures = sum(
+            1
+            for row in family_rows
+            if str(row.get("primary_blocker") or "").startswith("signalability_")
+        )
+        signalability_successes = sum(
+            1
+            for row in family_rows
+            if str(row.get("readiness_status") or "")
+            in {"READY_FOR_AB_RETRY", "TIME_WINDOW_READY_ONLY", "FILLABILITY_EVIDENCE"}
+        )
         no_windows = sum(
             1
             for row in family_rows
-            if row.get("route_next_action") == "EXPAND_MARKET_DISCOVERY"
-            or row.get("eligible_windows") == 0
+            if row.get("observation_source") != "market_fillability_score"
+            and (
+                row.get("route_next_action") == "EXPAND_MARKET_DISCOVERY"
+                or row.get("eligible_windows") == 0
+            )
         )
         avg_selected_assets = sum(
             int_value(row.get("selected_assets")) for row in family_rows
+        ) / observations
+        avg_signalable_assets = sum(
+            int_value(row.get("signalable_assets_count")) for row in family_rows
         ) / observations
         avg_eligible_windows = sum(
             int_value(row.get("eligible_windows")) for row in family_rows
@@ -177,12 +235,17 @@ def aggregate_family_rows(
             float(row.get("market_fillability_score") or 0.0) for row in family_rows
         ) / observations
         ready_rate = ready / observations
-        penalty_rate = (blocked + no_windows) / observations
+        signalability_failure_rate = signalability_failures / observations
+        signalability_success_rate = signalability_successes / observations
+        penalty_rate = (blocked + no_windows + signalability_failures) / observations
         family_memory_score = (
             ready_rate * 100
             + avg_selected_assets * 10
+            + avg_signalable_assets * 8
             + avg_eligible_windows * 5
             + avg_fillability_score
+            + signalability_success_rate * 20
+            - signalability_failure_rate * 35
             - penalty_rate * 25
         )
         decision = (
@@ -198,8 +261,13 @@ def aggregate_family_rows(
                 "observations": observations,
                 "ready_batches": ready,
                 "blocked_batches": blocked,
+                "signalability_failures": signalability_failures,
+                "signalability_successes": signalability_successes,
                 "no_window_observations": no_windows,
                 "ready_rate": ready_rate,
+                "signalability_failure_rate": signalability_failure_rate,
+                "signalability_success_rate": signalability_success_rate,
+                "avg_signalable_assets": avg_signalable_assets,
                 "avg_selected_assets": avg_selected_assets,
                 "avg_eligible_windows": avg_eligible_windows,
                 "avg_fillability_score": avg_fillability_score,
@@ -290,6 +358,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--discovery-batches")
     parser.add_argument("--batch-comparison")
+    parser.add_argument("--batch-diagnostics")
     parser.add_argument("--fillability-score")
     parser.add_argument("--min-observations", type=int, default=1)
     args = parser.parse_args()
@@ -300,6 +369,9 @@ def main() -> int:
         else None,
         batch_comparison_path=Path(args.batch_comparison)
         if args.batch_comparison
+        else None,
+        batch_diagnostics_path=Path(args.batch_diagnostics)
+        if args.batch_diagnostics
         else None,
         fillability_score_path=Path(args.fillability_score)
         if args.fillability_score

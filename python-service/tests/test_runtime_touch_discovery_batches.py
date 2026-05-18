@@ -56,6 +56,14 @@ def test_discovery_batches_use_fillability_and_family_memory(
                     {
                         "asset_id": "market-b-yes",
                         "market_fillability_score": 50.0,
+                        "signals": 10,
+                        "spread_opportunity_density": 0.5,
+                        "future_touch_rate": 0.4,
+                        "observed_fill_rate": 0.3,
+                        "synthetic_fill_rate": 0.4,
+                        "stale_rate": 0.0,
+                        "avg_spread": 0.03,
+                        "avg_total_depth": 1000.0,
                     }
                 ]
             }
@@ -95,13 +103,54 @@ def test_discovery_batches_use_fillability_and_family_memory(
 
     assert (
         report["selection_policy"]
-        == "epsilon_family_fillability_diversified_batches_v2"
+        == "epsilon_family_fillability_signalability_diversified_batches_v3"
     )
     assert report["markets"][0]["market_id"] == "market-b"
     assert report["markets"][0]["selection_mode"] == "exploit"
+    assert report["markets"][0]["best_asset_signalability_prior_score"] > 0
     assert report["markets"][1]["selection_mode"] == "explore"
     assert report["batches"][0]["families_count"] == 2
     assert report["batches"][0]["fillability_covered_assets_count"] == 1
+    assert report["batches"][0]["signalability_covered_assets_count"] == 1
+
+
+def test_failed_family_memory_does_not_force_exploit_mode(tmp_path: Path) -> None:
+    family_memory_path = tmp_path / "family_memory.json"
+    family_memory_path.write_text(
+        json.dumps(
+            {
+                "families": [
+                    {
+                        "family_key": "tag:politics",
+                        "observations": 3,
+                        "family_memory_score": -40.0,
+                        "family_memory_decision": "EXPLORE",
+                        "signalability_failure_rate": 1.0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    markets = [
+        score_market(candidate("market-a", score_hint=30_000, tags=["Politics"])),
+        score_market(candidate("market-b", score_hint=10_000, tags=["Sports"])),
+    ]
+
+    report = write_runtime_touch_discovery_batches(
+        tmp_path / "discovery",
+        markets,
+        RuntimeTouchDiscoveryBatchConfig(
+            discovery_limit=2,
+            batch_size=4,
+            market_family_memory_path=str(family_memory_path),
+            exploration_rate=1.0,
+        ),
+    )
+
+    politics = next(row for row in report["markets"] if row["market_id"] == "market-a")
+    assert politics["selection_mode"] == "explore"
+    assert politics["family_signalability_failure_rate"] == 1.0
 
 
 def test_discovery_batches_diversify_families_within_batch(
