@@ -134,6 +134,21 @@ assert_services_running() {
   done
 }
 
+export_data_lake_snapshot() {
+  local output_name="$1"
+  set +e
+  PYTHONPATH=python-service python3 -m src.research.data_lake \
+    --root "$DATA_LAKE_ROOT" \
+    --duckdb "$DATA_LAKE_DUCKDB" \
+    --count "$DATA_LAKE_EXPORT_COUNT" \
+    > "$RESEARCH_REPORT_ROOT/$output_name"
+  local export_status=$?
+  set -e
+  if [[ "$export_status" != "0" ]]; then
+    echo "Data lake snapshot export failed with status $export_status" >&2
+  fi
+}
+
 capture_with_service_monitoring() {
   local elapsed="${REAL_DRY_RUN_PREFLIGHT_ELAPSED_SECONDS:-0}"
   local remaining=$((REAL_DRY_RUN_SECONDS - elapsed))
@@ -188,6 +203,7 @@ run_preflight_with_service_monitoring() {
   set -e
   if [[ "$preflight_status" != "0" ]]; then
     echo "Real dry-run preflight failed; inspect $RESEARCH_REPORT_ROOT/real_dry_run_preflight.json." >&2
+    export_data_lake_snapshot "data_lake_export_preflight_failure.json"
     tail_service_logs
     exit "$preflight_status"
   fi
@@ -335,6 +351,7 @@ async def main() -> None:
     client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
     streams = {
         "orderbook": os.getenv("ORDERBOOK_STREAM", "orderbook:stream"),
+        "decisions": os.getenv("PREDICTOR_DECISIONS_STREAM", "predictor:decisions:stream"),
         "signals": os.getenv("SIGNALS_STREAM", "signals:stream"),
         "reports": os.getenv("EXECUTION_REPORTS_STREAM", "execution:reports:stream"),
     }

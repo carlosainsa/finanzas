@@ -84,7 +84,9 @@ def create_runtime_touch_ab_preflight_failure_decision(
         for item in (raw_blockers if isinstance(raw_blockers, list) else [])
         if isinstance(item, str)
     ]
-    recommendation, next_step = classify_preflight_failure(blockers, failed_profile)
+    recommendation, next_step = classify_preflight_failure(
+        blockers, failed_profile, preflight
+    )
     return {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -190,8 +192,28 @@ def create_runtime_touch_ab_signalability_gate_failure_decision(
 def classify_preflight_failure(
     blockers: list[str],
     failed_profile: str,
+    preflight: dict[str, object] | None = None,
 ) -> tuple[str, str]:
+    decision_diagnostics = (
+        preflight.get("predictor_decision_diagnostics")
+        if isinstance(preflight, dict)
+        else None
+    )
+    primary_rejection_reason = None
+    if isinstance(decision_diagnostics, dict):
+        reason = decision_diagnostics.get("primary_rejection_reason")
+        primary_rejection_reason = str(reason) if isinstance(reason, str) else None
+    if "missing_predictor_decisions_stream_progress" in blockers:
+        return (
+            "FIX_PREDICTOR_DECISION_TRACE",
+            f"{failed_profile} consumed orderbook data without predictor decision traces; repair consumer tracing before retrying A/B.",
+        )
     if "missing_signals_stream_progress" in blockers:
+        if primary_rejection_reason == "low_depth":
+            return (
+                "RERANK_RUNTIME_TOUCH_UNIVERSE",
+                f"{failed_profile} rejected all preflight decisions for low_depth; rerank with fresher depth evidence or widen the runtime-touch universe before retrying A/B.",
+            )
         return (
             "RERANK_RUNTIME_TOUCH_UNIVERSE",
             f"{failed_profile} produced no signals during preflight; rerank or widen the runtime-touch universe before retrying A/B.",
@@ -485,6 +507,10 @@ def command_templates(recommendation: str) -> list[str]:
     if recommendation == "FIX_RISK_OR_EXECUTOR_ERRORS":
         return [
             "Inspect execution_failure_diagnostics.json error_diagnostics before changing quote or market selection."
+        ]
+    if recommendation == "FIX_PREDICTOR_DECISION_TRACE":
+        return [
+            "Inspect predictor:decisions:stream and python-service consumer logs before changing market selection."
         ]
     return []
 

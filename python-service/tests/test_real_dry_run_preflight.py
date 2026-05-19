@@ -9,8 +9,8 @@ def test_preflight_report_passes_when_required_streams_progress() -> None:
         finished_at="2026-04-28T00:01:00+00:00",
         elapsed_seconds=60,
         stream_names=stream_names(),
-        start_lengths={"orderbook": 1, "signals": 2, "reports": 3},
-        end_lengths={"orderbook": 2, "signals": 3, "reports": 3},
+        start_lengths={"orderbook": 1, "decisions": 2, "signals": 2, "reports": 3},
+        end_lengths={"orderbook": 2, "decisions": 3, "signals": 3, "reports": 3},
         recent_reports=[],
         require_reports=False,
         market_asset_ids=["asset-1", "asset-2"],
@@ -32,8 +32,8 @@ def test_preflight_report_fails_when_required_reports_do_not_progress() -> None:
         finished_at="2026-04-28T00:01:00+00:00",
         elapsed_seconds=60,
         stream_names=stream_names(),
-        start_lengths={"orderbook": 1, "signals": 2, "reports": 3},
-        end_lengths={"orderbook": 2, "signals": 3, "reports": 3},
+        start_lengths={"orderbook": 1, "decisions": 2, "signals": 2, "reports": 3},
+        end_lengths={"orderbook": 2, "decisions": 3, "signals": 3, "reports": 3},
         recent_reports=[],
         require_reports=True,
         market_asset_ids=["asset-1"],
@@ -57,8 +57,8 @@ def test_preflight_report_fails_when_signals_do_not_progress() -> None:
         finished_at="2026-04-28T00:01:00+00:00",
         elapsed_seconds=60,
         stream_names=stream_names(),
-        start_lengths={"orderbook": 1, "signals": 2, "reports": 3},
-        end_lengths={"orderbook": 2, "signals": 2, "reports": 4},
+        start_lengths={"orderbook": 1, "decisions": 2, "signals": 2, "reports": 3},
+        end_lengths={"orderbook": 2, "decisions": 5, "signals": 2, "reports": 4},
         recent_reports=[{"order_id": "dry-run-1", "status": "UNMATCHED"}],
         recent_decisions=[
             {
@@ -93,6 +93,29 @@ def test_preflight_report_fails_when_signals_do_not_progress() -> None:
     assert diagnostics["primary_rejection_reason"] == "low_spread"
 
 
+def test_preflight_report_fails_when_orderbook_progresses_without_decisions() -> None:
+    payload = build_preflight_report(
+        run_id="run-1",
+        started_at="2026-04-28T00:00:00+00:00",
+        finished_at="2026-04-28T00:01:00+00:00",
+        elapsed_seconds=60,
+        stream_names=stream_names(),
+        start_lengths={"orderbook": 1, "decisions": 2, "signals": 3, "reports": 3},
+        end_lengths={"orderbook": 2, "decisions": 2, "signals": 3, "reports": 3},
+        recent_reports=[],
+        require_reports=False,
+        market_asset_ids=["asset-1"],
+        blocked_segments_path=None,
+        check_seconds=60,
+        capture_seconds=900,
+        allow_zero_signals=True,
+    )
+
+    blockers = cast(list[str], payload["blockers"])
+    assert "missing_predictor_decisions_stream_progress" in blockers
+    assert payload["recommendation"] == "repair_predictor_consumer_trace_before_repeat"
+
+
 def test_preflight_report_can_allow_zero_signals_for_sparse_research_probe() -> None:
     payload = build_preflight_report(
         run_id="run-1",
@@ -100,8 +123,8 @@ def test_preflight_report_can_allow_zero_signals_for_sparse_research_probe() -> 
         finished_at="2026-04-28T00:01:00+00:00",
         elapsed_seconds=60,
         stream_names=stream_names(),
-        start_lengths={"orderbook": 1, "signals": 2, "reports": 3},
-        end_lengths={"orderbook": 2, "signals": 2, "reports": 3},
+        start_lengths={"orderbook": 1, "decisions": 2, "signals": 2, "reports": 3},
+        end_lengths={"orderbook": 2, "decisions": 3, "signals": 2, "reports": 3},
         recent_reports=[],
         require_reports=False,
         market_asset_ids=["asset-1"],

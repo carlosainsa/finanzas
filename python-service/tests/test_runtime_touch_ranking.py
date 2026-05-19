@@ -160,17 +160,19 @@ def test_runtime_touch_ranking_prefers_assets_with_predictor_acceptance(
                 market_id varchar,
                 asset_id varchar,
                 accepted boolean,
-                rejection_reason varchar
+                rejection_reason varchar,
+                source_timestamp_ms bigint
             )
             """
         )
         conn.executemany(
-            "insert into predictor_decisions values (?, ?, ?, ?)",
+            "insert into predictor_decisions values (?, ?, ?, ?, ?)",
             [
-                ("market-active", "asset-active", False, "top_rotation"),
-                ("market-active", "asset-active", False, "top_rotation"),
-                ("market-pass", "asset-pass", True, "accepted"),
-                ("market-pass", "asset-pass", False, "rate_limited"),
+                ("market-active", "asset-active", False, "top_rotation", 61_000),
+                ("market-active", "asset-active", False, "top_rotation", 121_000),
+                ("market-pass", "asset-pass", True, "accepted", 61_000),
+                ("market-pass", "asset-pass", False, "rate_limited", 121_000),
+                ("market-stale", "asset-stale", True, "accepted", 999_999_000),
             ],
         )
 

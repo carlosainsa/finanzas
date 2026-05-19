@@ -362,7 +362,9 @@ def create_runtime_touch_ranking_views(
                     max(rejection_reason) filter (
                         where not accepted
                     ) as predictor_primary_rejection_reason
-                from predictor_decisions
+                from predictor_decisions_for_ranking
+                where coalesce(source_timestamp_ms, timestamp_ms) >= {min_timestamp_ms}
+                  and coalesce(source_timestamp_ms, timestamp_ms) <= {max_timestamp_ms}
                 group by market_id, asset_id
             )
             select
@@ -491,18 +493,47 @@ def ensure_orderbook_snapshots(conn: duckdb.DuckDBPyConnection) -> None:
 
 def ensure_predictor_decisions(conn: duckdb.DuckDBPyConnection) -> None:
     if relation_exists(conn, "predictor_decisions"):
-        return
+        columns = relation_column_names(conn, "predictor_decisions")
+    else:
+        conn.execute(
+            """
+            create or replace view predictor_decisions as
+            select
+                cast(null as varchar) as market_id,
+                cast(null as varchar) as asset_id,
+                cast(null as boolean) as accepted,
+                cast(null as varchar) as rejection_reason,
+                cast(null as bigint) as source_timestamp_ms,
+                cast(null as bigint) as timestamp_ms
+            where false
+            """
+        )
+        columns = relation_column_names(conn, "predictor_decisions")
+    source_timestamp_expr = (
+        "source_timestamp_ms"
+        if "source_timestamp_ms" in columns
+        else "cast(null as bigint)"
+    )
+    timestamp_expr = (
+        "timestamp_ms" if "timestamp_ms" in columns else "cast(null as bigint)"
+    )
     conn.execute(
-        """
-        create or replace view predictor_decisions as
+        f"""
+        create or replace view predictor_decisions_for_ranking as
         select
-            cast(null as varchar) as market_id,
-            cast(null as varchar) as asset_id,
-            cast(null as boolean) as accepted,
-            cast(null as varchar) as rejection_reason
-        where false
+            market_id,
+            asset_id,
+            accepted,
+            rejection_reason,
+            {source_timestamp_expr} as source_timestamp_ms,
+            {timestamp_expr} as timestamp_ms
+        from predictor_decisions
         """
     )
+
+
+def relation_column_names(conn: duckdb.DuckDBPyConnection, relation: str) -> set[str]:
+    return {str(row[0]) for row in conn.execute(f"describe {relation}").fetchall()}
 
 
 def copy_views(

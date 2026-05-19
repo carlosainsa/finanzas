@@ -116,6 +116,48 @@ def test_runtime_touch_ab_preflight_failure_reranks_no_signal_universe() -> None
     assert "missing_signals_stream_progress" in cast(list[str], report["rationale"])
 
 
+def test_runtime_touch_ab_preflight_failure_explains_low_depth_rejections() -> None:
+    report = create_runtime_touch_ab_preflight_failure_decision(
+        {
+            "report_version": "real_dry_run_preflight_v1",
+            "can_execute_trades": False,
+            "status": "failed",
+            "blockers": ["missing_signals_stream_progress"],
+            "market_asset_ids_count": 2,
+            "market_asset_ids_sha256": "hash",
+            "capture_seconds": 1800,
+            "predictor_decision_diagnostics": {
+                "decisions": 4,
+                "accepted": 0,
+                "rejected": 4,
+                "primary_rejection_reason": "low_depth",
+            },
+        },
+        failed_profile="execution_probe_v11",
+    )
+
+    assert report["recommendation"] == "RERANK_RUNTIME_TOUCH_UNIVERSE"
+    assert "low_depth" in str(report["next_step"])
+
+
+def test_runtime_touch_ab_preflight_failure_detects_missing_decision_trace() -> None:
+    report = create_runtime_touch_ab_preflight_failure_decision(
+        {
+            "report_version": "real_dry_run_preflight_v1",
+            "can_execute_trades": False,
+            "status": "failed",
+            "blockers": ["missing_predictor_decisions_stream_progress"],
+            "market_asset_ids_count": 2,
+            "market_asset_ids_sha256": "hash",
+            "capture_seconds": 1800,
+        },
+        failed_profile="execution_probe_v11",
+    )
+
+    assert report["recommendation"] == "FIX_PREDICTOR_DECISION_TRACE"
+    assert "consumer tracing" in str(report["next_step"])
+
+
 def test_runtime_touch_ab_signalability_gate_failure_reranks_universe() -> None:
     report = create_runtime_touch_ab_signalability_gate_failure_decision(
         {

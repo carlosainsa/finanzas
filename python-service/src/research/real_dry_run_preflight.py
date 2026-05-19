@@ -104,6 +104,12 @@ def preflight_blockers(
     blockers: list[str] = []
     if numeric(stream_progress["orderbook"].get("delta")) < 1:
         blockers.append("missing_orderbook_stream_progress")
+    if (
+        "decisions" in stream_progress
+        and numeric(stream_progress["orderbook"].get("delta")) >= 1
+        and numeric(stream_progress["decisions"].get("delta")) < 1
+    ):
+        blockers.append("missing_predictor_decisions_stream_progress")
     if not allow_zero_signals and numeric(stream_progress["signals"].get("delta")) < 1:
         blockers.append("missing_signals_stream_progress")
     if require_reports and numeric(stream_progress["reports"].get("delta")) < 1:
@@ -120,6 +126,8 @@ def preflight_recommendation(blockers: list[str]) -> str:
         return "continue_capture"
     if "missing_orderbook_stream_progress" in blockers:
         return "repair_market_data_pipeline_before_repeat"
+    if "missing_predictor_decisions_stream_progress" in blockers:
+        return "repair_predictor_consumer_trace_before_repeat"
     if "missing_signals_stream_progress" in blockers:
         return "repair_predictor_pipeline_before_repeat"
     return "repair_executor_pipeline_before_repeat"
