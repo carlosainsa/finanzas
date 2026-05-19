@@ -1059,6 +1059,7 @@ def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
     assert plan["fresh_capture_seconds"] == 3600
     assert plan["observation_seconds"] == 1800
     assert "runtime_touch_ab_retry_ladder" in plan["outputs"]
+    assert "runtime_touch_route_result" in plan["outputs"]
     assert "scripts/run_pre_live_dry_run.sh" in plan["delegates_to"]
     assert "scripts/run_runtime_touch_ab_retry_ladder.sh" in plan["delegates_to"]
     assert "scripts/run_runtime_touch_ab_cycle.sh" in plan["delegates_to"]
@@ -1075,9 +1076,56 @@ def test_runtime_touch_ab_auto_route_print_plan_is_research_only(
     assert '"$fresh_status" != "0" && "$fresh_status" != "20"' in script
     assert '--fresh-capture-seconds "$FRESH_CAPTURE_SECONDS"' in script
     assert "selected A/B attempt is not strict_signalable" in script
+    assert "can_run_selected_ab" in script
+    assert "selected A/B is not strict-run eligible" in script
     assert 'next_run.get("selected_attempt_label") != "strict_signalable"' in script
     assert "selected A/B command bypasses signalability gate" in script
+    assert "collect another strict depth window before retrying" in script
     assert "--allow-gate-bypass" in script
+
+
+def test_runtime_touch_strict_signalable_collector_print_plan_is_research_only(
+    tmp_path: Path,
+) -> None:
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/run_runtime_touch_strict_signalable_collector.sh",
+            "--run-root",
+            str(tmp_path / "collector"),
+            "--window-seconds",
+            "3600",
+            "--duration-seconds",
+            "1800",
+            "--max-windows",
+            "2",
+            "--min-assets",
+            "2",
+            "--print-plan",
+        ],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    plan = json.loads(completed.stdout)
+    assert plan["script"] == "scripts/run_runtime_touch_strict_signalable_collector.sh"
+    assert plan["can_execute_trades"] is False
+    assert plan["can_promote_live"] is False
+    assert plan["execution_mode"] == "dry_run"
+    assert plan["window_seconds"] == 3600
+    assert plan["observation_seconds"] == 1800
+    assert plan["max_windows"] == 2
+    assert plan["min_assets"] == 2
+    assert plan["stop_condition"] == "route_result == READY_FOR_STRICT_AB_RETRY"
+    assert "scripts/run_runtime_touch_ab_auto_route.sh" in plan["delegates_to"]
+    assert "src.research.runtime_touch_strict_signalable_collector" in plan[
+        "delegates_to"
+    ]
+    assert plan["outputs"]["summary"].endswith(
+        "runtime_touch_strict_signalable_collector_summary.json"
+    )
 
 
 def test_runtime_touch_selection_probe_print_plan_is_research_only(

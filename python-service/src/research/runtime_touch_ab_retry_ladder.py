@@ -196,21 +196,33 @@ def create_runtime_touch_ab_retry_ladder(
         if selected_attempt is None and selection["status"] == "ready":
             selected_attempt = attempt_payload
 
+    strict_attempt = next(
+        (attempt for attempt in attempts if attempt["label"] == "strict_signalable"),
+        None,
+    )
+    route_result = classify_route_result(strict_attempt, selected_attempt, config)
+    can_run_selected_ab = route_result == "READY_FOR_STRICT_AB_RETRY"
+    requires_allow_gate_bypass = selected_attempt is not None and not can_run_selected_ab
     recommendation = (
         "RUN_RUNTIME_TOUCH_AB_WITH_SELECTED_ATTEMPT"
-        if selected_attempt is not None
+        if can_run_selected_ab
         else "COLLECT_FRESH_RUNTIME_SAMPLE_OR_CHANGE_MARKET_TIMING"
     )
     payload: dict[str, Any] = {
         "report_version": REPORT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "can_execute_trades": False,
+        "can_promote_live": False,
+        "can_run_selected_ab": can_run_selected_ab,
         "decision_policy": "offline_runtime_touch_ab_retry_ladder_only",
         "fresh_duckdb": str(fresh_duckdb),
         "fresh_report_root": str(fresh_report_root) if fresh_report_root else None,
         "config": _config_payload(config),
         "attempts": attempts,
+        "strict_attempt": strict_attempt,
         "selected_attempt": selected_attempt,
+        "route_result": route_result,
+        "requires_allow_gate_bypass": requires_allow_gate_bypass,
         "recommendation": recommendation,
         "next_command": build_next_command(
             fresh_duckdb,
@@ -237,6 +249,27 @@ def create_runtime_touch_ab_retry_ladder(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return payload
+
+
+def classify_route_result(
+    strict_attempt: dict[str, Any] | None,
+    selected_attempt: dict[str, Any] | None,
+    config: RuntimeTouchAbRetryLadderConfig,
+) -> str:
+    if selected_attempt is None:
+        return "NO_RUNTIME_TOUCH_AB_ATTEMPT_READY"
+    selected_label = selected_attempt.get("label")
+    if selected_label == "strict_signalable":
+        return "READY_FOR_STRICT_AB_RETRY"
+    strict_count = (
+        int(strict_attempt.get("market_asset_ids_count") or 0)
+        if strict_attempt is not None
+        else 0
+    )
+    strict_status = str(strict_attempt.get("status") or "") if strict_attempt else ""
+    if strict_status != "ready" and strict_count < config.min_assets:
+        return "DEPTH_STRICT_UNIVERSE_TOO_NARROW"
+    return "NON_STRICT_AB_REQUIRES_GATE_BYPASS"
 
 
 def build_next_command(

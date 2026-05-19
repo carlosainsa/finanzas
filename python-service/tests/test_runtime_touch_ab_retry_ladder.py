@@ -32,7 +32,16 @@ def test_retry_ladder_selects_first_relaxed_signalable_attempt(
     assert report["report_version"] == REPORT_VERSION
     assert report["can_execute_trades"] is False
     assert report["decision_policy"] == "offline_runtime_touch_ab_retry_ladder_only"
-    assert report["recommendation"] == "RUN_RUNTIME_TOUCH_AB_WITH_SELECTED_ATTEMPT"
+    assert (
+        report["recommendation"]
+        == "COLLECT_FRESH_RUNTIME_SAMPLE_OR_CHANGE_MARKET_TIMING"
+    )
+    assert report["route_result"] == "DEPTH_STRICT_UNIVERSE_TOO_NARROW"
+    assert report["can_run_selected_ab"] is False
+    assert report["requires_allow_gate_bypass"] is True
+    strict_attempt = cast(dict[str, Any], report["strict_attempt"])
+    assert strict_attempt["label"] == "strict_signalable"
+    assert strict_attempt["status"] == "insufficient_assets"
     selected = cast(dict[str, Any], report["selected_attempt"])
     assert selected["label"] == "lower_signalable_snapshots"
     assert selected["status"] == "ready"
@@ -77,6 +86,10 @@ def test_retry_ladder_selects_strict_signalable_attempt(
     selected = cast(dict[str, Any], report["selected_attempt"])
     assert selected["label"] == "strict_signalable"
     assert selected["market_asset_ids_count"] == 2
+    assert report["route_result"] == "READY_FOR_STRICT_AB_RETRY"
+    assert report["can_run_selected_ab"] is True
+    assert report["requires_allow_gate_bypass"] is False
+    assert report["recommendation"] == "RUN_RUNTIME_TOUCH_AB_WITH_SELECTED_ATTEMPT"
     next_run = cast(dict[str, Any], report["next_run"])
     assert next_run["selected_attempt_label"] == "strict_signalable"
     assert "--runtime-touch-hybrid-backfill" not in next_run["args"]
@@ -102,6 +115,9 @@ def test_retry_ladder_keeps_live_blocked_when_no_attempt_is_ready(
 
     assert report["selected_attempt"] is None
     assert report["next_command"] is None
+    assert report["route_result"] == "NO_RUNTIME_TOUCH_AB_ATTEMPT_READY"
+    assert report["can_run_selected_ab"] is False
+    assert report["requires_allow_gate_bypass"] is False
     assert (
         report["recommendation"]
         == "COLLECT_FRESH_RUNTIME_SAMPLE_OR_CHANGE_MARKET_TIMING"
@@ -160,6 +176,9 @@ def test_retry_ladder_can_select_hybrid_backfilled_attempt(
     selected = cast(dict[str, Any], report["selected_attempt"])
     assert selected["label"] == "runtime_hybrid_backfill"
     assert selected["market_asset_ids_count"] == 2
+    assert report["route_result"] == "DEPTH_STRICT_UNIVERSE_TOO_NARROW"
+    assert report["can_run_selected_ab"] is False
+    assert report["requires_allow_gate_bypass"] is True
     universe_path = Path(str(selected["universe_selection_path"]))
     universe = json.loads(universe_path.read_text(encoding="utf-8"))
     selected_rows = cast(list[dict[str, Any]], universe["selected"])

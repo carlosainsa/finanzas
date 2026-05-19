@@ -134,6 +134,7 @@ print(json.dumps({
         "fresh_duckdb": fresh_duckdb,
         "fresh_report_root": fresh_report_root,
         "runtime_touch_ab_retry_ladder": f"{ladder_output_dir}/runtime_touch_ab_retry_ladder.json",
+        "runtime_touch_route_result": f"{ladder_output_dir}/runtime_touch_ab_retry_ladder.json#route_result",
         "selected_ab_cycle_summary": f"{run_root}/runtime_touch_ab_cycle_summary.json",
         "selected_ab_root_cause": f"{run_root}/runtime_touch_ab_root_cause.json",
     },
@@ -199,6 +200,9 @@ report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 next_run = report.get("next_run") if isinstance(report, dict) else None
 if not isinstance(next_run, dict):
     raise SystemExit("missing next_run in retry ladder report")
+if report.get("can_run_selected_ab") is not True:
+    route_result = str(report.get("route_result") or "UNKNOWN_ROUTE_RESULT")
+    raise SystemExit(f"selected A/B is not strict-run eligible: {route_result}")
 if next_run.get("script") != "scripts/run_runtime_touch_ab_cycle.sh":
     raise SystemExit("selected A/B script is not the runtime touch A/B cycle")
 if next_run.get("selected_attempt_label") != "strict_signalable":
@@ -211,7 +215,8 @@ if str(env.get("EXECUTION_PROBE_RUNTIME_TOUCH_HYBRID_BACKFILL") or "0") == "1":
     raise SystemExit("selected A/B env bypasses signalability gate")
 PY
   then
-    echo "Selected A/B command bypasses the strict signalability gate; rerun with --allow-gate-bypass only for explicit research diagnostics." >&2
+    echo "Selected A/B command bypasses the strict signalability gate; inspect $LADDER_OUTPUT_DIR/runtime_touch_ab_retry_ladder.json and collect another strict depth window before retrying." >&2
+    echo "Rerun with --allow-gate-bypass only for explicit research diagnostics." >&2
     exit 20
   fi
 fi
