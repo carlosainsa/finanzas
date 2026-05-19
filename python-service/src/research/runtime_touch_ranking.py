@@ -125,6 +125,7 @@ def create_runtime_touch_ranking_views(
 ) -> None:
     with duckdb.connect(str(db_path)) as conn:
         ensure_orderbook_snapshots(conn)
+        ensure_orderbook_levels(conn)
         ensure_predictor_decisions(conn)
         ensure_market_metadata(conn)
         max_ts = conn.execute(
@@ -169,53 +170,69 @@ def create_runtime_touch_ranking_views(
         conn.execute(
             f"""
             create or replace view runtime_touch_recent_books as
+            with top_levels as (
+                select
+                    market_id,
+                    asset_id,
+                    timestamp_ms as event_timestamp_ms,
+                    max(case when side = 'bid' and level_index = 0 then size else null end) as top_bid_size,
+                    max(case when side = 'ask' and level_index = 0 then size else null end) as top_ask_size
+                from orderbook_levels
+                group by market_id, asset_id, timestamp_ms
+            )
             select
-                market_id,
-                asset_id,
-                event_timestamp_ms,
-                best_bid,
-                best_ask,
-                spread,
-                bid_depth,
-                ask_depth,
-                event_timestamp_ms - lag(event_timestamp_ms) over (
-                    partition by market_id, asset_id
-                    order by event_timestamp_ms
+                snapshots.market_id,
+                snapshots.asset_id,
+                snapshots.event_timestamp_ms,
+                snapshots.best_bid,
+                snapshots.best_ask,
+                snapshots.spread,
+                snapshots.bid_depth,
+                snapshots.ask_depth,
+                coalesce(top_levels.top_bid_size, snapshots.bid_depth) as signal_bid_depth,
+                coalesce(top_levels.top_ask_size, snapshots.ask_depth) as signal_ask_depth,
+                snapshots.event_timestamp_ms - lag(snapshots.event_timestamp_ms) over (
+                    partition by snapshots.market_id, snapshots.asset_id
+                    order by snapshots.event_timestamp_ms
                 ) as snapshot_gap_ms,
                 case
-                    when lag(best_bid) over (
-                        partition by market_id, asset_id
-                        order by event_timestamp_ms
+                    when lag(snapshots.best_bid) over (
+                        partition by snapshots.market_id, snapshots.asset_id
+                        order by snapshots.event_timestamp_ms
                     ) is not null
                     and abs(
-                        best_bid - lag(best_bid) over (
-                            partition by market_id, asset_id
-                            order by event_timestamp_ms
+                        snapshots.best_bid - lag(snapshots.best_bid) over (
+                            partition by snapshots.market_id, snapshots.asset_id
+                            order by snapshots.event_timestamp_ms
                         )
                     ) > 0.000000001
                     then 1 else 0
                 end as best_bid_changed,
                 case
-                    when lag(best_ask) over (
-                        partition by market_id, asset_id
-                        order by event_timestamp_ms
+                    when lag(snapshots.best_ask) over (
+                        partition by snapshots.market_id, snapshots.asset_id
+                        order by snapshots.event_timestamp_ms
                     ) is not null
                     and abs(
-                        best_ask - lag(best_ask) over (
-                            partition by market_id, asset_id
-                            order by event_timestamp_ms
+                        snapshots.best_ask - lag(snapshots.best_ask) over (
+                            partition by snapshots.market_id, snapshots.asset_id
+                            order by snapshots.event_timestamp_ms
                         )
                     ) > 0.000000001
                     then 1 else 0
                 end as best_ask_changed
-            from orderbook_snapshots
-            where event_timestamp_ms >= {min_timestamp_ms}
-              and event_timestamp_ms <= {max_timestamp_ms}
-              and best_bid is not null
-              and best_ask is not null
-              and best_ask > best_bid
-              and bid_depth > 0
-              and ask_depth > 0
+            from orderbook_snapshots snapshots
+            left join top_levels
+              on top_levels.market_id = snapshots.market_id
+             and top_levels.asset_id = snapshots.asset_id
+             and top_levels.event_timestamp_ms = snapshots.event_timestamp_ms
+            where snapshots.event_timestamp_ms >= {min_timestamp_ms}
+              and snapshots.event_timestamp_ms <= {max_timestamp_ms}
+              and snapshots.best_bid is not null
+              and snapshots.best_ask is not null
+              and snapshots.best_ask > snapshots.best_bid
+              and snapshots.bid_depth > 0
+              and snapshots.ask_depth > 0
             """
         )
         conn.execute(
@@ -234,33 +251,35 @@ def create_runtime_touch_ranking_views(
                     min(spread) as min_spread,
                     max(spread) as max_spread,
                     arg_max(spread, event_timestamp_ms) as current_spread,
-                    arg_max(bid_depth, event_timestamp_ms) as current_bid_depth,
-                    arg_max(ask_depth, event_timestamp_ms) as current_ask_depth,
+                    arg_max(signal_bid_depth, event_timestamp_ms) as current_bid_depth,
+                    arg_max(signal_ask_depth, event_timestamp_ms) as current_ask_depth,
                     arg_max(bid_depth + ask_depth, event_timestamp_ms) as current_total_depth,
                     case
                         when arg_max(spread, event_timestamp_ms) >= {config.signal_min_spread}
                          and least(
-                             arg_max(bid_depth, event_timestamp_ms),
-                             arg_max(ask_depth, event_timestamp_ms)
+                             arg_max(signal_bid_depth, event_timestamp_ms),
+                             arg_max(signal_ask_depth, event_timestamp_ms)
                          ) >= {config.signal_min_depth}
                         then true else false
                     end as current_is_signalable,
                     avg(bid_depth + ask_depth) as avg_total_depth,
                     avg(bid_depth) as avg_bid_depth,
                     avg(ask_depth) as avg_ask_depth,
+                    avg(signal_bid_depth) as avg_signal_bid_depth,
+                    avg(signal_ask_depth) as avg_signal_ask_depth,
                     sum(best_bid_changed) as best_bid_changes,
                     sum(best_ask_changed) as best_ask_changes,
                     sum(
                         case
                             when spread >= {config.signal_min_spread}
-                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                             and least(signal_bid_depth, signal_ask_depth) >= {config.signal_min_depth}
                             then 1 else 0
                         end
                     ) as signalable_snapshots,
                     max(
                         case
                             when spread >= {config.signal_min_spread}
-                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                             and least(signal_bid_depth, signal_ask_depth) >= {config.signal_min_depth}
                             then event_timestamp_ms else null
                         end
                     ) as last_signalable_timestamp_ms,
@@ -268,14 +287,14 @@ def create_runtime_touch_ranking_views(
                         when max(
                             case
                                 when spread >= {config.signal_min_spread}
-                                 and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                                 and least(signal_bid_depth, signal_ask_depth) >= {config.signal_min_depth}
                                 then event_timestamp_ms else null
                             end
                         ) is not null
                         then {max_timestamp_ms} - max(
                             case
                                 when spread >= {config.signal_min_spread}
-                                 and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                                 and least(signal_bid_depth, signal_ask_depth) >= {config.signal_min_depth}
                                 then event_timestamp_ms else null
                             end
                         )
@@ -291,7 +310,7 @@ def create_runtime_touch_ranking_views(
                         case
                             when event_timestamp_ms >= {recent_min_timestamp_ms}
                              and spread >= {config.signal_min_spread}
-                             and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                             and least(signal_bid_depth, signal_ask_depth) >= {config.signal_min_depth}
                             then 1 else 0
                         end
                     ) as recent_signalable_snapshots,
@@ -300,7 +319,7 @@ def create_runtime_touch_ranking_views(
                             when event_timestamp_ms >= {recent_min_timestamp_ms}
                             then case
                                 when spread >= {config.signal_min_spread}
-                                 and least(bid_depth, ask_depth) >= {config.signal_min_depth}
+                                 and least(signal_bid_depth, signal_ask_depth) >= {config.signal_min_depth}
                                 then 1.0 else 0.0
                             end
                             else null
@@ -405,6 +424,8 @@ def create_runtime_touch_ranking_views(
                     + coalesce(spread_opportunity_density, 0) * 30
                     + coalesce(signalable_density, 0) * 60
                     + coalesce(predictor.predictor_accept_density, 0) * 80
+                    + least(coalesce(avg_signal_bid_depth, 0), 10000) / 1000
+                    + least(coalesce(avg_signal_ask_depth, 0), 10000) / 1000
                     + least(coalesce(avg_total_depth, 0), 1000000) / 100000
                     + least(coalesce(metadata.liquidity, 0), 100000) / 25000
                     + coalesce(active_minutes, 0) * 2
@@ -415,6 +436,7 @@ def create_runtime_touch_ranking_views(
                     when snapshots >= {config.min_snapshots}
                      and active_minutes >= {config.min_active_minutes}
                      and touch_change_rate >= {config.min_touch_change_rate}
+                     and coalesce(current_is_signalable, false)
                      and avg_spread >= {config.min_spread}
                      {max_spread_filter}
                      and signalable_snapshots >= {config.min_signalable_snapshots}
@@ -431,6 +453,7 @@ def create_runtime_touch_ranking_views(
                     then 'PROMOTE_TO_OBSERVATION'
                     when snapshots < {config.min_snapshots} then 'NEEDS_RUNTIME_SAMPLE'
                     when touch_change_rate < {config.min_touch_change_rate} then 'KEEP_DIAGNOSTIC'
+                    when not coalesce(current_is_signalable, false) then 'KEEP_DIAGNOSTIC'
                     when signalable_snapshots < {config.min_signalable_snapshots} then 'KEEP_DIAGNOSTIC'
                     when signalable_density < {config.min_signalable_density} then 'KEEP_DIAGNOSTIC'
                     when predictor.predictor_decisions is not null
@@ -486,6 +509,24 @@ def ensure_orderbook_snapshots(conn: duckdb.DuckDBPyConnection) -> None:
             cast(null as double) as spread,
             cast(null as double) as bid_depth,
             cast(null as double) as ask_depth
+        where false
+        """
+    )
+
+
+def ensure_orderbook_levels(conn: duckdb.DuckDBPyConnection) -> None:
+    if relation_exists(conn, "orderbook_levels"):
+        return
+    conn.execute(
+        """
+        create or replace view orderbook_levels as
+        select
+            cast(null as varchar) as market_id,
+            cast(null as varchar) as asset_id,
+            cast(null as bigint) as timestamp_ms,
+            cast(null as varchar) as side,
+            cast(null as integer) as level_index,
+            cast(null as double) as size
         where false
         """
     )

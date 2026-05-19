@@ -196,6 +196,79 @@ def test_runtime_touch_ranking_prefers_assets_with_predictor_acceptance(
     assert first["predictor_accept_density"] == 0.5
 
 
+def test_runtime_touch_ranking_uses_top_level_depth_when_available(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_db(tmp_path)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.executemany(
+            "insert into orderbook_snapshots values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-deep", "asset-deep", 1_000, 0.50, 0.55, 0.05, 20.0, 20.0),
+                ("market-deep", "asset-deep", 61_000, 0.51, 0.55, 0.04, 20.0, 20.0),
+                ("market-deep", "asset-deep", 121_000, 0.51, 0.54, 0.03, 20.0, 20.0),
+            ],
+        )
+        conn.execute(
+            """
+            insert into market_metadata values
+            ('market-deep', 'asset-deep', 'YES', 'Deep question', 'deep-question',
+             true, false, false, true, 1000.0, 2000.0, 1)
+            """
+        )
+        conn.execute(
+            """
+            create table orderbook_levels (
+                market_id varchar,
+                asset_id varchar,
+                timestamp_ms bigint,
+                side varchar,
+                level_index integer,
+                price double,
+                size double
+            )
+            """
+        )
+        conn.executemany(
+            "insert into orderbook_levels values (?, ?, ?, ?, ?, ?, ?)",
+            top_level_rows("market-active", "asset-active", [0.5, 0.4, 0.3])
+            + top_level_rows("market-deep", "asset-deep", [4.0, 4.5, 5.0]),
+        )
+
+    report = create_runtime_touch_ranking_report(
+        db_path,
+        tmp_path / "runtime-touch",
+        RuntimeTouchRankingConfig(
+            min_snapshots=3,
+            min_active_minutes=1,
+            min_touch_change_rate=0.10,
+            signal_min_depth=1.5,
+            limit=2,
+        ),
+    )
+
+    selected = cast(list[dict[str, Any]], report["selected"])
+    selected_assets = {str(row["asset_id"]) for row in selected}
+    assert "asset-deep" in selected_assets
+    assert "asset-active" not in selected_assets
+    first = selected[0]
+    assert first["current_bid_depth"] == 5.0
+    assert first["current_ask_depth"] == 5.0
+
+
+def top_level_rows(
+    market_id: str,
+    asset_id: str,
+    sizes: list[float],
+) -> list[tuple[str, str, int, str, int, float, float]]:
+    timestamps = [1_000, 61_000, 121_000]
+    rows: list[tuple[str, str, int, str, int, float, float]] = []
+    for timestamp_ms, size in zip(timestamps, sizes):
+        rows.append((market_id, asset_id, timestamp_ms, "bid", 0, 0.40, size))
+        rows.append((market_id, asset_id, timestamp_ms, "ask", 0, 0.45, size))
+    return rows
+
+
 def seed_runtime_touch_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "research.duckdb"
     with duckdb.connect(str(db_path)) as conn:

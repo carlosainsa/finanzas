@@ -80,6 +80,30 @@ def test_root_cause_uses_predictor_rejection_diagnostics_for_zero_signals() -> N
     assert evidence["primary_rejection_reason"] == "top_rotation"
 
 
+def test_root_cause_maps_low_depth_to_top_depth_reranking() -> None:
+    report = create_runtime_touch_ab_root_cause(
+        cycle_summary={
+            "failed_profile": "execution_probe_v11",
+            "failed_preflight": {
+                "blockers": ["missing_signals_stream_progress"],
+                "predictor_decision_diagnostics": {
+                    "decisions": 4,
+                    "accepted": 0,
+                    "rejected": 4,
+                    "primary_rejection_reason": "low_depth",
+                    "rejection_counts": {"low_depth": 4},
+                },
+            },
+        }
+    )
+
+    assert report["root_cause_category"] == "SIGNALS_ZERO"
+    assert (
+        report["recommended_next_action"]
+        == "RERANK_RUNTIME_TOUCH_BY_RECENT_TOP_DEPTH"
+    )
+
+
 def test_root_cause_classifies_completed_ab_candidate_failures() -> None:
     assert classify_candidate(
         signals=120,

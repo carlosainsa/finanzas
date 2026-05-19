@@ -201,6 +201,8 @@ def signals_zero_next_action(decision_diagnostics: dict[str, object]) -> str:
     primary_reason = str(decision_diagnostics.get("primary_rejection_reason") or "")
     if decisions <= 0:
         return "CHECK_CONSUMER_OR_PREDICTOR_DECISION_TRACE"
+    if accepted <= 0 and primary_reason == "low_depth":
+        return "RERANK_RUNTIME_TOUCH_BY_RECENT_TOP_DEPTH"
     if accepted <= 0 and primary_reason:
         return f"RERANK_OR_RETUNE_PREDICTOR_REJECTIONS:{primary_reason}"
     return "RERANK_OR_CHANGE_MARKET_TIMING"

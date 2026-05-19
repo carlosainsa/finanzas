@@ -233,6 +233,56 @@ def test_execution_probe_universe_selection_filters_non_signalable_runtime_touch
     assert report["market_asset_ids"] == []
 
 
+def test_execution_probe_universe_selection_requires_current_runtime_depth(
+    tmp_path: Path,
+) -> None:
+    db_path = seed_runtime_touch_universe_db(tmp_path)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            create table orderbook_levels (
+                market_id varchar,
+                asset_id varchar,
+                timestamp_ms bigint,
+                side varchar,
+                level_index integer,
+                price double,
+                size double
+            )
+            """
+        )
+        conn.executemany(
+            "insert into orderbook_levels values (?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("market-runtime", "asset-runtime", 1_000, "bid", 0, 0.40, 4.0),
+                ("market-runtime", "asset-runtime", 1_000, "ask", 0, 0.45, 4.0),
+                ("market-runtime", "asset-runtime", 61_000, "bid", 0, 0.41, 4.0),
+                ("market-runtime", "asset-runtime", 61_000, "ask", 0, 0.45, 4.0),
+                ("market-runtime", "asset-runtime", 121_000, "bid", 0, 0.41, 0.5),
+                ("market-runtime", "asset-runtime", 121_000, "ask", 0, 0.44, 0.5),
+            ],
+        )
+
+    report = create_execution_probe_universe_selection(
+        db_path,
+        tmp_path / "universe",
+        ExecutionProbeUniverseConfig(
+            profile="execution_probe_v11",
+            selection_source="runtime_touch",
+            limit=2,
+            min_assets=1,
+            min_runtime_touch_snapshots=3,
+            min_runtime_touch_change_rate=0.10,
+            min_runtime_signalable_snapshots=2,
+            min_runtime_signalable_density=0.50,
+            runtime_signal_min_depth=1.5,
+        ),
+    )
+
+    assert report["status"] == "insufficient_assets"
+    assert report["market_asset_ids"] == []
+
+
 def test_execution_probe_universe_selection_runtime_hybrid_backfills_signalable_asset(
     tmp_path: Path,
 ) -> None:

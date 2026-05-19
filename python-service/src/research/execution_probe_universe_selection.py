@@ -916,6 +916,10 @@ def select_runtime_touch_universe(
                     partition by runtime.asset_id
                     order by
                         {runtime_touch_quality_score_sql()} desc,
+                        least(
+                            coalesce(runtime.current_bid_depth, 0),
+                            coalesce(runtime.current_ask_depth, 0)
+                        ) desc,
                         runtime.current_is_signalable desc,
                         runtime.last_signalable_timestamp_ms desc nulls last,
                         runtime.recent_signalable_density desc,
@@ -933,6 +937,10 @@ def select_runtime_touch_universe(
               {adverse_filter_sql()}
               and runtime.snapshots >= {config.min_runtime_touch_snapshots}
               and coalesce(runtime.touch_change_rate, 0) >= {config.min_runtime_touch_change_rate}
+              and least(
+                  coalesce(runtime.current_bid_depth, 0),
+                  coalesce(runtime.current_ask_depth, 0)
+              ) >= {config.runtime_signal_min_depth}
               and coalesce(runtime.signalable_snapshots, 0) >= {config.min_runtime_signalable_snapshots}
               and coalesce(runtime.signalable_density, 0) >= {config.min_runtime_signalable_density}
               {spread_filter_sql}
@@ -1039,6 +1047,10 @@ def select_runtime_touch_hybrid_fallback(
                             + least(coalesce(runtime.liquidity, 0) / 10000.0, 1.0) * 0.10
                         ) desc,
                         runtime.current_is_signalable desc,
+                        least(
+                            coalesce(runtime.current_bid_depth, 0),
+                            coalesce(runtime.current_ask_depth, 0)
+                        ) desc,
                         runtime.last_signalable_timestamp_ms desc nulls last,
                         runtime.recent_signalable_density desc,
                         runtime.signalable_snapshots desc,
@@ -1058,6 +1070,10 @@ def select_runtime_touch_hybrid_fallback(
               {selected_filter_sql}
               and coalesce(runtime.signalable_snapshots, 0) >= {config.runtime_hybrid_min_signalable_snapshots}
               and coalesce(runtime.signalable_density, 0) >= {config.runtime_hybrid_min_signalable_density}
+              and least(
+                  coalesce(runtime.current_bid_depth, 0),
+                  coalesce(runtime.current_ask_depth, 0)
+              ) >= {config.runtime_signal_min_depth}
               and coalesce(runtime.liquidity, 0) >= {config.runtime_hybrid_min_liquidity}
               and coalesce(runtime.stale_rate, 0) <= {RuntimeTouchRankingConfig.max_stale_rate}
               and coalesce(runtime.active, true)
