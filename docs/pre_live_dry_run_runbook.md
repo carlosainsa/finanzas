@@ -232,6 +232,50 @@ reasons from the candidate run.
 When repeated restricted observations on the same assets produce no observed
 fills, rotate the market universe before tuning global thresholds again.
 
+For the current runtime-touch path, prefer the strict collector before running
+another A/B. It repeats fresh market windows and stops only when the retry
+ladder finds at least two `strict_signalable` assets. It does not run A/B and
+does not authorize live trading:
+
+```bash
+EXECUTION_MODE=dry_run scripts/run_runtime_touch_strict_signalable_collector.sh \
+  --window-seconds 3600 \
+  --duration-seconds 1800 \
+  --max-windows 2 \
+  --min-assets 2
+```
+
+Read `runtime_touch_strict_signalable_collector_summary.json`:
+
+- `status=ready` means the selected window is strict enough for the next
+  dry-run A/B step.
+- `status=collect_more_windows` means do not run A/B yet.
+- `blockers` must be treated as research blockers. In particular,
+  `depth_strict_universe_too_narrow` means the ladder found activity only
+  through relaxed or hybrid attempts, not through the strict gate.
+
+If the collector does not find two strict assets, expand market discovery
+without relaxing the strict gate:
+
+```bash
+RUN_ID="runtime-touch-discovery-expanded-$(date -u +%Y%m%dT%H%M%SZ)"
+
+EXECUTION_MODE=dry_run scripts/run_runtime_touch_discovery_loop.sh \
+  --run-root ".tmp/operational/${RUN_ID}" \
+  --discovery-limit 40 \
+  --batch-size 6 \
+  --batch-capture-seconds 1800 \
+  --min-assets 2 \
+  --max-batches 6 \
+  --exploration-rate 0.35
+```
+
+Only continue when
+`runtime_touch_discovery_batch_comparison.json` emits a non-null
+`recommended_next_run`. If it stays null, the correct next action remains
+broader discovery or a different time window. Do not use `--allow-gate-bypass`
+for pre-live promotion evidence.
+
 Create a research-only universe from a previous DuckDB:
 
 ```bash

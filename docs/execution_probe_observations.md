@@ -32,6 +32,60 @@ dry-run over that universe, and writes `execution_probe_touch_comparison.json`.
 This keeps the predictor profile explicit while changing only market/timing
 selection.
 
+## 2026-05-19 - Strict Runtime-Touch Collector
+
+- Collector run root:
+  `.tmp/operational/strict-signalable-collector-20260519T011903Z`
+- Mode: `EXECUTION_MODE=dry_run`
+- Window length: `3600` seconds
+- Maximum windows: `2`
+- Minimum strict assets: `2`
+- A/B execution: disabled by collector policy
+- Live trading: blocked
+
+Purpose:
+
+The collector validates whether fresh market data can produce at least two
+assets that satisfy the strict runtime-touch A/B gate. It must reject relaxed
+attempts such as `lower_signalable_*` and `runtime_hybrid_backfill` for
+promotion evidence, even when those attempts are useful diagnostics.
+
+`window-01` evidence:
+
+- `orderbook:stream` progressed.
+- `predictor:decisions:stream` progressed.
+- `signals:stream` progressed.
+- `execution:reports:stream` progressed.
+- Dry-run reports included simulated `MATCHED` and `DELAYED` states.
+- Data lake export contained `33386` orderbook snapshots, `3063362`
+  orderbook levels, `33515` signals, `33569` predictor decisions, and
+  `50000` execution reports.
+- Retry ladder route result: `DEPTH_STRICT_UNIVERSE_TOO_NARROW`.
+- Strict assets: `0`.
+- Selected diagnostic attempt: `runtime_hybrid_backfill` with `2` assets.
+- Collector status after first window: `collect_more_windows`.
+- Blockers:
+  `strict_signalable_assets_below_minimum`,
+  `depth_strict_universe_too_narrow`,
+  `non_strict_attempt_selected_only`.
+
+Interpretation:
+
+The first window was not an infrastructure failure. It generated substantial
+orderbook, signal, and dry-run report flow. The blocker is market selection:
+the relaxed/hybrid path could find two assets, but the strict runtime-touch gate
+found none. This correctly prevents an A/B run because the selected universe
+would not be comparable promotion evidence.
+
+Pending terminal decision:
+
+The collector opened `window-02` automatically. The decisive artifact is
+`runtime_touch_strict_signalable_collector_summary.json`. If the terminal
+summary reports `status=ready`, run the strict A/B dry-run from its
+`recommended_next_run`. If it remains `status=collect_more_windows`, expand
+discovery with the signalability-aware settings documented in
+`pre_live_dry_run_runbook.md`. Live remains blocked in both cases.
+
 ## 2026-05-18 - Runtime-Touch Diversified Discovery Loop
 
 - Run root: `.tmp/operational/runtime-touch-diversified-discovery-loop-20260518115017`
